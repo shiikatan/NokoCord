@@ -145,6 +145,8 @@ private struct NokoCordCommands: Commands {
                 browser.onToggleTans?()
             }
                 .keyboardShortcut("t", modifiers: .command)
+            Button("Toggle Zen Mode") { browser.toggleZenMode() }
+                .keyboardShortcut("\\", modifiers: .command)
             Button("Reload Discord") { browser.reload() }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(!browser.lifecycle.isVisible || browser.lifecycle.phase == .clearing)

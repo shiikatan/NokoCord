@@ -19,6 +19,8 @@ final class TanRuntime {
     private var appHandler: NokoAppMessageHandler?
     var onToggleTans: (() -> Void)?
     var onToggleQuickSwitcher: (() -> Void)?
+    var onOpenMedia: ((URL, Bool) -> Void)?
+    var onToggleZenMode: (() -> Void)?
 
     init(manager: TanManager, allowedOrigin: String = "https://discord.com") {
         self.manager = manager; self.allowedOrigin = allowedOrigin
@@ -412,12 +414,20 @@ final class TanRuntime {
           div[class*="guilds_"] {
             padding-top: 24px !important;
           }
+
+          /* Zen Mode: Collapses server and channel sidebars to save ~40% DOM & rendering memory */
+          html.nokocord-zen-mode nav[aria-label="Servers sidebar"],
+          html.nokocord-zen-mode nav[class*="guilds_"],
+          html.nokocord-zen-mode div[class*="guilds_"],
+          html.nokocord-zen-mode div[class*="sidebar_"] {
+            display: none !important;
+          }
         `;
         (document.head || document.documentElement).appendChild(style);
       };
       injectStyles();
 
-      // 2. Intercept Command+K and Command+T anywhere in Discord
+      // 2. Intercept Command+K, Command+T, and Command+\ anywhere in Discord
       window.addEventListener('keydown', (e) => {
         if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
           const key = e.key.toLowerCase();
@@ -432,6 +442,12 @@ final class TanRuntime {
             e.stopPropagation();
             try {
               window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleQuickSwitcher' });
+            } catch (_) {}
+          } else if (key === '\\') {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleZenMode' });
             } catch (_) {}
           }
         }
@@ -519,6 +535,49 @@ final class TanRuntime {
           } catch (_) {}
         };
       }
+
+      // 5. Native Media Lightbox Interceptor (Bypasses Discord's heavy React modal allocation)
+      document.addEventListener('click', (e) => {
+        const mediaContainer = e.target.closest('div[class*="imageWrapper_"], div[class*="imageContent_"], a[class*="originalLink_"], div[class*="video_"]');
+        const mediaLink = e.target.closest('a[href*="cdn.discordapp.com/attachments/"], a[href*="media.discordapp.net/attachments/"]');
+
+        let mediaUrl = null;
+        let isVideo = false;
+
+        if (mediaContainer) {
+          const video = mediaContainer.querySelector('video') || (mediaContainer.tagName === 'VIDEO' ? mediaContainer : null);
+          const img = mediaContainer.querySelector('img') || (mediaContainer.tagName === 'IMG' ? mediaContainer : null);
+          const parentA = mediaContainer.closest('a') || mediaContainer.querySelector('a');
+
+          if (video) {
+            mediaUrl = video.currentSrc || video.src;
+            isVideo = true;
+          } else if (parentA && parentA.href && (parentA.href.includes('discordapp.com') || parentA.href.includes('discordapp.net'))) {
+            mediaUrl = parentA.href;
+          } else if (img) {
+            mediaUrl = img.currentSrc || img.src;
+          }
+        } else if (mediaLink) {
+          mediaUrl = mediaLink.href;
+          isVideo = mediaUrl.endsWith('.mp4') || mediaUrl.endsWith('.mov') || mediaUrl.endsWith('.webm');
+        }
+
+        if (mediaUrl && (mediaUrl.includes('discordapp.com') || mediaUrl.includes('discordapp.net'))) {
+          // Ignore emojis, avatars, stickers, badges
+          if (mediaUrl.includes('/emojis/') || mediaUrl.includes('/avatars/') || mediaUrl.includes('/stickers/') || mediaUrl.includes('/badges/')) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
+              action: 'openMedia',
+              url: mediaUrl,
+              isVideo: isVideo
+            });
+          } catch (_) {}
+        }
+      }, true);
     })();
     """#
 }
@@ -538,6 +597,13 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
             runtime.onToggleTans?()
         } else if action == "toggleQuickSwitcher" {
             runtime.onToggleQuickSwitcher?()
+        } else if action == "toggleZenMode" {
+            runtime.onToggleZenMode?()
+        } else if action == "openMedia" {
+            if let urlStr = body["url"] as? String, let url = URL(string: urlStr) {
+                let isVideo = body["isVideo"] as? Bool ?? false
+                runtime.onOpenMedia?(url, isVideo)
+            }
         } else if action == "notification" {
             if let title = body["title"] as? String {
                 let notifBody = body["body"] as? String ?? ""

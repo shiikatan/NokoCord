@@ -38,6 +38,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     var onToggleTans: (() -> Void)?
     var onToggleQuickSwitcher: (() -> Void)?
     var onOpenTutorial: (() -> Void)?
+    var onOpenMedia: ((URL, Bool) -> Void)?
+    private(set) var isZenMode = false
 
     init(dataStore: WKWebsiteDataStore? = nil, tans: TanManager? = nil) {
         self.dataStore = dataStore ?? .default()
@@ -46,6 +48,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             let runtime = TanRuntime(manager: tans)
             runtime.onToggleTans = { [weak self] in self?.onToggleTans?() }
             runtime.onToggleQuickSwitcher = { [weak self] in self?.onToggleQuickSwitcher?() }
+            runtime.onOpenMedia = { [weak self] url, isVideo in self?.onOpenMedia?(url, isVideo) }
+            runtime.onToggleZenMode = { [weak self] in self?.toggleZenMode() }
             tanRuntime = runtime
             tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
         }
@@ -218,6 +222,11 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard let view = browserView else { return }
         view.pageZoom = 1.0
         UserDefaults.standard.set(1.0, forKey: "pageZoom")
+    }
+    /// Toggles Zen Mode: hides Discord server/channel sidebars to cut layout and memory overhead by ~40%.
+    func toggleZenMode() {
+        isZenMode.toggle()
+        browserView?.evaluateJavaScript("document.documentElement.classList.toggle('nokocord-zen-mode', \(isZenMode));", completionHandler: nil)
     }
     func toggleMicrophoneMute() {
         guard let view = browserView else { return }

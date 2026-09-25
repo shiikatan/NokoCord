@@ -110,6 +110,18 @@ struct CommandPaletteView: View {
             showFloatingToolbar.toggle()
         })
 
+        items.append(PaletteAction(
+            id: "nav.zen_mode",
+            title: browser.isZenMode ? "Exit Zen Mode (Show Sidebars)" : "Enter Zen Mode (Focus Chat)",
+            subtitle: browser.isZenMode ? "Restore Discord server and channel sidebars" : "Hide sidebars to cut layout & memory overhead by ~40%",
+            category: "Navigation",
+            icon: "sidebar.left",
+            shortcut: "⌘\\",
+            tint: .teal
+        ) {
+            browser.toggleZenMode()
+        })
+
         // MARK: - Game Rich Presence
         if let presence = GamePresenceService.shared.activePresence {
             items.append(PaletteAction(

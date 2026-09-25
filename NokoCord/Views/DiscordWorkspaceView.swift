@@ -13,6 +13,8 @@ struct NokoRootView: View {
     @State private var isHoveringToolbarZone = false
     @AppStorage("hasSeenWelcomeTutorial") private var hasSeenWelcomeTutorial = false
     @State private var showWelcomeTutorial = false
+    @State private var activeMediaURL: URL?
+    @State private var activeMediaIsVideo = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -190,10 +192,25 @@ struct NokoRootView: View {
                 WelcomeTutorialView(isPresented: $showWelcomeTutorial)
                     .zIndex(35)
             }
+
+            // MARK: - 9. Native Media Lightbox Overlay (Zero-heap out-of-process media preview)
+            if let mediaURL = activeMediaURL {
+                NativeMediaLightboxView(mediaURL: mediaURL, isVideo: activeMediaIsVideo) {
+                    withAnimation(.nokoFluidSpring) {
+                        activeMediaURL = nil
+                    }
+                }
+                .zIndex(40)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.96).combined(with: .opacity),
+                    removal: .scale(scale: 0.98).combined(with: .opacity)
+                ))
+            }
         }
         .animation(.nokoFluidSpring, value: showTansInspector)
         .animation(.nokoSnappySpring, value: showQuickSwitcher)
         .animation(.nokoFluidSpring, value: showWelcomeTutorial)
+        .animation(.nokoFluidSpring, value: activeMediaURL != nil)
         .animation(.nokoSnappySpring, value: browser.isInCall)
         .onAppear {
             if !hasSeenWelcomeTutorial {
@@ -201,6 +218,12 @@ struct NokoRootView: View {
                     withAnimation(.nokoFluidSpring) {
                         showWelcomeTutorial = true
                     }
+                }
+            }
+            browser.onOpenMedia = { url, isVideo in
+                withAnimation(.nokoFluidSpring) {
+                    activeMediaURL = url
+                    activeMediaIsVideo = isVideo
                 }
             }
             browser.onOpenTutorial = {
@@ -229,6 +252,7 @@ struct NokoRootView: View {
             showQuickSwitcher = false
             showTansInspector = false
             showWelcomeTutorial = false
+            activeMediaURL = nil
         }.frame(width: 0, height: 0))
         .sheet(isPresented: $showDownloadsSheet) {
             VStack(spacing: 0) {
