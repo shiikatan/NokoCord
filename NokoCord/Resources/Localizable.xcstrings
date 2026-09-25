@@ -101,6 +101,9 @@
         }
       }
     },
+    "About NokoCord" : {
+
+    },
     "Access" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -549,6 +552,9 @@
         }
       }
     },
+    "Edition" : {
+
+    },
     "Enable %@?" : {
 
     },
@@ -777,6 +783,9 @@
       }
     },
     "Made by shiikatan" : {
+
+    },
+    "Maintainer" : {
 
     },
     "Maintenance" : {
