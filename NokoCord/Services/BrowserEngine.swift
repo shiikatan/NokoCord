@@ -150,6 +150,21 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         // 6. Throttle background DOM timers and enable process suppression
         configuration.preferences.setValue(true, forKey: "hiddenPageDOMTimerThrottlingEnabled")
         configuration.preferences.setValue(true, forKey: "pageVisibilityBasedProcessSuppressionEnabled")
+        // 7. Enforce zero autocorrect, spellchecking, or text replacement across the WebView
+        let textCheckingDefaults: [String: Any] = [
+            "NSAutomaticSpellingCorrectionEnabled": false,
+            "NSAutomaticTextReplacementEnabled": false,
+            "NSAutomaticQuoteSubstitutionEnabled": false,
+            "NSAutomaticDashSubstitutionEnabled": false,
+            "NSAutomaticCapitalizationEnabled": false,
+            "NSAutomaticPeriodSubstitutionEnabled": false,
+            "WebContinuousSpellCheckingEnabled": false,
+            "WebGrammarCheckingEnabled": false,
+            "WebAutomaticSpellingCorrectionEnabled": false
+        ]
+        for (key, val) in textCheckingDefaults {
+            UserDefaults.standard.set(val, forKey: key)
+        }
         // Master Plan v2: controlled local Tans only; no auth/token bridge.
         // No enabled Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)

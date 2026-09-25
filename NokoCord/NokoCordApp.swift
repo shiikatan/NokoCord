@@ -15,6 +15,22 @@ struct NokoCordApp: App {
     @State private var handledStartup = false
 
     init() {
+        let textCheckingDefaults: [String: Any] = [
+            "NSAutomaticSpellingCorrectionEnabled": false,
+            "NSAutomaticTextReplacementEnabled": false,
+            "NSAutomaticQuoteSubstitutionEnabled": false,
+            "NSAutomaticDashSubstitutionEnabled": false,
+            "NSAutomaticCapitalizationEnabled": false,
+            "NSAutomaticPeriodSubstitutionEnabled": false,
+            "WebContinuousSpellCheckingEnabled": false,
+            "WebGrammarCheckingEnabled": false,
+            "WebAutomaticSpellingCorrectionEnabled": false
+        ]
+        UserDefaults.standard.register(defaults: textCheckingDefaults)
+        for (key, val) in textCheckingDefaults {
+            UserDefaults.standard.set(val, forKey: key)
+        }
+
         let manager = TanManager()
         _tans = State(initialValue: manager)
         _browser = State(initialValue: ActiveBrowserEngine(tans: manager))
@@ -182,6 +198,23 @@ private struct NokoCordCommands: Commands {
 
 @MainActor
 private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let textCheckingDefaults: [String: Any] = [
+            "NSAutomaticSpellingCorrectionEnabled": false,
+            "NSAutomaticTextReplacementEnabled": false,
+            "NSAutomaticQuoteSubstitutionEnabled": false,
+            "NSAutomaticDashSubstitutionEnabled": false,
+            "NSAutomaticCapitalizationEnabled": false,
+            "NSAutomaticPeriodSubstitutionEnabled": false,
+            "WebContinuousSpellCheckingEnabled": false,
+            "WebGrammarCheckingEnabled": false,
+            "WebAutomaticSpellingCorrectionEnabled": false
+        ]
+        for (key, val) in textCheckingDefaults {
+            UserDefaults.standard.set(val, forKey: key)
+        }
+    }
+
     static func requestTermination() {
         // AppKit may defer its standard termination action while a sheet is
         // modal. Clear owned presentation state before invoking that action.

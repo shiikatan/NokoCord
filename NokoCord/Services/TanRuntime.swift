@@ -254,6 +254,58 @@ final class TanRuntime {
       if (window.__nokoCordAppInjected) return;
       window.__nokoCordAppInjected = true;
 
+      // 0. Completely eradicate Autocorrect, Spellcheck, Autocapitalize, and Text Substitutions
+      try {
+        ['spellcheck', 'autocorrect', 'autocapitalize'].forEach((prop) => {
+          try {
+            Object.defineProperty(HTMLElement.prototype, prop, {
+              get() { return prop === 'spellcheck' ? false : 'off'; },
+              set(_) {},
+              configurable: true
+            });
+          } catch (_) {}
+        });
+
+        const origSetAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function(name, value) {
+          const lower = String(name).toLowerCase();
+          if (lower === 'spellcheck') {
+            return origSetAttribute.call(this, 'spellcheck', 'false');
+          }
+          if (lower === 'autocorrect') {
+            return origSetAttribute.call(this, 'autocorrect', 'off');
+          }
+          if (lower === 'autocapitalize') {
+            return origSetAttribute.call(this, 'autocapitalize', 'off');
+          }
+          return origSetAttribute.call(this, name, value);
+        };
+
+        const enforceNoAutocorrect = (el) => {
+          if (!el || !(el instanceof HTMLElement)) return;
+          if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.getAttribute('role') === 'textbox') {
+            try {
+              el.spellcheck = false;
+              origSetAttribute.call(el, 'spellcheck', 'false');
+              origSetAttribute.call(el, 'autocorrect', 'off');
+              origSetAttribute.call(el, 'autocapitalize', 'off');
+              origSetAttribute.call(el, 'autocomplete', 'off');
+              origSetAttribute.call(el, 'data-gramm', 'false');
+              origSetAttribute.call(el, 'data-enable-grammarly', 'false');
+            } catch (_) {}
+          }
+        };
+
+        window.addEventListener('focusin', (e) => enforceNoAutocorrect(e.target), true);
+        window.addEventListener('pointerdown', (e) => {
+          enforceNoAutocorrect(e.target);
+          if (e.target && e.target.closest) {
+            const ed = e.target.closest('[contenteditable="true"], textarea, input, [role="textbox"]');
+            if (ed) enforceNoAutocorrect(ed);
+          }
+        }, true);
+      } catch (_) {}
+
       const onReady = (fn) => {
         if (document.readyState === 'interactive' || document.readyState === 'complete') {
           fn();
@@ -451,6 +503,46 @@ final class TanRuntime {
           html.nokocord-zen-mode div[class*="sidebar_"] {
             display: none !important;
           }
+
+          /* Ultra-Snappy Channel, Guild, and Member Hover States (tightened from 200ms to 40ms) */
+          div[class*="channel_"],
+          div[class*="channelName_"],
+          div[class*="listItem_"],
+          div[class*="wrapper_"][role="listitem"],
+          div[class*="member_"] {
+            transition: background-color 0.04s ease-out, color 0.04s ease-out !important;
+          }
+
+          /* Instant Menu, Popout, and Tooltip Appearance */
+          div[role="menu"],
+          div[class*="menu_"],
+          div[class*="contextMenu_"],
+          div[class*="popout_"],
+          div[class*="tooltip_"] {
+            animation-duration: 0.05s !important;
+            transition-duration: 0.05s !important;
+          }
+
+          /* Instant Message Actions Bar on Hover */
+          [class*="buttons_"][class*="container_"] {
+            transition: opacity 0.04s ease-out !important;
+          }
+
+          /* Eradicate Spellcheck, Autocorrect, and Red Squiggly Lines in Chat */
+          [contenteditable="true"],
+          textarea,
+          input,
+          [role="textbox"] {
+            spellcheck: false !important;
+          }
+
+          /* Freeze Idle Background Infinite Keyframe Animations (saves GPU/CPU cycles) */
+          [class*="shinyButton_"],
+          [class*="premiumIcon_"],
+          [class*="nitroTopDividerContainer_"],
+          [class*="flowerStar_"] > path {
+            animation: none !important;
+          }
         `;
           target.appendChild(style);
         } catch (_) {}
@@ -556,6 +648,16 @@ final class TanRuntime {
           });
         };
 
+        let trackScheduled = false;
+        const scheduleTrackElements = () => {
+          if (trackScheduled) return;
+          trackScheduled = true;
+          requestAnimationFrame(() => {
+            trackScheduled = false;
+            trackElements();
+          });
+        };
+
         const initObservers = () => {
           try {
             const root = document.documentElement || document.body;
@@ -563,7 +665,25 @@ final class TanRuntime {
               onReady(initObservers);
               return;
             }
-            const domObserver = new MutationObserver(trackElements);
+            const domObserver = new MutationObserver((mutations) => {
+              let hasRelevantNode = false;
+              for (let i = 0; i < mutations.length; i++) {
+                const m = mutations[i];
+                // Ignore mutations inside text inputs, slate editors, or typing areas to prevent typing hitching
+                if (m.target && m.target.nodeType === 1) {
+                  if (m.target.isContentEditable || m.target.getAttribute('role') === 'textbox' || m.target.tagName === 'TEXTAREA' || m.target.tagName === 'INPUT') {
+                    continue;
+                  }
+                }
+                if (m.addedNodes.length > 0) {
+                  hasRelevantNode = true;
+                  break;
+                }
+              }
+              if (hasRelevantNode) {
+                scheduleTrackElements();
+              }
+            });
             domObserver.observe(root, { childList: true, subtree: true });
             trackElements();
           } catch (_) {}
@@ -574,7 +694,7 @@ final class TanRuntime {
         let discordMessageStore = null;
         let discordSelectedChannelStore = null;
         let discordDispatcher = null;
-        let lastVisitedChannelId = null;
+        const recentChannelIds = [];
 
         const getDiscordStores = () => {
           if (discordMessageStore && discordSelectedChannelStore) return true;
@@ -624,27 +744,36 @@ final class TanRuntime {
             }
             if (!activeChannelId) return;
 
-            // Prune unmounted channels from Discord MessageStore to free memory from JS heap
+            // Maintain small LRU ring of 3 most recent channels (~600 KB total memory)
+            // for instant zero-latency back-and-forth channel navigation
+            const activeStr = String(activeChannelId);
+            const idx = recentChannelIds.indexOf(activeStr);
+            if (idx !== -1) recentChannelIds.splice(idx, 1);
+            recentChannelIds.unshift(activeStr);
+            while (recentChannelIds.length > 3) {
+              recentChannelIds.pop();
+            }
+
+            // Prune unmounted channels from Discord MessageStore outside our 3-channel ring
             const mapNames = ['_channelMessages', 'channelMessages', '_messages'];
             for (const mapName of mapNames) {
               const storeMap = discordMessageStore[mapName];
               if (storeMap && typeof storeMap === 'object') {
                 if (storeMap instanceof Map) {
                   for (const key of Array.from(storeMap.keys())) {
-                    if (String(key) !== String(activeChannelId) && String(key) !== String(lastVisitedChannelId)) {
+                    if (!recentChannelIds.includes(String(key))) {
                       storeMap.delete(key);
                     }
                   }
                 } else {
                   for (const key of Object.keys(storeMap)) {
-                    if (String(key) !== String(activeChannelId) && String(key) !== String(lastVisitedChannelId)) {
+                    if (!recentChannelIds.includes(String(key))) {
                       delete storeMap[key];
                     }
                   }
                 }
               }
             }
-            lastVisitedChannelId = activeChannelId;
           } catch (_) {}
         };
 
@@ -717,6 +846,21 @@ final class TanRuntime {
             if (trySubscribeFlux()) clearInterval(fluxTimer);
           }, 1500);
         }
+
+        // Channel Hover Pre-Warming: Pre-warms channel routing on pointerenter
+        document.addEventListener('pointerenter', (e) => {
+          const channelLink = e.target.closest?.('a[href*="/channels/"]');
+          if (channelLink && channelLink.href && !channelLink.__nokoPrewarmed) {
+            channelLink.__nokoPrewarmed = true;
+            try {
+              const prefetch = document.createElement('link');
+              prefetch.rel = 'prefetch';
+              prefetch.href = channelLink.href;
+              document.head.appendChild(prefetch);
+              setTimeout(() => { prefetch.remove(); }, 3000);
+            } catch (_) {}
+          }
+        }, true);
 
         // Memory purge hook called by Swift
         window.__nokoPurgeMemory = () => {
