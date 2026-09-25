@@ -451,12 +451,6 @@ final class TanRuntime {
           html.nokocord-zen-mode div[class*="sidebar_"] {
             display: none !important;
           }
-
-          /* Offscreen message rendering optimization: skips offscreen layout & layer compositing */
-          [class*="messageListItem_"] {
-            content-visibility: auto !important;
-            contain-intrinsic-size: auto 50px !important;
-          }
         `;
           target.appendChild(style);
         } catch (_) {}
@@ -541,44 +535,12 @@ final class TanRuntime {
           }
         }, { threshold: 0.05 });
 
-        // Attachment Image Virtualizer: Releases multi-megabyte uncompressed decoded bitmaps from WebContent RAM
-        const attachmentObserver = new IntersectionObserver((entries) => {
-          for (const entry of entries) {
-            const el = entry.target;
-            if (entry.isIntersecting) {
-              if (el.__nokoUnloaded && el.__nokoOriginalSrc) {
-                el.src = el.__nokoOriginalSrc;
-                if (el.__nokoOriginalSrcset) el.srcset = el.__nokoOriginalSrcset;
-                el.__nokoUnloaded = false;
-              }
-            } else {
-              const src = el.src || '';
-              const isAttachment = src.includes('/attachments/') || src.includes('images-ext-') ||
-                                   (el.__nokoOriginalSrc && (el.__nokoOriginalSrc.includes('/attachments/') || el.__nokoOriginalSrc.includes('images-ext-')));
-              if (isAttachment && !el.__nokoUnloaded && !src.startsWith('data:')) {
-                // Lock dimensions to prevent any layout shifts in the chat scroller
-                if (!el.style.width && el.offsetWidth > 0) el.style.width = el.offsetWidth + 'px';
-                if (!el.style.height && el.offsetHeight > 0) el.style.height = el.offsetHeight + 'px';
-                el.__nokoOriginalSrc = src;
-                if (el.srcset) el.__nokoOriginalSrcset = el.srcset;
-                el.src = BLANK_PIXEL;
-                el.removeAttribute('srcset');
-                el.__nokoUnloaded = true;
-              }
-            }
-          }
-        }, { rootMargin: '450px 0px 450px 0px' });
-
         const optimizeAttachment = (img) => {
           try {
-            if (!img || !img.src) return;
-            const src = img.src;
-            if (src.includes('cdn.discordapp.com/attachments/')) {
-              const proxy = src.replace('cdn.discordapp.com/attachments/', 'media.discordapp.net/attachments/');
-              const sep = proxy.includes('?') ? '&' : '?';
-              img.__nokoOriginalSrc = src;
-              img.src = proxy + sep + 'width=960&height=720&format=webp';
-            }
+            if (!img || img.__nokoOptimized) return;
+            img.__nokoOptimized = true;
+            img.decoding = 'async';
+            img.loading = 'lazy';
           } catch (_) {}
         };
 
@@ -590,11 +552,7 @@ final class TanRuntime {
             }
           });
           document.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"], div[class*="imageWrapper_"] img').forEach(el => {
-            if (!el.__nokoImgTracked) {
-              el.__nokoImgTracked = true;
-              optimizeAttachment(el);
-              attachmentObserver.observe(el);
-            }
+            optimizeAttachment(el);
           });
         };
 
@@ -692,21 +650,6 @@ final class TanRuntime {
 
         const evictOffscreenMedia = () => {
           try {
-            // Evict attachment images out of view
-            document.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"]').forEach(el => {
-              const r = el.getBoundingClientRect();
-              if (r.bottom < -200 || r.top > window.innerHeight + 200) {
-                if (el.src && !el.src.startsWith('data:')) {
-                  if (!el.style.width && el.offsetWidth > 0) el.style.width = el.offsetWidth + 'px';
-                  if (!el.style.height && el.offsetHeight > 0) el.style.height = el.offsetHeight + 'px';
-                  el.__nokoOriginalSrc = el.src;
-                  if (el.srcset) el.__nokoOriginalSrcset = el.srcset;
-                  el.src = BLANK_PIXEL;
-                  el.removeAttribute('srcset');
-                  el.__nokoUnloaded = true;
-                }
-              }
-            });
             // Pause out of view videos
             document.querySelectorAll('video, audio').forEach(el => {
               const r = el.getBoundingClientRect();
@@ -721,18 +664,6 @@ final class TanRuntime {
         };
 
         const onChannelNavigated = () => {
-          try {
-            document.querySelectorAll('img[src*="/attachments/"], img[src*="media.discordapp.net"]').forEach(el => {
-              if (el.src && !el.src.startsWith('data:')) {
-                if (!el.style.width && el.offsetWidth > 0) el.style.width = el.offsetWidth + 'px';
-                if (!el.style.height && el.offsetHeight > 0) el.style.height = el.offsetHeight + 'px';
-                el.__nokoOriginalSrc = el.src;
-                el.src = BLANK_PIXEL;
-                el.removeAttribute('srcset');
-                el.__nokoUnloaded = true;
-              }
-            });
-          } catch (_) {}
           evictOffscreenMedia();
           pruneInactiveChannels();
           try {
