@@ -66,7 +66,7 @@ raw JavaScript errors, page text or bridge payloads.
 
 ## Developer workflow
 
-Enable Developer Mode in the Hub. Create Tan writes a starter folder at a chosen
+Enable Developer Mode in Settings or the in-app Tans Inspector (`⌘T`). Create Tan writes a starter folder at a chosen
 location. Edit its files with an editor, then Import Tan. Select an installed Tan
 to inspect its version, hash, target and capabilities. Reload from folder replaces
 that package only when its ID matches, and leaves it disabled. The console shows

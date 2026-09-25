@@ -37,6 +37,7 @@ actor AvatarPipeline {
         guard generation == id else { return nil }
         pending[url] = nil
         if let result {
+            order.removeAll { $0 == url }
             cache[url] = result; order.append(url)
             while order.count > 128 { cache[order.removeFirst()] = nil }
         }

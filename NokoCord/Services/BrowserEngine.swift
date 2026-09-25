@@ -19,6 +19,12 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     private(set) var lifecycle = BrowserLifecycle()
     private(set) var progress = 0.0
     private(set) var canGoBack = false
+    private(set) var canGoForward = false
+    private(set) var unreadCount = 0
+    private(set) var microphoneCaptureState: WKMediaCaptureState = .none
+    private(set) var cameraCaptureState: WKMediaCaptureState = .none
+    var isInCall: Bool { microphoneCaptureState != .none || cameraCaptureState != .none }
+    var isMicrophoneMuted: Bool { microphoneCaptureState == .muted }
     private(set) var notice: String?
     let engineDescription = String(localized: "System WebKit")
     let downloads = BrowserDownloads()
@@ -27,13 +33,22 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
     @ObservationIgnored private var tanRuntime: TanRuntime?
+    var onToggleTans: (() -> Void)?
+    var onToggleQuickSwitcher: (() -> Void)?
+    var onOpenTutorial: (() -> Void)?
 
     init(dataStore: WKWebsiteDataStore? = nil, tans: TanManager? = nil) {
         self.dataStore = dataStore ?? .default()
         super.init()
         if let tans {
-            tanRuntime = TanRuntime(manager: tans)
+            let runtime = TanRuntime(manager: tans)
+            runtime.onToggleTans = { [weak self] in self?.onToggleTans?() }
+            runtime.onToggleQuickSwitcher = { [weak self] in self?.onToggleQuickSwitcher?() }
+            tanRuntime = runtime
             tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
+        }
+        GamePresenceService.shared.onPresenceChange = { [weak self] presence in
+            self?.syncPresenceToDiscord(presence)
         }
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers = [
@@ -45,7 +60,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             }
         ]
     }
-    deinit { workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) } }
+    deinit {
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        observations.forEach { $0.invalidate() }
+    }
 
     func prepareBrowser() -> WKWebView {
         if let browserView { return browserView }
@@ -55,10 +73,19 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         // No enabled Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)
         let view = WKWebView(frame: .zero, configuration: configuration)
+        let savedZoom = UserDefaults.standard.double(forKey: "pageZoom")
+        if savedZoom > 0.1 {
+            view.pageZoom = savedZoom
+        }
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.isInspectable = false
+        // Discord native dark theme background - eliminates white flicker completely
+        view.underPageBackgroundColor = NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)
+        view.setValue(false, forKey: "drawsBackground")
+        view.wantsLayer = true
+        view.layer?.backgroundColor = CGColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)
         tanRuntime?.attach(view)
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
@@ -77,6 +104,30 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 Task { @MainActor [weak self] in
                     guard let self, self.browserView === view else { return }
                     self.canGoBack = view.canGoBack
+                }
+            },
+            view.observe(\.canGoForward, options: [.initial, .new]) { [weak self] view, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.browserView === view else { return }
+                    self.canGoForward = view.canGoForward
+                }
+            },
+            view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.browserView === view else { return }
+                    self.updateUnreadCount(from: view.title)
+                }
+            },
+            view.observe(\.microphoneCaptureState, options: [.initial, .new]) { [weak self] view, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.browserView === view else { return }
+                    self.microphoneCaptureState = view.microphoneCaptureState
+                }
+            },
+            view.observe(\.cameraCaptureState, options: [.initial, .new]) { [weak self] view, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.browserView === view else { return }
+                    self.cameraCaptureState = view.cameraCaptureState
                 }
             }
         ]
@@ -109,6 +160,60 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         else { openDiscord() }
     }
     func goBack() { guard canGoBack else { return }; browserView?.goBack() }
+    func goForward() { guard canGoForward else { return }; browserView?.goForward() }
+    func zoomIn() {
+        guard let view = browserView else { return }
+        view.pageZoom = min(view.pageZoom + 0.1, 2.5)
+        UserDefaults.standard.set(view.pageZoom, forKey: "pageZoom")
+    }
+    func zoomOut() {
+        guard let view = browserView else { return }
+        view.pageZoom = max(view.pageZoom - 0.1, 0.5)
+        UserDefaults.standard.set(view.pageZoom, forKey: "pageZoom")
+    }
+    func resetZoom() {
+        guard let view = browserView else { return }
+        view.pageZoom = 1.0
+        UserDefaults.standard.set(1.0, forKey: "pageZoom")
+    }
+    func toggleMicrophoneMute() {
+        guard let view = browserView else { return }
+        let next: WKMediaCaptureState = (microphoneCaptureState == .active) ? .muted : .active
+        Task { @MainActor in
+            await view.setMicrophoneCaptureState(next)
+            self.microphoneCaptureState = next
+        }
+    }
+    func disconnectCall() {
+        guard let view = browserView else { return }
+        Task { @MainActor in
+            await view.setMicrophoneCaptureState(.none)
+            await view.setCameraCaptureState(.none)
+            self.microphoneCaptureState = .none
+            self.cameraCaptureState = .none
+        }
+    }
+    private func updateUnreadCount(from title: String?) {
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            unreadCount = 0
+            NSApp.dockTile.badgeLabel = nil
+            return
+        }
+        if title.hasPrefix("("), let closeIndex = title.firstIndex(of: ")") {
+            let inner = title[title.index(after: title.startIndex)..<closeIndex]
+            if let count = Int(inner), count > 0 {
+                unreadCount = count
+                NSApp.dockTile.badgeLabel = "\(count)"
+                return
+            }
+        } else if title.hasPrefix("•") {
+            unreadCount = 0
+            NSApp.dockTile.badgeLabel = "•"
+            return
+        }
+        unreadCount = 0
+        NSApp.dockTile.badgeLabel = nil
+    }
     func dismissNotice() { notice = nil }
     func clearProfile() async {
         guard lifecycle.phase != .clearing else { return }
@@ -120,12 +225,19 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         await browserView?.pauseAllMediaPlayback()
         browserView?.navigationDelegate = nil
         browserView?.uiDelegate = nil
+        observations.forEach { $0.invalidate() }
         observations.removeAll()
         tanRuntime?.detach()
         browserView = nil
         navigation = nil
         canGoBack = false
+        canGoForward = false
+        unreadCount = 0
+        NSApp.dockTile.badgeLabel = nil
         progress = 0
+        microphoneCaptureState = .none
+        cameraCaptureState = .none
+        GamePresenceService.shared.clearPresence()
         // Delete without enumerating or reading cookies, credentials or records.
         await dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         lifecycle.cleared()
@@ -142,6 +254,62 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing, self.navigation === navigation else { return }
         lifecycle.ready()
         tanRuntime?.pageDidLoad()
+        if let presence = GamePresenceService.shared.activePresence {
+            syncPresenceToDiscord(presence)
+        }
+    }
+
+    /// Dispatches active Game Rich Presence payload to Discord's web client FluxDispatcher via WKWebView.
+    func syncPresenceToDiscord(_ presence: GamePresence?) {
+        guard let view = browserView, lifecycle.phase == .ready else { return }
+
+        let jsonString: String
+        if let presence,
+           let data = try? JSONSerialization.data(withJSONObject: presence.toDiscordPayload()),
+           let str = String(data: data, encoding: .utf8) {
+            jsonString = str
+        } else {
+            jsonString = "null"
+        }
+
+        let script = """
+        (() => {
+            try {
+                const act = \(jsonString);
+                const wp = window.webpackChunkdiscord_app;
+                if (!wp) return;
+                let modules;
+                try {
+                    wp.push([[Symbol()], {}, e => { modules = e.c; }]);
+                } catch (_) {}
+                if (!modules) return;
+
+                let dispatcher = null;
+                for (const id in modules) {
+                    const m = modules[id]?.exports;
+                    if (!m) continue;
+                    if (m.default && typeof m.default.dispatch === 'function' && typeof m.default.subscribe === 'function') {
+                        dispatcher = m.default;
+                        break;
+                    }
+                    if (typeof m.dispatch === 'function' && typeof m.subscribe === 'function') {
+                        dispatcher = m;
+                        break;
+                    }
+                }
+
+                if (dispatcher) {
+                    dispatcher.dispatch({
+                        type: "LOCAL_ACTIVITY_UPDATE",
+                        socketId: "nokocord-game-rp",
+                        activity: act
+                    });
+                }
+            } catch (_) {}
+        })();
+        """
+
+        view.evaluateJavaScript(script, completionHandler: nil)
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         failed(navigation, error: error)

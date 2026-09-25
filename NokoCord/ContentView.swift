@@ -206,11 +206,9 @@ struct KeyboardShortcutsView: View {
             NokoPageHeader(title: "Keyboard shortcuts", subtitle: "A few keys. Right where you want to be.", symbol: "command")
             ScrollView {
                 VStack(spacing: 0) {
+                    shortcut("Toggle Tans Inspector", keys: ["⌘", "T"], spoken: "Command T")
+                    Divider()
                     shortcut("Quick switcher", keys: ["⌘", "K"], spoken: "Command K")
-                    Divider()
-                    shortcut("Open Discord", keys: ["⌘", "⇧", "D"], spoken: "Command Shift D")
-                    Divider()
-                    shortcut("Home", keys: ["⌘", "⇧", "H"], spoken: "Command Shift H")
                     Divider()
                     shortcut("Settings", keys: ["⌘", ","], spoken: "Command comma")
                     Divider()
@@ -239,7 +237,7 @@ struct KeyboardShortcutsView: View {
 
 struct SettingsView: View {
     @AppStorage("useLiquidGlass") private var useLiquidGlass = true
-    @AppStorage("openDiscordOnLaunch") private var openDiscordOnLaunch = false
+    @AppStorage("openDiscordOnLaunch") private var openDiscordOnLaunch = true
     @AppStorage("showMenuBar") private var showMenuBar = false
     @AppStorage("appearance") private var appearance = "system"
     @Environment(ActiveBrowserEngine.self) private var browser
@@ -271,7 +269,7 @@ struct SettingsView: View {
                 }
                 Section("Startup") {
                     Toggle("Open Discord on Launch", isOn: $openDiscordOnLaunch)
-                    Text("Safe Mode always opens Home so you can review your Tans.").font(.caption).foregroundStyle(.secondary)
+                    Text("Discord loads directly at launch. Tans are integrated inside the window.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("About") {
                     if let edition = EditionIdentity.current {

@@ -36,6 +36,14 @@ struct WindowLifetimeObserver: NSViewRepresentable {
             guard let window else { return }
             owner = window
             reference?.window = window
+
+            // Configure NSWindow for native Discord styling: full-bleed canvas and zero white flash
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.styleMask.insert(.fullSizeContentView)
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)
+
             NotificationCenter.default.addObserver(self, selector: #selector(closing), name: NSWindow.willCloseNotification, object: window)
             NotificationCenter.default.addObserver(self, selector: #selector(closing), name: NSApplication.willTerminateNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(closing), name: .nokoCloseTransientUI, object: nil)

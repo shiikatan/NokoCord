@@ -103,7 +103,8 @@ test('CLI emits a local package and refuses overwrites or symlinked source', asy
     try {
         const input = join(root, 'input'), output = join(root, 'output');
         await mkdir(input); await writeFile(join(input, 'index.ts'), base); await writeFile(join(input, 'LICENSE'), 'Synthetic fixture license');
-        const args = [new URL('./translate.mjs', import.meta.url).pathname, '--input', input, '--output', output, '--id', 'fixture.cli'];
+        const { fileURLToPath } = await import('node:url');
+        const args = [fileURLToPath(new URL('./translate.mjs', import.meta.url)), '--input', input, '--output', output, '--id', 'fixture.cli'];
         const first = spawnSync(process.execPath, args, { encoding: 'utf8' });
         assert.equal(first.status, 0, first.stderr);
         assert.equal(JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8')).id, 'fixture.cli');

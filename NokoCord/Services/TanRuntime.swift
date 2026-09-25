@@ -15,7 +15,10 @@ final class TanRuntime {
     private var generation = UUID()
     private var transitionTask: Task<Void, Never>?
     private var livePackages: [String: TanPackage] = [:]
-    private let allowedOrigin: String
+    fileprivate let allowedOrigin: String
+    private var appHandler: NokoAppMessageHandler?
+    var onToggleTans: (() -> Void)?
+    var onToggleQuickSwitcher: (() -> Void)?
 
     init(manager: TanManager, allowedOrigin: String = "https://discord.com") {
         self.manager = manager; self.allowedOrigin = allowedOrigin
@@ -77,10 +80,20 @@ final class TanRuntime {
             handlers.append(handler)
             controller.addUserScript(WKUserScript(source: Self.source(package, allowedOrigin: allowedOrigin), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world))
         }
+        if allowedOrigin == "https://discord.com" {
+            let app = NokoAppMessageHandler(runtime: self)
+            controller.add(app, name: "nokoCordApp")
+            appHandler = app
+            controller.addUserScript(WKUserScript(source: Self.discordInjectedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
     }
     private func clearHandlers() {
         for package in configured { controller?.removeScriptMessageHandler(forName: Self.handlerName(package), contentWorld: world(package)) }
         handlers.removeAll()
+        if allowedOrigin == "https://discord.com" {
+            controller?.removeScriptMessageHandler(forName: "nokoCordApp")
+            appHandler = nil
+        }
     }
     private func applyLive(stopping: [TanPackage], starting: [TanPackage]) {
         generation = UUID(); let current = generation
@@ -230,6 +243,256 @@ final class TanRuntime {
         })();
         //# sourceURL=nokotan://\#(package.id)/main.js
         """#
+    }
+    static let discordInjectedScript: String = #"""
+    (() => {
+      'use strict';
+      if (location.origin !== 'https://discord.com') return;
+      if (window.__nokoCordAppInjected) return;
+      window.__nokoCordAppInjected = true;
+
+      // 1. Inject Native macOS App Styling (Traffic lights padding, overlay scrollbars, font smoothing, hide web nags)
+      const injectStyles = () => {
+        if (document.getElementById('nokocord-native-overrides')) return;
+        const style = document.createElement('style');
+        style.id = 'nokocord-native-overrides';
+        style.textContent = `
+          /* Window traffic lights space in server list */
+          nav[class*="guilds_"],
+          div[class*="guilds_"][class*="wrapper_"],
+          ul[class*="tree_"] {
+            padding-top: 32px !important;
+          }
+
+          /* Window dragging on Discord top header (native macOS window feel) */
+          [class*="subtitleContainer_"],
+          [class*="headerBar_"],
+          section[class*="title_"],
+          div[class*="subtitleContainer_"] > section {
+            -webkit-app-region: drag !important;
+          }
+          [class*="subtitleContainer_"] button,
+          [class*="subtitleContainer_"] a,
+          [class*="subtitleContainer_"] input,
+          [class*="subtitleContainer_"] [role="button"],
+          [class*="subtitleContainer_"] [tabindex],
+          [class*="toolbar_"],
+          [class*="searchBar_"],
+          [class*="children_"] {
+            -webkit-app-region: no-drag !important;
+          }
+
+          /* macOS typography & subpixel antialiasing */
+          html, body, button, input, select, textarea {
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
+            text-rendering: optimizeLegibility !important;
+          }
+
+          /* Prevent rubber banding & drag ghosts */
+          html, body {
+            overscroll-behavior: none !important;
+            overscroll-behavior-x: none !important;
+            overscroll-behavior-y: none !important;
+          }
+          img {
+            -webkit-user-drag: none !important;
+          }
+
+          /* Native desktop text selection rules */
+          nav, header, [role="navigation"], [class*="sidebar_"], [class*="guilds_"], [class*="membersWrap_"], button {
+            user-select: none !important;
+            -webkit-user-select: none !important;
+          }
+          [class*="messageContent_"], [class*="markup_"], code, pre, input, textarea, [contenteditable="true"] {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+          }
+
+          /* macOS overlay scrollbars */
+          ::-webkit-scrollbar {
+            width: 8px !important;
+            height: 8px !important;
+          }
+          ::-webkit-scrollbar-track {
+            background: transparent !important;
+          }
+          ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.18) !important;
+            border-radius: 9999px !important;
+            border: 2px solid transparent !important;
+            background-clip: padding-box !important;
+          }
+          ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.35) !important;
+          }
+          ::-webkit-scrollbar-corner {
+            background: transparent !important;
+          }
+
+          /* Apple Liquid Glass Context Menus & Popovers */
+          div[role="menu"],
+          div[class*="menu_"][class*="styleFixed_"],
+          div[class*="contextMenu_"] {
+            background: rgba(30, 31, 35, 0.76) !important;
+            backdrop-filter: blur(28px) saturate(190%) !important;
+            -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.48), 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+            padding: 6px !important;
+          }
+          div[role="menu"] [role="menuitem"],
+          div[class*="item_"][role="menuitem"] {
+            border-radius: 6px !important;
+            transition: background 0.12s ease, color 0.12s ease !important;
+          }
+          div[role="menu"] [role="menuitem"]:hover,
+          div[class*="item_"][role="menuitem"]:hover,
+          div[class*="item_"][role="menuitem"][class*="focused_"] {
+            background: rgba(88, 101, 242, 0.9) !important;
+            color: #ffffff !important;
+          }
+
+          /* Apple Liquid Glass Tooltips */
+          div[class*="tooltip_"],
+          div[class*="tooltipContent_"] {
+            background: rgba(22, 23, 27, 0.82) !important;
+            backdrop-filter: blur(20px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.14) !important;
+            border-radius: 8px !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif !important;
+            font-weight: 500 !important;
+          }
+
+          /* Apple Liquid Glass Modals & Dialogs */
+          div[role="dialog"][class*="modal_"],
+          div[role="dialog"] [class*="root_"],
+          div[class*="modal_"] > div[class*="inner_"] {
+            background: rgba(32, 34, 38, 0.85) !important;
+            backdrop-filter: blur(36px) saturate(200%) !important;
+            -webkit-backdrop-filter: blur(36px) saturate(200%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6) !important;
+          }
+          div[role="dialog"] [class*="footer_"] {
+            background: rgba(24, 25, 28, 0.65) !important;
+            border-bottom-left-radius: 16px !important;
+            border-bottom-right-radius: 16px !important;
+          }
+
+          /* Apple Liquid Glass Search Bar */
+          [class*="searchBar_"] {
+            background: rgba(0, 0, 0, 0.22) !important;
+            border-radius: 8px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+          }
+          [class*="searchBar_"]:focus-within {
+            background: rgba(0, 0, 0, 0.38) !important;
+            border-color: rgba(88, 101, 242, 0.6) !important;
+            box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.25) !important;
+          }
+
+          /* Permanently eradicate Discord web download nag banners & prompts */
+          [class*="downloadApps_"],
+          [class*="notice_"][class*="colorDefault_"],
+          [class*="desktopAppBanner_"],
+          [class*="webDownloadAppBanner_"],
+          [class*="notice_"] button[class*="button_"],
+          div[class*="base_"] > div[class*="notice_"],
+          a[href*="/download"] {
+            display: none !important;
+          }
+
+          /* macOS Traffic Light Safe Area Inset */
+          nav[aria-label="Servers sidebar"],
+          nav[class*="guilds_"],
+          div[class*="guilds_"] {
+            padding-top: 24px !important;
+          }
+        `;
+        (document.head || document.documentElement).appendChild(style);
+      };
+      injectStyles();
+
+      // 2. Intercept Command+K and Command+T anywhere in Discord
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+          const key = e.key.toLowerCase();
+          if (key === 't') {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleTans' });
+            } catch (_) {}
+          } else if (key === 'k') {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleQuickSwitcher' });
+            } catch (_) {}
+          }
+        }
+      }, true);
+
+      // 3. Native macOS Notification Bridge (routes HTML5 notifications to UNUserNotificationCenter)
+      if (!window.__nokoNotificationBridged) {
+        window.__nokoNotificationBridged = true;
+        class NokoNotification extends EventTarget {
+          constructor(title, options = {}) {
+            super();
+            this.title = title;
+            this.body = options.body || '';
+            this.icon = options.icon || '';
+            this.tag = options.tag || '';
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
+                action: 'notification',
+                title: String(title),
+                body: String(options.body || '')
+              });
+            } catch (_) {}
+          }
+          static get permission() { return 'granted'; }
+          static requestPermission(cb) {
+            if (cb) cb('granted');
+            return Promise.resolve('granted');
+          }
+          close() {}
+        }
+        window.Notification = NokoNotification;
+      }
+    })();
+    """#
+}
+
+@MainActor
+private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var runtime: TanRuntime?
+    init(runtime: TanRuntime) { self.runtime = runtime }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let runtime,
+              message.frameInfo.isMainFrame,
+              let url = message.frameInfo.request.url,
+              TanRuntime.accepts(url, origin: runtime.allowedOrigin),
+              let body = message.body as? [String: Any],
+              let action = body["action"] as? String else { return }
+        if action == "toggleTans" {
+            runtime.onToggleTans?()
+        } else if action == "toggleQuickSwitcher" {
+            runtime.onToggleQuickSwitcher?()
+        } else if action == "notification" {
+            if let title = body["title"] as? String {
+                let notifBody = body["body"] as? String ?? ""
+                Task { @MainActor in
+                    await NotificationService.shared.deliverWebNotification(title: title, body: notifBody)
+                }
+            }
+        }
     }
 }
 

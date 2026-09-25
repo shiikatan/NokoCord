@@ -31,17 +31,16 @@ struct NokoCordApp: App {
                 .task {
                     guard !handledStartup else { return }
                     handledStartup = true
-                    if UserDefaults.standard.bool(forKey: "openDiscordOnLaunch"), !tans.safeMode {
-                        browser.openDiscord()
-                    }
+                    browser.openDiscord()
                 }
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 800)
         .commands { NokoCordCommands(browser: browser) }
         MenuBarExtra(isInserted: $showMenuBar) {
-            MenuBarContent()
+            MenuBarContent(browser: browser, tans: tans)
         } label: {
-            NokoMenuBarIcon()
+            NokoMenuBarIcon(unreadCount: browser.unreadCount, isInCall: browser.isInCall)
         }
         Settings {
             SettingsView()
@@ -52,6 +51,10 @@ struct NokoCordApp: App {
 }
 
 private struct NokoMenuBarIcon: View {
+    let unreadCount: Int
+    let isInCall: Bool
+    @State private var gamePresence = GamePresenceService.shared
+
     // Copy the shared artwork before sizing; never mutate the asset-catalog image.
     private static let image: NSImage = {
         let image = (NSImage(named: "NokoMark")?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 18, height: 18))
@@ -60,7 +63,22 @@ private struct NokoMenuBarIcon: View {
         return image
     }()
     var body: some View {
-        Image(nsImage: Self.image).renderingMode(.original).accessibilityLabel("NokoCord")
+        HStack(spacing: 3) {
+            Image(nsImage: Self.image).renderingMode(.original)
+            if unreadCount > 0 {
+                Text("\(unreadCount)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            } else if isInCall {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 6, height: 6)
+            } else if gamePresence.activePresence != nil {
+                Circle()
+                    .fill(Color.purple)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .accessibilityLabel(unreadCount > 0 ? "NokoCord (\(unreadCount) unread)" : "NokoCord")
     }
 }
 
@@ -106,26 +124,56 @@ private struct NokoCordCommands: Commands {
             Button("Quit NokoCord") { NokoApplicationDelegate.requestTermination() }
                 .keyboardShortcut("q")
         }
+        CommandGroup(replacing: .help) {
+            Button("NokoCord Tour & Shortcuts") {
+                openWindow(id: "main")
+                browser.onOpenTutorial?()
+            }
+            .keyboardShortcut("/", modifiers: .command)
+        }
         CommandGroup(after: .windowArrangement) {
             Button("Show NokoCord") { openWindow(id: "main") }
         }
         CommandGroup(after: .textEditing) {
-            Button("Quick switcher") { quickSwitcher?.wrappedValue = true }
+            Button("Quick Selector") { quickSwitcher?.wrappedValue = true }
                 .keyboardShortcut("k", modifiers: .command)
                 .disabled(quickSwitcher == nil)
         }
         CommandGroup(after: .toolbar) {
-            Button("Open Discord") { openWindow(id: "main"); browser.openDiscord() }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-            Button("Home") {
-                if let goHome { goHome() }
-                else { browser.showHome(); openWindow(id: "main") }
+            Button("Toggle Tans") {
+                openWindow(id: "main")
+                browser.onToggleTans?()
             }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .keyboardShortcut("t", modifiers: .command)
             Button("Reload Discord") { browser.reload() }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(!browser.lifecycle.isVisible || browser.lifecycle.phase == .clearing)
+            Divider()
+            Button(browser.isMicrophoneMuted ? "Unmute Microphone" : "Mute Microphone") {
+                browser.toggleMicrophoneMute()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .disabled(!browser.isInCall)
 
+            Button("Disconnect Voice Call") {
+                browser.disconnectCall()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(!browser.isInCall)
+            Divider()
+            Button("Back") { browser.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!browser.canGoBack)
+            Button("Forward") { browser.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!browser.canGoForward)
+            Divider()
+            Button("Zoom In") { browser.zoomIn() }
+                .keyboardShortcut("+", modifiers: .command)
+            Button("Zoom Out") { browser.zoomOut() }
+                .keyboardShortcut("-", modifiers: .command)
+            Button("Actual Size") { browser.resetZoom() }
+                .keyboardShortcut("0", modifiers: .command)
         }
     }
 }
@@ -166,16 +214,98 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
 }
 
 private struct MenuBarContent: View {
+    let browser: ActiveBrowserEngine
+    let tans: TanManager
+    @State private var gamePresence = GamePresenceService.shared
     @Environment(\.openWindow) private var openWindow
+
     var body: some View {
-        Text("NokoCord")
-        Button("Open NokoCord") {
-            NSApp.activate(ignoringOtherApps: true)
-            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) { window.makeKeyAndOrderFront(nil) }
-            else { openWindow(id: "main") }
+        if let edition = EditionIdentity.current {
+            Text("\(edition.name) (\(edition.publicVersion))")
+        } else {
+            Text("NokoCord")
         }
-        SettingsLink()
+
+        if let presence = gamePresence.activePresence {
+            Text("🎮 Playing \(presence.name)")
+        }
+
+        if browser.unreadCount > 0 {
+            Text("● \(browser.unreadCount) Unread Mention\(browser.unreadCount == 1 ? "" : "s")")
+        }
+
+        if browser.isInCall {
+            Text(browser.isMicrophoneMuted ? "🎤 Microphone Muted" : "🟢 Voice Call Active")
+        }
+
         Divider()
-        Button("Quit NokoCord") { NokoApplicationDelegate.requestTermination() }.keyboardShortcut("q")
+
+        Button("Open Discord") {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: "main")
+            }
+        }
+
+        Button("Command Palette…") {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: "main")
+            }
+            browser.onToggleQuickSwitcher?()
+        }
+        .keyboardShortcut("k", modifiers: .command)
+
+        Button("Toggle Tans Inspector") {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: "main")
+            }
+            browser.onToggleTans?()
+        }
+        .keyboardShortcut("t", modifiers: .command)
+
+        if browser.isInCall {
+            Divider()
+
+            Button(browser.isMicrophoneMuted ? "Unmute Microphone" : "Mute Microphone") {
+                browser.toggleMicrophoneMute()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+
+            Button("Disconnect Voice Call") {
+                browser.disconnectCall()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+        }
+
+        Divider()
+
+        Button("Reload Discord") {
+            browser.reload()
+        }
+        .keyboardShortcut("r", modifiers: .command)
+        .disabled(!browser.lifecycle.isVisible || browser.lifecycle.phase == .clearing)
+
+        Button(tans.safeMode ? "Disable Safe Mode" : "Enable Safe Mode") {
+            tans.setSafeMode(!tans.safeMode)
+        }
+
+        Divider()
+
+        SettingsLink()
+
+        Divider()
+
+        Button("Quit NokoCord") {
+            NokoApplicationDelegate.requestTermination()
+        }
+        .keyboardShortcut("q")
     }
 }

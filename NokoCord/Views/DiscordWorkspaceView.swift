@@ -3,84 +3,309 @@ import WebKit
 
 struct NokoRootView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
-    @State private var selection: NokoDestination = .home
-    @State private var showQuickSwitcher = false
+    @Environment(TanManager.self) private var tans
     @Environment(\.openSettings) private var openSettings
-    var body: some View {
-        ZStack {
-            if let view = browser.view {
-                VStack(spacing: 0) {
-                    workspaceBar
-                    if let notice = browser.notice {
-                        HStack { Text(notice).font(.callout); Spacer(); Button("Dismiss") { browser.dismissNotice() } }.padding(10)
-                    }
-                    if browser.lifecycle.phase == .failed || browser.lifecycle.phase == .crashed {
-                        ContentUnavailableView {
-                            Label(browser.lifecycle.phase == .crashed ? "Discord needs to reopen" : "Discord could not load", systemImage: "network.slash")
-                        } description: {
-                            Text("Check your connection, then reload. Reloading interrupts any active call.")
-                        } actions: { Button("Reload Discord") { browser.reload() } }
-                    }
-                    BrowserHostView(view: view, visible: browser.lifecycle.isVisible)
-                        .id(ObjectIdentifier(view))
-                }
-                .opacity(browser.lifecycle.isVisible ? 1 : 0)
-                .allowsHitTesting(browser.lifecycle.isVisible)
-                .accessibilityHidden(!browser.lifecycle.isVisible)
-            }
-            if !browser.lifecycle.isVisible {
-                ContentView(selection: $selection, showQuickSwitcher: $showQuickSwitcher)
 
+    @State private var showTansInspector = false
+    @State private var showQuickSwitcher = false
+    @State private var showDownloadsSheet = false
+    @AppStorage("showFloatingToolbar") private var showFloatingToolbar = false
+    @State private var isHoveringToolbarZone = false
+    @AppStorage("hasSeenWelcomeTutorial") private var hasSeenWelcomeTutorial = false
+    @State private var showWelcomeTutorial = false
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // MARK: - 1. Full-Bleed Native Discord Viewport (100% Window Edge-to-Edge)
+            Group {
+                if browser.lifecycle.phase == .failed || browser.lifecycle.phase == .crashed {
+                    ContentUnavailableView {
+                        Label(
+                            browser.lifecycle.phase == .crashed ? "Discord needs to reopen" : "Discord could not load",
+                            systemImage: "network.slash"
+                        )
+                    } description: {
+                        Text("Check your connection, then reload. Reloading interrupts any active call.")
+                    } actions: {
+                        Button("Reload Discord") { browser.reload() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let view = browser.view {
+                    BrowserHostView(view: view, visible: true)
+                        .id(ObjectIdentifier(view))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // Initial launching state before WebKit view is attached
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Opening Discord…")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .background(Color(nsColor: NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)))
+
+            // MARK: - 2. Native Top Hairline Loading Progress Bar
+            if browser.lifecycle.phase == .loading {
+                GeometryReader { proxy in
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.accentColor.opacity(0.85), Color.accentColor],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(0, proxy.size.width * browser.progress), height: 2.5)
+                        .animation(.nokoSnappySpring, value: browser.progress)
+                }
+                .frame(height: 2.5)
+                .ignoresSafeArea()
+                .zIndex(20)
+            }
+
+            // MARK: - 3. Native Voice Call HUD (Top Center)
+            if browser.isInCall {
+                NativeVoiceHUD()
+                    .padding(.top, 10)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .zIndex(16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            // MARK: - 4. Floating Header Capsule (Auto-hide on hover or pinned by preference)
+            if showFloatingToolbar || isHoveringToolbarZone {
+                WorkspaceToolbar(
+                    showTansInspector: $showTansInspector,
+                    showQuickSwitcher: $showQuickSwitcher
+                )
+                .padding(.top, 10)
+                .padding(.trailing, 16)
+                .zIndex(15)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isHoveringToolbarZone = hovering
+                    }
+                }
+            } else {
+                // Invisible top-right trigger zone (does not block Discord buttons)
+                Color.clear
+                    .frame(width: 80, height: 16)
+                    .contentShape(Rectangle())
+                    .padding(.top, 0)
+                    .padding(.trailing, 16)
+                    .zIndex(15)
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isHoveringToolbarZone = hovering
+                        }
+                    }
+            }
+
+            // MARK: - 5. Floating Notice Banner (if any)
+            if let notice = browser.notice {
+                HStack(spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.tint)
+                    Text(notice)
+                        .font(.callout)
+                    Spacer()
+                    Button("Dismiss") { browser.dismissNotice() }
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
+                .shadow(color: Color.black.opacity(0.3), radius: 10, y: 4)
+                .padding(.horizontal, 24)
+                .padding(.top, 50)
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .zIndex(18)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            // MARK: - 6. In-Discord Tans Inspector Overlay
+            if showTansInspector {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture {
+                        withAnimation(.nokoFluidSpring) {
+                            showTansInspector = false
+                        }
+                    }
+                    .zIndex(24)
+
+                TansInspectorView(isPresented: $showTansInspector)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(25)
+            }
+
+            // MARK: - 7. Spotlight / Raycast Liquid Glass Command Palette (⌘K)
+            if showQuickSwitcher {
+                Color.black.opacity(0.35)
+                    .background(.ultraThinMaterial.opacity(0.3))
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture {
+                        withAnimation(.nokoSnappySpring) {
+                            showQuickSwitcher = false
+                        }
+                    }
+                    .zIndex(29)
+
+                CommandPaletteView(
+                    isPresented: $showQuickSwitcher,
+                    onOpenDownloads: {
+                        showDownloadsSheet = true
+                    },
+                    onOpenTutorial: {
+                        withAnimation(.nokoFluidSpring) {
+                            showWelcomeTutorial = true
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 90)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.95, anchor: .top).combined(with: .opacity),
+                    removal: .scale(scale: 0.97, anchor: .top).combined(with: .opacity)
+                ))
+                .zIndex(30)
+            }
+
+            // MARK: - 8. Welcome Tutorial Modal (First-launch or Quick Selector)
+            if showWelcomeTutorial {
+                WelcomeTutorialView(isPresented: $showWelcomeTutorial)
+                    .zIndex(35)
+            }
+        }
+        .animation(.nokoFluidSpring, value: showTansInspector)
+        .animation(.nokoSnappySpring, value: showQuickSwitcher)
+        .animation(.nokoFluidSpring, value: showWelcomeTutorial)
+        .animation(.nokoSnappySpring, value: browser.isInCall)
+        .onAppear {
+            if !hasSeenWelcomeTutorial {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    withAnimation(.nokoFluidSpring) {
+                        showWelcomeTutorial = true
+                    }
+                }
+            }
+            browser.onOpenTutorial = {
+                withAnimation(.nokoFluidSpring) {
+                    showWelcomeTutorial = true
+                }
+            }
+            browser.onToggleTans = {
+                withAnimation(.nokoFluidSpring) {
+                    showTansInspector.toggle()
+                }
+            }
+            browser.onToggleQuickSwitcher = {
+                withAnimation(.nokoSnappySpring) {
+                    showQuickSwitcher.toggle()
+                }
             }
         }
         .focusedSceneValue(\.nokoCordQuickSwitcher, $showQuickSwitcher)
-        .focusedSceneValue(\.nokoCordHome, { selection = .home; browser.showHome() })
-        .background(WindowLifetimeObserver { showQuickSwitcher = false }.frame(width: 0, height: 0))
-        .sheet(isPresented: $showQuickSwitcher) {
-            NokoQuickSwitcher { destination in
-                switch destination {
-                case .discord: browser.openDiscord()
-                case .settings: openSettings()
-                default: selection = destination; browser.showHome()
-                }
+        .focusedSceneValue(\.nokoCordHome, {
+            withAnimation(.nokoFluidSpring) {
+                showTansInspector.toggle()
             }
+        })
+        .background(WindowLifetimeObserver {
+            showQuickSwitcher = false
+            showTansInspector = false
+            showWelcomeTutorial = false
+        }.frame(width: 0, height: 0))
+        .sheet(isPresented: $showDownloadsSheet) {
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    Button("Done") { showDownloadsSheet = false }
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding()
+                BrowserSettingsView()
+            }
+            .frame(width: 600, height: 500)
         }
         .nokoCordAppearance()
     }
-    private var workspaceBar: some View {
-        HStack(spacing: 16) {
-            HStack(spacing: 8) {
-                Button("Home", systemImage: "house") { selection = .home; browser.showHome() }
-                    .help("Home (⇧⌘H)")
-                Button("Back", systemImage: "chevron.left") { browser.goBack() }
-                    .disabled(!browser.canGoBack)
-                    .help("Previous Discord page")
-                    .accessibilityHint("Returns to the previous Discord page")
-            }.labelStyle(.iconOnly).controlSize(.large)
-            Divider().frame(height: 20)
-            HStack(spacing: 9) {
-                Image("NokoMark").renderingMode(.original).resizable().scaledToFit()
-                    .frame(width: 24, height: 24).clipShape(.rect(cornerRadius: 6)).accessibilityHidden(true)
-                Text("Discord").font(.headline)
-                if browser.lifecycle.phase == .loading {
-                    ProgressView(value: browser.progress).frame(width: 72).accessibilityLabel("Discord loading")
-                }
-            }
-            Spacer(minLength: 16)
-            HStack(spacing: 12) {
-                Button("Quick switcher", systemImage: "command") { showQuickSwitcher = true }
-                    .help("Quick switcher (⌘K)")
-                Button("Downloads", systemImage: "arrow.down.circle") { selection = .downloads; browser.showHome() }
-                    .help("Downloads")
-                Button("Reload", systemImage: "arrow.clockwise") { browser.reload() }
-                    .help("Reload Discord (⌘R)")
-                    .accessibilityHint("Reloads Discord and may interrupt an active call")
-                SettingsLink { Label("Settings", systemImage: "gearshape") }.help("Settings")
-            }.labelStyle(.iconOnly).controlSize(.large)
-        }.buttonStyle(.borderless).padding(.horizontal, 18).padding(.vertical, 10)
-            .modifier(NokoSurface(cornerRadius: 0))
-    }
+}
 
+/// Native Liquid Glass Floating Voice Call HUD (Sonoma/Sequoia dynamic capsule).
+struct NativeVoiceHUD: View {
+    @Environment(ActiveBrowserEngine.self) private var browser
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Pulsing Call Indicator
+            HStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(browser.isMicrophoneMuted ? Color.orange : Color.green)
+                        .frame(width: 8, height: 8)
+                    if !browser.isMicrophoneMuted {
+                        Circle()
+                            .stroke(Color.green.opacity(0.4), lineWidth: 2)
+                            .frame(width: 14, height: 14)
+                    }
+                }
+
+                Text(browser.isMicrophoneMuted ? "Muted" : "Voice Connected")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(browser.isMicrophoneMuted ? .orange : .primary)
+            }
+            .padding(.leading, 4)
+
+            // Mute / Unmute Button
+            Button {
+                browser.toggleMicrophoneMute()
+            } label: {
+                Image(systemName: browser.isMicrophoneMuted ? "mic.slash.fill" : "mic.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(browser.isMicrophoneMuted ? Color.orange : Color.primary)
+                    .frame(width: 24, height: 24)
+                    .background(Color.primary.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(browser.isMicrophoneMuted ? "Unmute Microphone (⌘⇧M)" : "Mute Microphone (⌘⇧M)")
+
+            // End Call Button
+            Button {
+                browser.disconnectCall()
+            } label: {
+                Image(systemName: "phone.down.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Color.red, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Disconnect Call (⌘⇧D)")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 12, y: 4)
+    }
 }
 
 private struct BrowserHostView: NSViewRepresentable {
@@ -108,7 +333,8 @@ struct BrowserSettingsView: View {
                     Text("No downloads yet").font(.title3.weight(.semibold))
                     Text("Downloads from Discord appear here during this session.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -130,9 +356,12 @@ struct BrowserSettingsView: View {
                                 if item.status == .choosing || item.status == .downloading {
                                     Button("Cancel") { browser.downloads.cancel(item.id) }
                                 }
-                            }.padding(18).background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 14))
+                            }
+                            .padding(18)
+                            .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 14))
                         }
-                    }.padding(28)
+                    }
+                    .padding(28)
                 }
             }
         }
@@ -159,10 +388,14 @@ struct DiscordSessionControls: View {
             Divider()
             Label("Camera, microphone and screen sharing require your permission.", systemImage: "lock")
                 .font(.callout).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-            .confirmationDialog("Clear your Discord session?", isPresented: $confirmClear, titleVisibility: .visible) {
-                Button("Clear session", role: .destructive) { Task { await browser.clearProfile() } }
-                Button("Cancel", role: .cancel) {}
-            } message: { Text("This ends active calls and playback, signs you out of Discord, and removes saved session data. Downloaded files are kept.") }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .confirmationDialog("Clear your Discord session?", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("Clear session", role: .destructive) { Task { await browser.clearProfile() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This ends active calls and playback, signs you out of Discord, and removes saved session data. Downloaded files are kept.")
+        }
     }
 }

@@ -48,6 +48,8 @@ struct NotificationNavigation: Equatable, Sendable {
 
 @MainActor
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationService()
+
     private let center: NotificationCenterClient
     private(set) var policy: NotificationPolicy
     private var generation = UUID()
@@ -88,9 +90,26 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         return decision
     }
 
+    func deliverWebNotification(title: String, body: String) async {
+        if await center.authorizationStatus() == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let requestID = "web-notif-" + UUID().uuidString
+        let request = UNNotificationRequest(identifier: requestID, content: content, trigger: nil)
+        try? await center.add(request)
+    }
+
     func clearOnLogout() {
         generation = UUID()
         center.removeAllPendingRequests(); center.removeAllDeliveredNotifications(); policy.clearDeduplication()
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound, .badge])
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {

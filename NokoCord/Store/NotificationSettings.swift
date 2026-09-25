@@ -15,7 +15,7 @@ final class NotificationSettings {
         self.persistence = persistence
         let saved = persistence.load()
         preferences = saved
-        self.service = service ?? NotificationService(preferences: saved)
+        self.service = service ?? NotificationService.shared
         self.service.updatePreferences(saved)
     }
 
