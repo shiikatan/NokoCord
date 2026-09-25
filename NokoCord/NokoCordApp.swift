@@ -90,6 +90,18 @@ private struct NokoCordCommands: Commands {
     @FocusedValue(\.nokoCordHome) private var goHome
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About NokoCord") {
+                var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+                if let edition = EditionIdentity.current {
+                    options[.applicationVersion] = edition.publicVersion
+                    options[.credits] = NSAttributedString(
+                        string: "Edition: \(edition.name)\nMaintainer: \(edition.maintainer)"
+                    )
+                }
+                NSApp.orderFrontStandardAboutPanel(options: options)
+            }
+        }
         CommandGroup(replacing: .appTermination) {
             Button("Quit NokoCord") { NokoApplicationDelegate.requestTermination() }
                 .keyboardShortcut("q")
