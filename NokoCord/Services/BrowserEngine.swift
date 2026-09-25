@@ -84,8 +84,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             }
         ]
 
-        // Routine background memory cleanup every 5 minutes
-        memoryPurgeTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        // Routine background memory cleanup every 60 seconds
+        memoryPurgeTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.purgeMemoryCache()
             }
