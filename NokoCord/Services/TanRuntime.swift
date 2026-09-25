@@ -21,6 +21,7 @@ final class TanRuntime {
     var onToggleQuickSwitcher: (() -> Void)?
     var onOpenMedia: ((URL, Bool) -> Void)?
     var onToggleZenMode: (() -> Void)?
+    var onChannelChanged: (() -> Void)?
 
     init(manager: TanManager, allowedOrigin: String = "https://discord.com") {
         self.manager = manager; self.allowedOrigin = allowedOrigin
@@ -422,6 +423,12 @@ final class TanRuntime {
           html.nokocord-zen-mode div[class*="sidebar_"] {
             display: none !important;
           }
+
+          /* Offscreen message rendering optimization: skips offscreen layout & layer compositing */
+          [class*="messageListItem_"] {
+            content-visibility: auto !important;
+            contain-intrinsic-size: auto 50px !important;
+          }
         `;
         (document.head || document.documentElement).appendChild(style);
       };
@@ -481,9 +488,11 @@ final class TanRuntime {
         window.Notification = NokoNotification;
       }
 
-      // 4. In-Page Memory Hygiene & Offscreen Media Pauser
+      // 4. In-Page Memory Hygiene & Offscreen Media / Attachment Virtualizer
       if (!window.__nokoMemoryHygieneActive) {
         window.__nokoMemoryHygieneActive = true;
+
+        const BLANK_PIXEL = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>';
 
         // Auto-pause offscreen media (videos, gifs, audios) to stop GPU decode loops
         const mediaObserver = new IntersectionObserver((entries) => {
@@ -503,22 +512,148 @@ final class TanRuntime {
           }
         }, { threshold: 0.05 });
 
-        const observeMedia = () => {
+        // Attachment Image Virtualizer: Releases multi-megabyte uncompressed decoded bitmaps from WebContent RAM
+        const attachmentObserver = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            const el = entry.target;
+            if (entry.isIntersecting) {
+              if (el.__nokoUnloaded && el.__nokoOriginalSrc) {
+                el.src = el.__nokoOriginalSrc;
+                if (el.__nokoOriginalSrcset) el.srcset = el.__nokoOriginalSrcset;
+                el.__nokoUnloaded = false;
+              }
+            } else {
+              const src = el.src || '';
+              const isAttachment = src.includes('/attachments/') || src.includes('images-ext-') ||
+                                   (el.__nokoOriginalSrc && (el.__nokoOriginalSrc.includes('/attachments/') || el.__nokoOriginalSrc.includes('images-ext-')));
+              if (isAttachment && !el.__nokoUnloaded && !src.startsWith('data:')) {
+                // Lock dimensions to prevent any layout shifts in the chat scroller
+                if (!el.style.width && el.offsetWidth > 0) el.style.width = el.offsetWidth + 'px';
+                if (!el.style.height && el.offsetHeight > 0) el.style.height = el.offsetHeight + 'px';
+                el.__nokoOriginalSrc = src;
+                if (el.srcset) el.__nokoOriginalSrcset = el.srcset;
+                el.src = BLANK_PIXEL;
+                el.removeAttribute('srcset');
+                el.__nokoUnloaded = true;
+              }
+            }
+          }
+        }, { rootMargin: '450px 0px 450px 0px' });
+
+        const trackElements = () => {
           document.querySelectorAll('video, audio').forEach(el => {
             if (!el.__nokoTracked) {
               el.__nokoTracked = true;
               mediaObserver.observe(el);
             }
           });
+          document.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"], div[class*="imageWrapper_"] img').forEach(el => {
+            if (!el.__nokoImgTracked) {
+              el.__nokoImgTracked = true;
+              attachmentObserver.observe(el);
+            }
+          });
         };
-        const domObserver = new MutationObserver(observeMedia);
+        const domObserver = new MutationObserver(trackElements);
         domObserver.observe(document.documentElement, { childList: true, subtree: true });
-        observeMedia();
+        trackElements();
 
-        // Memory purge hook called by Swift when app is backgrounded or periodically
-        window.__nokoPurgeMemory = () => {
+        // Discord Internal Stores Access for Memory Reclamation
+        let discordMessageStore = null;
+        let discordSelectedChannelStore = null;
+        let discordDispatcher = null;
+        let lastVisitedChannelId = null;
+
+        const getDiscordStores = () => {
+          if (discordMessageStore && discordSelectedChannelStore) return true;
           try {
-            // Pause any out-of-view media elements
+            const chunk = window.webpackChunkdiscord_app;
+            if (!chunk || typeof chunk.push !== 'function') return false;
+            let req;
+            chunk.push([[Symbol()], {}, (r) => { req = r; }]);
+            if (!req || !req.c) return false;
+            const modules = Object.values(req.c);
+            for (let i = 0; i < modules.length; i++) {
+              const exp = modules[i]?.exports;
+              if (!exp) continue;
+              const candidates = [exp, exp.default, exp.Z, exp.ZP].filter(Boolean);
+              for (const c of candidates) {
+                if (typeof c === 'object' && c !== null) {
+                  if (typeof c.getName === 'function') {
+                    const name = c.getName();
+                    if (name === 'MessageStore') discordMessageStore = c;
+                    else if (name === 'SelectedChannelStore') discordSelectedChannelStore = c;
+                  }
+                  if (c.dispatch && c.subscribe && !discordDispatcher) {
+                    discordDispatcher = c;
+                  }
+                }
+              }
+              if (discordMessageStore && discordSelectedChannelStore && discordDispatcher) break;
+            }
+            return Boolean(discordMessageStore);
+          } catch (_) {
+            return false;
+          }
+        };
+
+        const pruneInactiveChannels = () => {
+          try {
+            getDiscordStores();
+            if (!discordMessageStore) return;
+
+            let activeChannelId = null;
+            if (discordSelectedChannelStore && typeof discordSelectedChannelStore.getChannelId === 'function') {
+              activeChannelId = discordSelectedChannelStore.getChannelId();
+            }
+            if (!activeChannelId) {
+              const match = location.pathname.match(/\/channels\/[^\/]+\/(\d+)/);
+              if (match) activeChannelId = match[1];
+            }
+            if (!activeChannelId) return;
+
+            // Prune unmounted channels from Discord MessageStore to free memory from JS heap
+            const mapNames = ['_channelMessages', 'channelMessages', '_messages'];
+            for (const mapName of mapNames) {
+              const storeMap = discordMessageStore[mapName];
+              if (storeMap && typeof storeMap === 'object') {
+                if (storeMap instanceof Map) {
+                  for (const key of Array.from(storeMap.keys())) {
+                    if (String(key) !== String(activeChannelId) && String(key) !== String(lastVisitedChannelId)) {
+                      storeMap.delete(key);
+                    }
+                  }
+                } else {
+                  for (const key of Object.keys(storeMap)) {
+                    if (String(key) !== String(activeChannelId) && String(key) !== String(lastVisitedChannelId)) {
+                      delete storeMap[key];
+                    }
+                  }
+                }
+              }
+            }
+            lastVisitedChannelId = activeChannelId;
+          } catch (_) {}
+        };
+
+        const evictOffscreenMedia = () => {
+          try {
+            // Evict attachment images out of view
+            document.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"]').forEach(el => {
+              const r = el.getBoundingClientRect();
+              if (r.bottom < -200 || r.top > window.innerHeight + 200) {
+                if (el.src && !el.src.startsWith('data:')) {
+                  if (!el.style.width && el.offsetWidth > 0) el.style.width = el.offsetWidth + 'px';
+                  if (!el.style.height && el.offsetHeight > 0) el.style.height = el.offsetHeight + 'px';
+                  el.__nokoOriginalSrc = el.src;
+                  if (el.srcset) el.__nokoOriginalSrcset = el.srcset;
+                  el.src = BLANK_PIXEL;
+                  el.removeAttribute('srcset');
+                  el.__nokoUnloaded = true;
+                }
+              }
+            });
+            // Pause out of view videos
             document.querySelectorAll('video, audio').forEach(el => {
               const r = el.getBoundingClientRect();
               if (r.bottom < 0 || r.top > window.innerHeight) {
@@ -528,7 +663,69 @@ final class TanRuntime {
                 }
               }
             });
-            // Clear Sentry breadcrumbs if accumulating
+          } catch (_) {}
+        };
+
+        const onChannelNavigated = () => {
+          evictOffscreenMedia();
+          pruneInactiveChannels();
+          try {
+            window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'channelChanged' });
+          } catch (_) {}
+        };
+
+        // Hook History API for instant channel navigation detection
+        let lastPath = location.pathname;
+        const checkNavigation = () => {
+          const cur = location.pathname;
+          if (cur !== lastPath) {
+            lastPath = cur;
+            setTimeout(onChannelNavigated, 60);
+          }
+        };
+
+        const origPushState = history.pushState;
+        history.pushState = function(...args) {
+          const res = origPushState.apply(this, args);
+          checkNavigation();
+          return res;
+        };
+
+        const origReplaceState = history.replaceState;
+        history.replaceState = function(...args) {
+          const res = origReplaceState.apply(this, args);
+          checkNavigation();
+          return res;
+        };
+
+        window.addEventListener('popstate', checkNavigation);
+
+        // Also subscribe to Discord Flux Dispatcher CHANNEL_SELECT
+        let fluxSubscribed = false;
+        const trySubscribeFlux = () => {
+          if (fluxSubscribed) return true;
+          if (getDiscordStores() && discordDispatcher && typeof discordDispatcher.subscribe === 'function') {
+            try {
+              discordDispatcher.subscribe('CHANNEL_SELECT', () => {
+                setTimeout(onChannelNavigated, 80);
+              });
+              fluxSubscribed = true;
+              return true;
+            } catch (_) {}
+          }
+          return false;
+        };
+        if (!trySubscribeFlux()) {
+          const fluxTimer = setInterval(() => {
+            if (trySubscribeFlux()) clearInterval(fluxTimer);
+          }, 1500);
+        }
+
+        // Memory purge hook called by Swift
+        window.__nokoPurgeMemory = () => {
+          try {
+            pruneInactiveChannels();
+            evictOffscreenMedia();
             if (window.__SENTRY__?.hub?.getScope?.()?.clearBreadcrumbs) {
               window.__SENTRY__.hub.getScope().clearBreadcrumbs();
             }
@@ -555,7 +752,7 @@ final class TanRuntime {
           } else if (parentA && parentA.href && (parentA.href.includes('discordapp.com') || parentA.href.includes('discordapp.net'))) {
             mediaUrl = parentA.href;
           } else if (img) {
-            mediaUrl = img.currentSrc || img.src;
+            mediaUrl = (img.currentSrc && !img.currentSrc.startsWith('data:')) ? img.currentSrc : (img.__nokoOriginalSrc || img.src);
           }
         } else if (mediaLink) {
           mediaUrl = mediaLink.href;
@@ -599,6 +796,8 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
             runtime.onToggleQuickSwitcher?()
         } else if action == "toggleZenMode" {
             runtime.onToggleZenMode?()
+        } else if action == "channelChanged" {
+            runtime.onChannelChanged?()
         } else if action == "openMedia" {
             if let urlStr = body["url"] as? String, let url = URL(string: urlStr) {
                 let isVideo = body["isVideo"] as? Bool ?? false

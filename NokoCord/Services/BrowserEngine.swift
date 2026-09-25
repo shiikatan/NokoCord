@@ -32,6 +32,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var appObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var memoryPurgeTimer: Timer?
+    @ObservationIgnored private var channelPurgeTask: Task<Void, Never>?
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
     @ObservationIgnored private var tanRuntime: TanRuntime?
@@ -50,6 +51,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             runtime.onToggleQuickSwitcher = { [weak self] in self?.onToggleQuickSwitcher?() }
             runtime.onOpenMedia = { [weak self] url, isVideo in self?.onOpenMedia?(url, isVideo) }
             runtime.onToggleZenMode = { [weak self] in self?.toggleZenMode() }
+            runtime.onChannelChanged = { [weak self] in self?.handleChannelChanged() }
             tanRuntime = runtime
             tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
         }
@@ -90,18 +92,37 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         }
     }
     deinit {
+        channelPurgeTask?.cancel()
         memoryPurgeTimer?.invalidate()
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         appObservers.forEach { NotificationCenter.default.removeObserver($0) }
         observations.forEach { $0.invalidate() }
     }
 
+    func handleChannelChanged() {
+        channelPurgeTask?.cancel()
+        channelPurgeTask = Task { @MainActor [weak self] in
+            // Debounce channel purge by 300ms so rapid clicking doesn't stutter,
+            // then immediately evict decoded bitmap and network memory caches
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.purgeMemoryCache()
+        }
+    }
+
     /// Releases WebKit memory cache (decoded images/backing buffers) and invokes in-page media/DOM garbage cleanup.
     func purgeMemoryCache() {
         dataStore.removeData(
-            ofTypes: [WKWebsiteDataTypeMemoryCache],
+            ofTypes: [
+                WKWebsiteDataTypeMemoryCache,
+                WKWebsiteDataTypeFetchCache,
+                WKWebsiteDataTypeDiskCache
+            ],
             modifiedSince: .distantPast
         ) {}
+        if let browserView, browserView.responds(to: Selector(("_clearBackForwardCache"))) {
+            browserView.perform(Selector(("_clearBackForwardCache")))
+        }
         browserView?.evaluateJavaScript("""
         (() => {
             try {
@@ -115,6 +136,14 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         if let browserView { return browserView }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
+        // WebKit Memory Footprint Optimizations:
+        // 1. Explicitly disable Page Cache (WebKit's multi-hundred MB back-forward snapshot cache)
+        configuration.preferences.setValue(false, forKey: "usesPageCache")
+        // 2. Drop offscreen render layer tiles immediately instead of retaining in GPU memory
+        configuration.preferences.setValue(false, forKey: "aggressiveTileRetentionEnabled")
+        // 3. Throttle background DOM timers and enable process suppression
+        configuration.preferences.setValue(true, forKey: "hiddenPageDOMTimerThrottlingEnabled")
+        configuration.preferences.setValue(true, forKey: "pageVisibilityBasedProcessSuppressionEnabled")
         // Master Plan v2: controlled local Tans only; no auth/token bridge.
         // No enabled Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)
@@ -139,6 +168,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 Task { @MainActor [weak self] in
                     guard let self, self.browserView === view else { return }
                     self.tanRuntime?.locationChanged()
+                    self.handleChannelChanged()
                 }
             },
             view.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
