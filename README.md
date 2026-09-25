@@ -11,14 +11,14 @@ modifications. NokoCord is not affiliated with or endorsed by Discord.
 - **Chiaki** (`chiaki` branch): experimental edition, public version **C1.0.0**,
   maintained by Millx.
 
-This `noko` branch is the neutral source landing point. It is not an installable
-public edition or a release channel. The edition branches begin from the same
-source foundation and evolve independently. Work in one edition is not
-synchronized into the other.
+This is the **Chiaki** source branch. It began from the same curated source
+foundation as Maomao and evolves independently. Work in one edition is not
+synchronized into the other. The `noko` branch is the neutral landing point,
+not an installable public edition.
 
 Both editions display as **NokoCord**. Their bundle identifiers and app
 containers differ, so preferences, installed Tans and Discord sessions are
-separate. Choose an edition branch before building an app for regular use.
+separate.
 
 ## Build and verify
 
