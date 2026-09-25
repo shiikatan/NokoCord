@@ -15,25 +15,7 @@ struct NokoCordApp: App {
     @State private var handledStartup = false
 
     init() {
-        let textCheckingDefaults: [String: Any] = [
-            "NSAutomaticSpellingCorrectionEnabled": false,
-            "NSAutomaticTextReplacementEnabled": false,
-            "NSAutomaticQuoteSubstitutionEnabled": false,
-            "NSAutomaticDashSubstitutionEnabled": false,
-            "NSAutomaticCapitalizationEnabled": false,
-            "NSAutomaticPeriodSubstitutionEnabled": false,
-            "NSAutomaticInlinePredictionEnabled": false,
-            "NSAutomaticTextCompletionEnabled": false,
-            "WebAutomaticTextCompletionEnabled": false,
-            "WebInlinePredictionEnabled": false,
-            "WebContinuousSpellCheckingEnabled": false,
-            "WebGrammarCheckingEnabled": false,
-            "WebAutomaticSpellingCorrectionEnabled": false
-        ]
-        UserDefaults.standard.register(defaults: textCheckingDefaults)
-        for (key, val) in textCheckingDefaults {
-            UserDefaults.standard.set(val, forKey: key)
-        }
+        NativeTextCheckingSuppressor.suppressAll()
 
         let manager = TanManager()
         _tans = State(initialValue: manager)
@@ -203,24 +185,7 @@ private struct NokoCordCommands: Commands {
 @MainActor
 private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let textCheckingDefaults: [String: Any] = [
-            "NSAutomaticSpellingCorrectionEnabled": false,
-            "NSAutomaticTextReplacementEnabled": false,
-            "NSAutomaticQuoteSubstitutionEnabled": false,
-            "NSAutomaticDashSubstitutionEnabled": false,
-            "NSAutomaticCapitalizationEnabled": false,
-            "NSAutomaticPeriodSubstitutionEnabled": false,
-            "NSAutomaticInlinePredictionEnabled": false,
-            "NSAutomaticTextCompletionEnabled": false,
-            "WebAutomaticTextCompletionEnabled": false,
-            "WebInlinePredictionEnabled": false,
-            "WebContinuousSpellCheckingEnabled": false,
-            "WebGrammarCheckingEnabled": false,
-            "WebAutomaticSpellingCorrectionEnabled": false
-        ]
-        for (key, val) in textCheckingDefaults {
-            UserDefaults.standard.set(val, forKey: key)
-        }
+        NativeTextCheckingSuppressor.suppressAll()
     }
 
     static func requestTermination() {

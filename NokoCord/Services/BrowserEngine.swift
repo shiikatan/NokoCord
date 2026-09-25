@@ -3,6 +3,49 @@ import Observation
 import WebKit
 
 @MainActor
+enum NativeTextCheckingSuppressor {
+    static func suppressAll() {
+        let textCheckingDefaults: [String: Any] = [
+            "NSAutomaticSpellingCorrectionEnabled": false,
+            "NSAutomaticTextReplacementEnabled": false,
+            "NSAutomaticQuoteSubstitutionEnabled": false,
+            "NSAutomaticDashSubstitutionEnabled": false,
+            "NSAutomaticCapitalizationEnabled": false,
+            "NSAutomaticPeriodSubstitutionEnabled": false,
+            "NSAutomaticInlinePredictionEnabled": false,
+            "NSAutomaticTextCompletionEnabled": false,
+            "WebAutomaticTextCompletionEnabled": false,
+            "WebInlinePredictionEnabled": false,
+            "WebContinuousSpellCheckingEnabled": false,
+            "WebGrammarCheckingEnabled": false,
+            "WebAutomaticSpellingCorrectionEnabled": false
+        ]
+        UserDefaults.standard.register(defaults: textCheckingDefaults)
+        for (key, val) in textCheckingDefaults {
+            UserDefaults.standard.set(val, forKey: key)
+        }
+        let checker = NSSpellChecker.shared
+        let selectors = [
+            "setAutomaticInlinePredictionEnabled:",
+            "setAutomaticInlineCompletionEnabled:",
+            "setAutomaticTextCompletionEnabled:",
+            "setAutomaticSpellingCorrectionEnabled:",
+            "setAutomaticTextReplacementEnabled:",
+            "setAutomaticQuoteSubstitutionEnabled:",
+            "setAutomaticDashSubstitutionEnabled:",
+            "setAutomaticCapitalizationEnabled:",
+            "setAutomaticPeriodSubstitutionEnabled:"
+        ]
+        for selName in selectors {
+            let sel = NSSelectorFromString(selName)
+            if checker.responds(to: sel) {
+                checker.perform(sel, with: false as NSNumber)
+            }
+        }
+    }
+}
+
+@MainActor
 protocol BrowserEngine: AnyObject {
     var view: NSView? { get }
     var lifecycle: BrowserLifecycle { get }
@@ -150,25 +193,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         // 6. Throttle background DOM timers and enable process suppression
         configuration.preferences.setValue(true, forKey: "hiddenPageDOMTimerThrottlingEnabled")
         configuration.preferences.setValue(true, forKey: "pageVisibilityBasedProcessSuppressionEnabled")
-        // 7. Enforce zero autocorrect, spellchecking, or text replacement across the WebView
-        let textCheckingDefaults: [String: Any] = [
-            "NSAutomaticSpellingCorrectionEnabled": false,
-            "NSAutomaticTextReplacementEnabled": false,
-            "NSAutomaticQuoteSubstitutionEnabled": false,
-            "NSAutomaticDashSubstitutionEnabled": false,
-            "NSAutomaticCapitalizationEnabled": false,
-            "NSAutomaticPeriodSubstitutionEnabled": false,
-            "NSAutomaticInlinePredictionEnabled": false,
-            "NSAutomaticTextCompletionEnabled": false,
-            "WebAutomaticTextCompletionEnabled": false,
-            "WebInlinePredictionEnabled": false,
-            "WebContinuousSpellCheckingEnabled": false,
-            "WebGrammarCheckingEnabled": false,
-            "WebAutomaticSpellingCorrectionEnabled": false
-        ]
-        for (key, val) in textCheckingDefaults {
-            UserDefaults.standard.set(val, forKey: key)
-        }
+        // 7. Enforce zero autocorrect, spellchecking, prediction, or text replacement
+        NativeTextCheckingSuppressor.suppressAll()
         // Master Plan v2: controlled local Tans only; no auth/token bridge.
         // No enabled Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)
