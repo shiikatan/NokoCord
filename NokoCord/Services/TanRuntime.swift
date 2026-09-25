@@ -330,16 +330,16 @@ final class TanRuntime {
             background: transparent !important;
           }
 
-          /* Apple Liquid Glass Context Menus & Popovers */
+          /* Apple Liquid Glass Context Menus & Popovers (14px single-pass blur for GPU efficiency) */
           div[role="menu"],
           div[class*="menu_"][class*="styleFixed_"],
           div[class*="contextMenu_"] {
-            background: rgba(30, 31, 35, 0.76) !important;
-            backdrop-filter: blur(28px) saturate(190%) !important;
-            -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+            background: rgba(30, 31, 35, 0.90) !important;
+            backdrop-filter: blur(14px) !important;
+            -webkit-backdrop-filter: blur(14px) !important;
             border-radius: 12px !important;
             border: 1px solid rgba(255, 255, 255, 0.12) !important;
-            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.48), 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45) !important;
             padding: 6px !important;
           }
           div[role="menu"] [role="menuitem"],
@@ -354,12 +354,10 @@ final class TanRuntime {
             color: #ffffff !important;
           }
 
-          /* Apple Liquid Glass Tooltips */
+          /* Apple Liquid Glass Tooltips (Solid translucent, eliminates redundant offscreen Metal buffers) */
           div[class*="tooltip_"],
           div[class*="tooltipContent_"] {
-            background: rgba(22, 23, 27, 0.82) !important;
-            backdrop-filter: blur(20px) saturate(180%) !important;
-            -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+            background: rgba(22, 23, 27, 0.94) !important;
             border: 1px solid rgba(255, 255, 255, 0.14) !important;
             border-radius: 8px !important;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
@@ -367,19 +365,19 @@ final class TanRuntime {
             font-weight: 500 !important;
           }
 
-          /* Apple Liquid Glass Modals & Dialogs */
+          /* Apple Liquid Glass Modals & Dialogs (16px single-pass blur) */
           div[role="dialog"][class*="modal_"],
           div[role="dialog"] [class*="root_"],
           div[class*="modal_"] > div[class*="inner_"] {
-            background: rgba(32, 34, 38, 0.85) !important;
-            backdrop-filter: blur(36px) saturate(200%) !important;
-            -webkit-backdrop-filter: blur(36px) saturate(200%) !important;
+            background: rgba(32, 34, 38, 0.92) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
             border: 1px solid rgba(255, 255, 255, 0.15) !important;
             border-radius: 16px !important;
             box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6) !important;
           }
           div[role="dialog"] [class*="footer_"] {
-            background: rgba(24, 25, 28, 0.65) !important;
+            background: rgba(24, 25, 28, 0.75) !important;
             border-bottom-left-radius: 16px !important;
             border-bottom-right-radius: 16px !important;
           }
@@ -465,6 +463,61 @@ final class TanRuntime {
           close() {}
         }
         window.Notification = NokoNotification;
+      }
+
+      // 4. In-Page Memory Hygiene & Offscreen Media Pauser
+      if (!window.__nokoMemoryHygieneActive) {
+        window.__nokoMemoryHygieneActive = true;
+
+        // Auto-pause offscreen media (videos, gifs, audios) to stop GPU decode loops
+        const mediaObserver = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            const el = entry.target;
+            if (entry.isIntersecting) {
+              if (el.__nokoPaused) {
+                el.__nokoPaused = false;
+                if (typeof el.play === 'function') el.play().catch(() => {});
+              }
+            } else {
+              if (typeof el.pause === 'function' && !el.paused) {
+                el.__nokoPaused = true;
+                el.pause();
+              }
+            }
+          }
+        }, { threshold: 0.05 });
+
+        const observeMedia = () => {
+          document.querySelectorAll('video, audio').forEach(el => {
+            if (!el.__nokoTracked) {
+              el.__nokoTracked = true;
+              mediaObserver.observe(el);
+            }
+          });
+        };
+        const domObserver = new MutationObserver(observeMedia);
+        domObserver.observe(document.documentElement, { childList: true, subtree: true });
+        observeMedia();
+
+        // Memory purge hook called by Swift when app is backgrounded or periodically
+        window.__nokoPurgeMemory = () => {
+          try {
+            // Pause any out-of-view media elements
+            document.querySelectorAll('video, audio').forEach(el => {
+              const r = el.getBoundingClientRect();
+              if (r.bottom < 0 || r.top > window.innerHeight) {
+                if (typeof el.pause === 'function') {
+                  el.__nokoPaused = true;
+                  el.pause();
+                }
+              }
+            });
+            // Clear Sentry breadcrumbs if accumulating
+            if (window.__SENTRY__?.hub?.getScope?.()?.clearBreadcrumbs) {
+              window.__SENTRY__.hub.getScope().clearBreadcrumbs();
+            }
+          } catch (_) {}
+        };
       }
     })();
     """#

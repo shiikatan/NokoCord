@@ -225,6 +225,18 @@ struct CommandPaletteView: View {
             browser.resetZoom()
         })
 
+        items.append(PaletteAction(
+            id: "view.purge_memory",
+            title: "Purge Web Cache & RAM",
+            subtitle: "Release uncompressed image buffers and pause inactive media",
+            category: "Controls",
+            icon: "trash.circle.fill",
+            shortcut: nil,
+            tint: .orange
+        ) {
+            browser.purgeMemoryCache()
+        })
+
         // MARK: - Developer
         items.append(PaletteAction(
             id: "dev.mode",

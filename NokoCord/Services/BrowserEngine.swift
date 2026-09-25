@@ -30,6 +30,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     let downloads = BrowserDownloads()
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var appObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var memoryPurgeTimer: Timer?
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
     @ObservationIgnored private var tanRuntime: TanRuntime?
@@ -59,10 +61,50 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 Task { @MainActor [weak self] in self?.lifecycle.wake() }
             }
         ]
+
+        // Flush WebKit memory cache when NokoCord is backgrounded or minimized
+        let appCenter = NotificationCenter.default
+        appObservers = [
+            appCenter.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.purgeMemoryCache()
+                }
+            },
+            appCenter.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.purgeMemoryCache()
+                    self?.browserView?.pauseAllMediaPlayback()
+                }
+            }
+        ]
+
+        // Routine background memory cleanup every 5 minutes
+        memoryPurgeTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.purgeMemoryCache()
+            }
+        }
     }
     deinit {
+        memoryPurgeTimer?.invalidate()
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        appObservers.forEach { NotificationCenter.default.removeObserver($0) }
         observations.forEach { $0.invalidate() }
+    }
+
+    /// Releases WebKit memory cache (decoded images/backing buffers) and invokes in-page media/DOM garbage cleanup.
+    func purgeMemoryCache() {
+        dataStore.removeData(
+            ofTypes: [WKWebsiteDataTypeMemoryCache],
+            modifiedSince: .distantPast
+        ) {}
+        browserView?.evaluateJavaScript("""
+        (() => {
+            try {
+                window.__nokoPurgeMemory?.();
+            } catch (_) {}
+        })();
+        """, completionHandler: nil)
     }
 
     func prepareBrowser() -> WKWebView {
@@ -79,7 +121,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         }
         view.navigationDelegate = self
         view.uiDelegate = self
-        view.allowsBackForwardNavigationGestures = true
+        // Disable back-forward gestures: eliminates WebKit's multi-hundred-megabyte Page Cache for SPAs
+        view.allowsBackForwardNavigationGestures = false
         view.isInspectable = false
         // Discord native dark theme background - eliminates white flicker completely
         view.underPageBackgroundColor = NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)
