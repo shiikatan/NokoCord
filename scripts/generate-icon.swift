@@ -25,9 +25,9 @@ for size in [16, 32, 128, 256, 512] {
                                cornerHeight: side * 0.19, transform: nil)
         raster.saveGState()
         raster.setShadow(offset: CGSize(width: 0, height: -side * 0.012),
-                         blur: side * 0.021, color: NSColor.black.withAlphaComponent(0.19).cgColor)
+                         blur: side * 0.025, color: NSColor.black.withAlphaComponent(0.42).cgColor)
         raster.addPath(platePath)
-        raster.setFillColor(glassColor(0xD7E7EF, alpha: 0.02))
+        raster.setFillColor(glassColor(0x17232E))
         raster.fillPath()
         raster.restoreGState()
 
@@ -35,9 +35,7 @@ for size in [16, 32, 128, 256, 512] {
         raster.addPath(platePath)
         raster.clip()
         let base = CGGradient(colorsSpace: colorSpace, colors: [
-            glassColor(0xE7F1F6, alpha: 0.08),
-            glassColor(0xB6CDD9, alpha: 0.06),
-            glassColor(0x829AA9, alpha: 0.045)
+            glassColor(0x536575), glassColor(0x303E4D), glassColor(0x18232E)
         ] as CFArray, locations: [0, 0.52, 1])!
         raster.drawLinearGradient(base,
                                   start: CGPoint(x: plate.minX, y: plate.maxY),
@@ -46,7 +44,7 @@ for size in [16, 32, 128, 256, 512] {
 
         // Reflections belong to the plate and stay behind the mascot.
         let halo = CGGradient(colorsSpace: colorSpace, colors: [
-            NSColor.white.withAlphaComponent(0.07).cgColor,
+            NSColor.white.withAlphaComponent(0.21).cgColor,
             NSColor.white.withAlphaComponent(0).cgColor
         ] as CFArray, locations: [0, 1])!
         raster.drawRadialGradient(halo,
@@ -58,7 +56,7 @@ for size in [16, 32, 128, 256, 512] {
                                   endRadius: side * 0.62,
                                   options: [])
         let sheen = CGGradient(colorsSpace: colorSpace, colors: [
-            NSColor.white.withAlphaComponent(0.10).cgColor,
+            NSColor.white.withAlphaComponent(0.17).cgColor,
             NSColor.white.withAlphaComponent(0).cgColor
         ] as CFArray, locations: [0, 1])!
         raster.drawLinearGradient(sheen,
@@ -68,7 +66,7 @@ for size in [16, 32, 128, 256, 512] {
         raster.restoreGState()
 
         raster.addPath(platePath)
-        raster.setStrokeColor(NSColor.white.withAlphaComponent(0.27).cgColor)
+        raster.setStrokeColor(NSColor.white.withAlphaComponent(0.23).cgColor)
         raster.setLineWidth(max(0.45, side / 800))
         raster.strokePath()
 
@@ -87,11 +85,11 @@ for size in [16, 32, 128, 256, 512] {
     }
 }
 
-func glassColor(_ hex: Int, alpha: CGFloat = 1) -> CGColor {
+func glassColor(_ hex: Int) -> CGColor {
     NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
             green: CGFloat((hex >> 8) & 255) / 255,
             blue: CGFloat(hex & 255) / 255,
-            alpha: alpha).cgColor
+            alpha: 1).cgColor
 }
 
 func foregroundImage(from image: NSImage) -> CGImage {
