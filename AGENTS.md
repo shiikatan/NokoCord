@@ -1,9 +1,10 @@
 # NokoCord branch guidance
 
-This is the neutral `noko` landing branch, not a release edition. Keep its
-source and documentation intentional. Maomao and Chiaki are independent local
-branches; do not merge or synchronize them automatically. Do not push or
-publish without explicit approval for the exact event.
+This checkout is **Maomao**, the stable NokoCord edition maintained by
+Shiikatan. Work only on this branch for Maomao changes. Do not merge or
+synchronize Chiaki or change the neutral `noko` landing branch as part of
+ordinary Maomao work. Do not push or publish without explicit approval for
+the exact event.
 
 Production uses one persistent Discord WKWebView. Discord owns authentication,
 messages and media. Tans may modify the page under the declared lifecycle and
