@@ -141,7 +141,13 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         configuration.preferences.setValue(false, forKey: "usesPageCache")
         // 2. Drop offscreen render layer tiles immediately instead of retaining in GPU memory
         configuration.preferences.setValue(false, forKey: "aggressiveTileRetentionEnabled")
-        // 3. Throttle background DOM timers and enable process suppression
+        // 3. Disable giant tile buffers (eliminates multi-hundred MB backing texture allocations)
+        configuration.preferences.setValue(false, forKey: "useGiantTiles")
+        // 4. Constrain video/audio buffer sizes
+        configuration.preferences.setValue(true, forKey: "lowPowerVideoAudioBufferSizeEnabled")
+        // 5. Disable offline app cache
+        configuration.preferences.setValue(false, forKey: "offlineApplicationCacheIsEnabled")
+        // 6. Throttle background DOM timers and enable process suppression
         configuration.preferences.setValue(true, forKey: "hiddenPageDOMTimerThrottlingEnabled")
         configuration.preferences.setValue(true, forKey: "pageVisibilityBasedProcessSuppressionEnabled")
         // Master Plan v2: controlled local Tans only; no auth/token bridge.

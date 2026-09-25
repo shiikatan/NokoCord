@@ -254,12 +254,26 @@ final class TanRuntime {
       if (window.__nokoCordAppInjected) return;
       window.__nokoCordAppInjected = true;
 
+      const onReady = (fn) => {
+        if (document.readyState === 'interactive' || document.readyState === 'complete') {
+          fn();
+        } else {
+          document.addEventListener('DOMContentLoaded', fn, { once: true });
+        }
+      };
+
       // 1. Inject Native macOS App Styling (Traffic lights padding, overlay scrollbars, font smoothing, hide web nags)
       const injectStyles = () => {
-        if (document.getElementById('nokocord-native-overrides')) return;
-        const style = document.createElement('style');
-        style.id = 'nokocord-native-overrides';
-        style.textContent = `
+        try {
+          if (document.getElementById('nokocord-native-overrides')) return;
+          const target = document.head || document.documentElement;
+          if (!target) {
+            onReady(injectStyles);
+            return;
+          }
+          const style = document.createElement('style');
+          style.id = 'nokocord-native-overrides';
+          style.textContent = `
           /* Window traffic lights space in server list */
           nav[class*="guilds_"],
           div[class*="guilds_"][class*="wrapper_"],
@@ -302,6 +316,24 @@ final class TanRuntime {
             -webkit-user-drag: none !important;
           }
 
+          /* Stop layer texture explosion across Discord */
+          * {
+            will-change: auto !important;
+          }
+
+          /* Eliminate expensive backdrop-filter offscreen blit textures */
+          div[role="menu"],
+          div[class*="menu_"],
+          div[class*="contextMenu_"],
+          div[class*="tooltip_"],
+          div[class*="tooltipContent_"],
+          div[role="dialog"][class*="modal_"],
+          div[role="dialog"] [class*="root_"],
+          div[class*="modal_"] > div[class*="inner_"] {
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+          }
+
           /* Native desktop text selection rules */
           nav, header, [role="navigation"], [class*="sidebar_"], [class*="guilds_"], [class*="membersWrap_"], button {
             user-select: none !important;
@@ -333,13 +365,11 @@ final class TanRuntime {
             background: transparent !important;
           }
 
-          /* Apple Liquid Glass Context Menus & Popovers (14px single-pass blur for GPU efficiency) */
+          /* Sleek Dark Context Menus & Popovers */
           div[role="menu"],
           div[class*="menu_"][class*="styleFixed_"],
           div[class*="contextMenu_"] {
-            background: rgba(30, 31, 35, 0.90) !important;
-            backdrop-filter: blur(14px) !important;
-            -webkit-backdrop-filter: blur(14px) !important;
+            background: rgba(30, 31, 35, 0.96) !important;
             border-radius: 12px !important;
             border: 1px solid rgba(255, 255, 255, 0.12) !important;
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45) !important;
@@ -357,10 +387,10 @@ final class TanRuntime {
             color: #ffffff !important;
           }
 
-          /* Apple Liquid Glass Tooltips (Solid translucent, eliminates redundant offscreen Metal buffers) */
+          /* Sleek Dark Tooltips */
           div[class*="tooltip_"],
           div[class*="tooltipContent_"] {
-            background: rgba(22, 23, 27, 0.94) !important;
+            background: rgba(22, 23, 27, 0.96) !important;
             border: 1px solid rgba(255, 255, 255, 0.14) !important;
             border-radius: 8px !important;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
@@ -368,19 +398,17 @@ final class TanRuntime {
             font-weight: 500 !important;
           }
 
-          /* Apple Liquid Glass Modals & Dialogs (16px single-pass blur) */
+          /* Sleek Dark Modals & Dialogs */
           div[role="dialog"][class*="modal_"],
           div[role="dialog"] [class*="root_"],
           div[class*="modal_"] > div[class*="inner_"] {
-            background: rgba(32, 34, 38, 0.92) !important;
-            backdrop-filter: blur(16px) !important;
-            -webkit-backdrop-filter: blur(16px) !important;
+            background: rgba(32, 34, 38, 0.96) !important;
             border: 1px solid rgba(255, 255, 255, 0.15) !important;
             border-radius: 16px !important;
             box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6) !important;
           }
           div[role="dialog"] [class*="footer_"] {
-            background: rgba(24, 25, 28, 0.75) !important;
+            background: rgba(24, 25, 28, 0.90) !important;
             border-bottom-left-radius: 16px !important;
             border-bottom-right-radius: 16px !important;
           }
@@ -430,7 +458,8 @@ final class TanRuntime {
             contain-intrinsic-size: auto 50px !important;
           }
         `;
-        (document.head || document.documentElement).appendChild(style);
+          target.appendChild(style);
+        } catch (_) {}
       };
       injectStyles();
 
@@ -540,6 +569,19 @@ final class TanRuntime {
           }
         }, { rootMargin: '450px 0px 450px 0px' });
 
+        const optimizeAttachment = (img) => {
+          try {
+            if (!img || !img.src) return;
+            const src = img.src;
+            if (src.includes('cdn.discordapp.com/attachments/')) {
+              const proxy = src.replace('cdn.discordapp.com/attachments/', 'media.discordapp.net/attachments/');
+              const sep = proxy.includes('?') ? '&' : '?';
+              img.__nokoOriginalSrc = src;
+              img.src = proxy + sep + 'width=960&height=720&format=webp';
+            }
+          } catch (_) {}
+        };
+
         const trackElements = () => {
           document.querySelectorAll('video, audio').forEach(el => {
             if (!el.__nokoTracked) {
@@ -550,13 +592,25 @@ final class TanRuntime {
           document.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"], div[class*="imageWrapper_"] img').forEach(el => {
             if (!el.__nokoImgTracked) {
               el.__nokoImgTracked = true;
+              optimizeAttachment(el);
               attachmentObserver.observe(el);
             }
           });
         };
-        const domObserver = new MutationObserver(trackElements);
-        domObserver.observe(document.documentElement, { childList: true, subtree: true });
-        trackElements();
+
+        const initObservers = () => {
+          try {
+            const root = document.documentElement || document.body;
+            if (!root) {
+              onReady(initObservers);
+              return;
+            }
+            const domObserver = new MutationObserver(trackElements);
+            domObserver.observe(root, { childList: true, subtree: true });
+            trackElements();
+          } catch (_) {}
+        };
+        initObservers();
 
         // Discord Internal Stores Access for Memory Reclamation
         let discordMessageStore = null;
@@ -667,6 +721,18 @@ final class TanRuntime {
         };
 
         const onChannelNavigated = () => {
+          try {
+            document.querySelectorAll('img[src*="/attachments/"], img[src*="media.discordapp.net"]').forEach(el => {
+              if (el.src && !el.src.startsWith('data:')) {
+                if (!el.style.width && el.offsetWidth > 0) el.style.width = el.offsetWidth + 'px';
+                if (!el.style.height && el.offsetHeight > 0) el.style.height = el.offsetHeight + 'px';
+                el.__nokoOriginalSrc = el.src;
+                el.src = BLANK_PIXEL;
+                el.removeAttribute('srcset');
+                el.__nokoUnloaded = true;
+              }
+            });
+          } catch (_) {}
           evictOffscreenMedia();
           pruneInactiveChannels();
           try {
