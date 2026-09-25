@@ -1,0 +1,15 @@
+{
+  "images": [
+    {
+      "filename": "noko-256.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "shiikatan",
+    "version": 1
+  },
+  "properties": {
+    "template-rendering-intent": "original"
+  }
+}

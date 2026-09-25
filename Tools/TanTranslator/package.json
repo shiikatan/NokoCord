@@ -1,0 +1,8 @@
+{
+  "name": "nokocord-tan-translator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test", "translate": "node translate.mjs" },
+  "dependencies": { "typescript": "5.9.3" }
+}

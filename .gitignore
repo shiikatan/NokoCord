@@ -1,0 +1,27 @@
+.DS_Store
+DerivedData/
+.build/
+xcuserdata/
+*.xcuserstate
+*.log
+.env
+.env.*
+
+__pycache__/
+*.pyc
+.swiftpm/
+
+# Local browser/runtime and private recovery artifacts never belong in source.
+BrowserProfiles/
+CEFProfile/
+private-backups/
+*.p12
+*.pfx
+*.mobileprovision
+*.xcarchive/
+
+# Offline developer tooling dependencies
+node_modules/
+
+# Installed translation archives may contain private user-selected source.
+*.source.json

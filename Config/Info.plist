@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>NokoEditionID</key><string>$(NOKO_EDITION_ID)</string>
+<key>NokoEditionName</key><string>$(NOKO_EDITION_NAME)</string>
+<key>NokoPublicVersion</key><string>$(NOKO_PUBLIC_VERSION)</string>
+<key>NokoMaintainer</key><string>$(NOKO_MAINTAINER)</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>com.nokocord.NokoCord.oauth</string>
+<key>CFBundleURLSchemes</key><array><string>nokocord</string></array>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+</dict></array>
+<key>NSCameraUsageDescription</key><string>Preview your selected camera locally when you start a device check. No video is sent to Discord.</string>
+<key>NSMicrophoneUsageDescription</key><string>Show your microphone input level when you start a local device check. No audio is sent to Discord.</string>
+</dict></plist>

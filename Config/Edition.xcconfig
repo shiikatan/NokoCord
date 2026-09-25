@@ -1,0 +1,8 @@
+// One edition identity source. The private foundation keeps its existing app
+// identity; the public edition branches replace only these values.
+NOKO_BUNDLE_ID = com.nokocord.NokoCord
+NOKO_APPLE_VERSION = 1.0
+NOKO_EDITION_ID =
+NOKO_EDITION_NAME =
+NOKO_PUBLIC_VERSION =
+NOKO_MAINTAINER =
