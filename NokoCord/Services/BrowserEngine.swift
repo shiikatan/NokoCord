@@ -158,6 +158,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             "NSAutomaticDashSubstitutionEnabled": false,
             "NSAutomaticCapitalizationEnabled": false,
             "NSAutomaticPeriodSubstitutionEnabled": false,
+            "NSAutomaticInlinePredictionEnabled": false,
+            "NSAutomaticTextCompletionEnabled": false,
+            "WebAutomaticTextCompletionEnabled": false,
+            "WebInlinePredictionEnabled": false,
             "WebContinuousSpellCheckingEnabled": false,
             "WebGrammarCheckingEnabled": false,
             "WebAutomaticSpellingCorrectionEnabled": false

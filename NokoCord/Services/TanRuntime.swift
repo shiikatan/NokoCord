@@ -254,16 +254,23 @@ final class TanRuntime {
       if (window.__nokoCordAppInjected) return;
       window.__nokoCordAppInjected = true;
 
-      // 0. Completely eradicate Autocorrect, Spellcheck, Autocapitalize, and Text Substitutions
+      // 0. Completely eradicate Autocorrect, Spellcheck, Autocapitalize, and Autocomplete
       try {
-        ['spellcheck', 'autocorrect', 'autocapitalize'].forEach((prop) => {
-          try {
-            Object.defineProperty(HTMLElement.prototype, prop, {
-              get() { return prop === 'spellcheck' ? false : 'off'; },
-              set(_) {},
-              configurable: true
-            });
-          } catch (_) {}
+        const targets = [
+          HTMLElement.prototype,
+          HTMLInputElement.prototype,
+          HTMLTextAreaElement.prototype
+        ];
+        targets.forEach((proto) => {
+          ['spellcheck', 'autocorrect', 'autocapitalize', 'autocomplete'].forEach((prop) => {
+            try {
+              Object.defineProperty(proto, prop, {
+                get() { return prop === 'spellcheck' ? false : 'off'; },
+                set(_) {},
+                configurable: true
+              });
+            } catch (_) {}
+          });
         });
 
         const origSetAttribute = Element.prototype.setAttribute;
@@ -277,6 +284,9 @@ final class TanRuntime {
           }
           if (lower === 'autocapitalize') {
             return origSetAttribute.call(this, 'autocapitalize', 'off');
+          }
+          if (lower === 'autocomplete') {
+            return origSetAttribute.call(this, 'autocomplete', 'off');
           }
           return origSetAttribute.call(this, name, value);
         };
@@ -303,6 +313,9 @@ final class TanRuntime {
             const ed = e.target.closest('[contenteditable="true"], textarea, input, [role="textbox"]');
             if (ed) enforceNoAutocorrect(ed);
           }
+        }, true);
+        window.addEventListener('keydown', (e) => {
+          enforceNoAutocorrect(e.target);
         }, true);
       } catch (_) {}
 

@@ -22,6 +22,10 @@ struct NokoCordApp: App {
             "NSAutomaticDashSubstitutionEnabled": false,
             "NSAutomaticCapitalizationEnabled": false,
             "NSAutomaticPeriodSubstitutionEnabled": false,
+            "NSAutomaticInlinePredictionEnabled": false,
+            "NSAutomaticTextCompletionEnabled": false,
+            "WebAutomaticTextCompletionEnabled": false,
+            "WebInlinePredictionEnabled": false,
             "WebContinuousSpellCheckingEnabled": false,
             "WebGrammarCheckingEnabled": false,
             "WebAutomaticSpellingCorrectionEnabled": false
@@ -206,6 +210,10 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
             "NSAutomaticDashSubstitutionEnabled": false,
             "NSAutomaticCapitalizationEnabled": false,
             "NSAutomaticPeriodSubstitutionEnabled": false,
+            "NSAutomaticInlinePredictionEnabled": false,
+            "NSAutomaticTextCompletionEnabled": false,
+            "WebAutomaticTextCompletionEnabled": false,
+            "WebInlinePredictionEnabled": false,
             "WebContinuousSpellCheckingEnabled": false,
             "WebGrammarCheckingEnabled": false,
             "WebAutomaticSpellingCorrectionEnabled": false
