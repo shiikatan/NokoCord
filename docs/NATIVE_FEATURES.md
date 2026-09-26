@@ -170,3 +170,30 @@ To achieve true all-day MacBook battery life and sub-500MB memory footprint:
   * Prunes Flux message store rings down to only the active visible channel.
   * Flushes decoded graphics textures and WebKit memory caches.
 * When brought back to the foreground, `resume()` reactivates viewport element tracking smoothly without page reloading or scroll jumping.
+
+---
+
+## 11. Apple Music Rich Presence & Discord Social SDK (`AppleMusicRPCService.swift`)
+
+NokoCord includes native macOS Apple Music Rich Presence that seamlessly broadcasts what you're listening to across Discord:
+
+```mermaid
+graph TD
+    A[macOS Music.app / LastFM.app] -->|AppleMusicDetector.swift| B[AppleMusicRPCService.swift]
+    B -->|iTunes Search API / LastFM Cache| C[High-Res 512x512 Artwork]
+    B -->|syncPresenceToDiscord LOCAL_ACTIVITY_UPDATE| D[NokoCord WebClient FluxDispatcher]
+    B -->|DiscordSocialSDKBridge / Unix IPC /tmp/discord-ipc-0| E[Discord Desktop App / Social SDK]
+```
+
+### Architecture & Capabilities
+* **Dual Detection Engine**:
+  * **LastFM.app Integration**: Detects if `~/LastFMSwift/LastFM.app` (or `/Applications/LastFM.app`) is installed. Automatically checks `~/Library/Application Support/LastFM/monitor_debug.log`, `scrobble_stats.json`, and `current_art.jpg` for album artwork and scrobbler state.
+  * **macOS System Integration**: Subscribes to `com.apple.Music.playerInfo` on `DistributedNotificationCenter` for push notifications on track changes, and uses compiled `NSAppleScript` for zero-drift player position tracking.
+* **Dual Discord Dispatch**:
+  * **In-Workspace NokoCord**: Dispatches `LOCAL_ACTIVITY_UPDATE` (`type: 2` "Listening to Apple Music") directly into Discord's Flux Dispatcher in WKWebView, displaying animated seek bars, song title, artist, and album on the user's active Discord profile.
+  * **Discord Desktop / Social SDK**: Dynamically links `libdiscord_partner_sdk.dylib` from the Discord Social SDK (`~/Downloads/discord_social_sdk`), and maintains a native Unix domain socket client (`/tmp/discord-ipc-0`) to update running Discord Desktop clients concurrently.
+* **Artwork Resolution**: Queries the iTunes Search API asynchronously with in-memory caching to upscale thumbnail covers to crisp 512x512 album artwork.
+* **Native Controls**:
+  * Floating toolbar music status pill with live playback duration.
+  * Command Palette (`⌘K`) actions: "Now Playing: [Track]" and "Toggle Apple Music RPC".
+  * Dedicated "Music RPC" tab in NokoCord Settings.

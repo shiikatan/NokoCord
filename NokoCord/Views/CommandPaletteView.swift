@@ -172,6 +172,32 @@ struct CommandPaletteView: View {
             GamePresenceService.shared.isEnabled.toggle()
         })
 
+        // MARK: - Apple Music Rich Presence
+        if let track = AppleMusicRPCService.shared.currentTrack, track.playerState.isPlaying {
+            items.append(PaletteAction(
+                id: "applemusic.now_playing",
+                title: "Now Playing: \(track.name)",
+                subtitle: "\(track.artist) • \(track.album) (\(track.formattedProgress))",
+                category: "Apple Music RPC",
+                icon: "music.note",
+                shortcut: nil,
+                tint: .pink
+            ) {
+                AppleMusicRPCService.shared.poll()
+            })
+        }
+        items.append(PaletteAction(
+            id: "applemusic.toggle_rpc",
+            title: AppleMusicRPCService.shared.isEnabled ? "Disable Apple Music RPC" : "Enable Apple Music RPC",
+            subtitle: AppleMusicRPCService.shared.isEnabled ? "Stop broadcasting Apple Music status to Discord" : "Broadcast Apple Music tracks, artwork and time to Discord",
+            category: "Apple Music RPC",
+            icon: "waveform",
+            shortcut: nil,
+            tint: AppleMusicRPCService.shared.isEnabled ? .pink : .gray
+        ) {
+            AppleMusicRPCService.shared.toggle()
+        })
+
         // MARK: - Tans Extensions
         items.append(PaletteAction(
             id: "tans.toggle_inspector",

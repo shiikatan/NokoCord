@@ -8,12 +8,14 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
     public var name: String
     public var details: String?
     public var state: String?
+    public var type: Int // 0 = Playing, 1 = Streaming, 2 = Listening, 3 = Watching
     public var startTimestamp: Date?
     public var endTimestamp: Date?
     public var largeImageKey: String?
     public var largeImageText: String?
     public var smallImageKey: String?
     public var smallImageText: String?
+    public var buttons: [[String: String]]?
 
     public init(
         clientId: String,
@@ -21,24 +23,28 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
         name: String = "Game",
         details: String? = nil,
         state: String? = nil,
+        type: Int = 0,
         startTimestamp: Date? = nil,
         endTimestamp: Date? = nil,
         largeImageKey: String? = nil,
         largeImageText: String? = nil,
         smallImageKey: String? = nil,
-        smallImageText: String? = nil
+        smallImageText: String? = nil,
+        buttons: [[String: String]]? = nil
     ) {
         self.clientId = clientId
         self.pid = pid
         self.name = name
         self.details = details
         self.state = state
+        self.type = type
         self.startTimestamp = startTimestamp
         self.endTimestamp = endTimestamp
         self.largeImageKey = largeImageKey
         self.largeImageText = largeImageText
         self.smallImageKey = smallImageKey
         self.smallImageText = smallImageText
+        self.buttons = buttons
     }
 
     /// Converts the GamePresence into a Discord LOCAL_ACTIVITY_UPDATE compatible dictionary.
@@ -46,7 +52,7 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
         var activity: [String: Any] = [
             "application_id": clientId,
             "name": name,
-            "type": 0, // 0 = Playing
+            "type": type,
             "flags": 1
         ]
 
@@ -75,6 +81,14 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
         if let text = smallImageText, !text.isEmpty { assets["small_text"] = text }
         if !assets.isEmpty {
             activity["assets"] = assets
+        }
+
+        if let buttons = buttons, !buttons.isEmpty {
+            activity["buttons"] = buttons.compactMap { $0["label"] }
+            let urls = buttons.compactMap { $0["url"] }
+            if !urls.isEmpty {
+                activity["metadata"] = ["button_urls": urls]
+            }
         }
 
         return activity

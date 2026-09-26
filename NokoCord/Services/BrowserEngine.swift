@@ -103,7 +103,12 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
         }
         GamePresenceService.shared.onPresenceChange = { [weak self] presence in
-            self?.syncPresenceToDiscord(presence)
+            self?.syncPresenceToDiscord(presence ?? AppleMusicRPCService.shared.currentTrack?.toGamePresence())
+        }
+        AppleMusicRPCService.shared.onPresenceChange = { [weak self] presence in
+            if GamePresenceService.shared.activePresence == nil {
+                self?.syncPresenceToDiscord(presence)
+            }
         }
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers = [
@@ -418,7 +423,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing, self.navigation === navigation else { return }
         lifecycle.ready()
         tanRuntime?.pageDidLoad()
-        if let presence = GamePresenceService.shared.activePresence {
+        if let presence = GamePresenceService.shared.activePresence ?? AppleMusicRPCService.shared.currentTrack?.toGamePresence() {
             syncPresenceToDiscord(presence)
         }
     }

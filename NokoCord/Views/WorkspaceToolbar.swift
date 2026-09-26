@@ -10,6 +10,7 @@ struct WorkspaceToolbar: View {
     @State private var showDownloadsPopover = false
     @State private var gamePresence = GamePresenceService.shared
     @State private var showGameRPPopover = false
+    @State private var appleMusicRPC = AppleMusicRPCService.shared
 
     var body: some View {
         HStack(spacing: 6) {
@@ -144,6 +145,42 @@ struct WorkspaceToolbar: View {
                 .popover(isPresented: $showGameRPPopover, arrowEdge: .bottom) {
                     GamePresencePopoverView(presence: presence)
                 }
+
+                Divider()
+                    .frame(height: 14)
+                    .padding(.horizontal, 1)
+            }
+
+            // MARK: - Apple Music Rich Presence Pill (when playing)
+            if let track = appleMusicRPC.currentTrack, track.playerState.isPlaying, appleMusicRPC.isEnabled {
+                HStack(spacing: 5) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.pink, Color.purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+
+                    Text(track.name)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 110)
+
+                    Text(track.artist)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 80)
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.pink.opacity(0.12), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.pink.opacity(0.25), lineWidth: 0.5))
+                .help("Apple Music: \(track.name) by \(track.artist) (\(track.formattedProgress))")
 
                 Divider()
                     .frame(height: 14)

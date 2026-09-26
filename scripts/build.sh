@@ -18,11 +18,19 @@ APP_DIR="${BUILD_DIR}/NokoCord.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 HELPERS_DIR="${CONTENTS_DIR}/Helpers"
+FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 
 echo "==> Preparing build directories in ${BUILD_DIR}..."
 rm -rf "${APP_DIR}"
-mkdir -p "${MACOS_DIR}" "${HELPERS_DIR}" "${RESOURCES_DIR}"
+mkdir -p "${MACOS_DIR}" "${HELPERS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}"
+
+# Bundle Discord Social SDK if available
+SOCIAL_SDK_SRC="${HOME}/Downloads/discord_social_sdk/lib/release/libdiscord_partner_sdk.dylib"
+if [ -f "${SOCIAL_SDK_SRC}" ]; then
+    echo "==> Bundling Discord Social SDK partner dylib..."
+    cp "${SOCIAL_SDK_SRC}" "${FRAMEWORKS_DIR}/libdiscord_partner_sdk.dylib"
+fi
 
 echo "==> [1/6] Compiling TanTranslator helper..."
 swiftc Tools/TanTranslator/Helper/main.swift -O -o "${HELPERS_DIR}/TanTranslator"
@@ -107,6 +115,11 @@ cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
 PLIST_EOF
 
 echo "==> [5/6] Code signing with hardened runtime and sandboxing..."
+if [ -f "${FRAMEWORKS_DIR}/libdiscord_partner_sdk.dylib" ]; then
+    /usr/bin/codesign --force --sign - --options runtime \
+        "${FRAMEWORKS_DIR}/libdiscord_partner_sdk.dylib"
+fi
+
 /usr/bin/codesign --force --sign - --options runtime \
     --entitlements Config/TanTranslator.entitlements \
     "${HELPERS_DIR}/TanTranslator"

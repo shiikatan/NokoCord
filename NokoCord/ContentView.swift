@@ -282,6 +282,9 @@ struct SettingsView: View {
                 }
             }.formStyle(.grouped).tabItem { Label("General", systemImage: "gearshape") }
             Form {
+                AppleMusicSettingsSection()
+            }.formStyle(.grouped).tabItem { Label("Music RPC", systemImage: "music.note") }
+            Form {
                 DiscordSessionPrivacySection()
                 Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }
