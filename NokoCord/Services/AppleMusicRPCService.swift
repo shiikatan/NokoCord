@@ -32,15 +32,15 @@ public final class AppleMusicRPCService: NSObject {
     @ObservationIgnored private let socialBridge = DiscordSocialSDKBridge.shared
 
     public override init() {
-        // Defaults to enabled unless explicitly turned off by the user
         let stored = UserDefaults.standard.object(forKey: "appleMusicRPCEnabled") as? Bool ?? true
         self.isEnabled = stored
         super.init()
 
-        refreshLastFMStatus()
-
+        // Defer startup to avoid blocking app initialization
         if isEnabled {
-            start()
+            DispatchQueue.main.async { [weak self] in
+                self?.start()
+            }
         }
     }
 
@@ -67,26 +67,35 @@ public final class AppleMusicRPCService: NSObject {
 
         refreshLastFMStatus()
 
-        // 1. Subscribe to macOS distributed player notifications for zero-latency changes
-        distributedObserver = DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("com.apple.Music.playerInfo"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.poll()
+        // 1. Subscribe to macOS distributed player notifications for zero-latency, sandbox-safe track changes
+        if distributedObserver == nil {
+            distributedObserver = DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name("com.apple.Music.playerInfo"),
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    guard let self = self, self.isEnabled else { return }
+                    if let track = self.detector.handlePlayerNotification(notification.userInfo) {
+                        self.applyTrack(track)
+                    } else {
+                        self.stopPlayback()
+                    }
+                }
             }
         }
 
-        // 2. Poll every 3 seconds for smooth progress tracking
+        // 2. Poll every 3 seconds for smooth progress tracking and app lifecycle monitoring
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.poll()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
 
-        // Initial poll
+        // 3. Initial non-blocking check
         poll()
     }
 
@@ -100,52 +109,78 @@ public final class AppleMusicRPCService: NSObject {
             distributedObserver = nil
         }
 
-        currentTrack = nil
-        onPresenceChange?(nil)
-        socialBridge.clearPresence()
+        stopPlayback()
     }
 
     public func toggle() {
         isEnabled.toggle()
     }
 
-    /// Checks the current Apple Music state and synchronizes with Discord.
-    public func poll() {
-        guard isEnabled else { return }
-
-        guard let track = detector.getCurrentTrack(), track.playerState.isPlaying else {
-            if currentTrack != nil {
-                currentTrack = nil
-                onPresenceChange?(nil)
-                socialBridge.clearPresence()
-            }
+    private func applyTrack(_ track: AppleMusicTrack) {
+        guard track.playerState.isPlaying else {
+            stopPlayback()
             return
         }
 
-        // Check if track changed or position advanced significantly
         let trackChanged = currentTrack?.id != track.id || currentTrack?.playerState != track.playerState
-        var updatedTrack = track
+        var updated = track
 
         if trackChanged {
-            self.currentTrack = updatedTrack
-
-            // Asynchronously resolve album art from iTunes Search API or local LastFM cache
-            Task {
-                if let artworkURL = await detector.resolveArtwork(for: updatedTrack) {
-                    updatedTrack.artworkURL = artworkURL
-                    if self.currentTrack?.id == updatedTrack.id {
-                        self.currentTrack = updatedTrack
-                        self.broadcastPresence(updatedTrack)
+            self.currentTrack = updated
+            Task { [weak self] in
+                guard let self = self else { return }
+                if let artworkURL = await self.detector.resolveArtwork(for: updated) {
+                    await MainActor.run {
+                        if self.currentTrack?.id == updated.id {
+                            updated.artworkURL = artworkURL
+                            self.currentTrack = updated
+                            self.broadcastPresence(updated)
+                        }
                     }
                 }
             }
         } else {
-            // Keep existing artwork URL if already resolved
-            updatedTrack.artworkURL = currentTrack?.artworkURL
-            self.currentTrack = updatedTrack
+            updated.artworkURL = currentTrack?.artworkURL
+            self.currentTrack = updated
         }
 
-        broadcastPresence(updatedTrack)
+        broadcastPresence(updated)
+    }
+
+    private func stopPlayback() {
+        if currentTrack != nil {
+            currentTrack = nil
+            onPresenceChange?(nil)
+            socialBridge.clearPresence()
+        }
+    }
+
+    /// Checks the current Apple Music state and synchronizes with Discord.
+    public func poll() {
+        guard isEnabled else { return }
+
+        // If Apple Music is not running, stop playback
+        if !detector.isMusicAppRunning() {
+            if currentTrack != nil {
+                stopPlayback()
+            }
+            return
+        }
+
+        // If we have an active track playing, advance its position smoothly
+        if let current = currentTrack, current.playerState.isPlaying {
+            detector.updatePlaybackPosition(elapsedDelta: 3.0)
+            if let updated = detector.getCurrentTrack() {
+                self.currentTrack = updated
+                broadcastPresence(updated)
+            }
+            return
+        }
+
+        // Otherwise check for existing track state (e.g. from LastFM cold start)
+        if let track = detector.getCurrentTrack(), track.playerState.isPlaying {
+            applyTrack(track)
+        }
     }
 
     private func broadcastPresence(_ track: AppleMusicTrack) {

@@ -1,51 +1,22 @@
 import Foundation
 import AppKit
 
-/// Detects what's currently playing in Apple Music via LastFM integration and native AppleScript/distributed notifications.
+/// Detects what's currently playing in Apple Music via LastFM integration and native macOS distributed notifications.
 public final class AppleMusicDetector: @unchecked Sendable {
     public static let shared = AppleMusicDetector()
 
-    private let scriptLock = NSLock()
+    private var latestTrack: AppleMusicTrack?
+    private let trackLock = NSLock()
     private var artworkCache: [String: URL] = [:]
     private let cacheLock = NSLock()
 
-    // Compiled AppleScript reused across checks
-    private let currentTrackScript: NSAppleScript? = {
-        let source = """
-        tell application "System Events"
-            if not (exists process "Music") then
-                return "NOT_RUNNING"
-            end if
-        end tell
-
-        tell application "Music"
-            try
-                set playerState to player state as string
-                if playerState is "stopped" then
-                    return "STOPPED"
-                end if
-
-                set t to current track
-                set trackId to database ID of t
-                set trackName to name of t
-                set artistName to artist of t
-                set albumName to album of t
-                set trackDuration to duration of t
-                set pos to player position
-
-                return (trackId as string) & "|||" & trackName & "|||" & artistName & "|||" & albumName & "|||" & (trackDuration as string) & "|||" & (pos as string) & "|||" & playerState
-            on error
-                return "ERROR"
-            end try
-        end tell
-        """
-        return NSAppleScript(source: source)
-    }()
-
     public init() {}
 
-    /// Checks if LastFM.app is installed on the user's Mac.
+    /// Checks if LastFM.app is installed or running on the user's Mac.
     public func isLastFMInstalled() -> Bool {
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.verbog.lastfm").isEmpty {
+            return true
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidatePaths = [
             home.appendingPathComponent("LastFMSwift/LastFM.app").path,
@@ -53,6 +24,11 @@ public final class AppleMusicDetector: @unchecked Sendable {
             home.appendingPathComponent("Applications/LastFM.app").path
         ]
         return candidatePaths.contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    /// Checks if Apple Music is currently running.
+    public func isMusicAppRunning() -> Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
     }
 
     /// Path to LastFM Application Support directory if present.
@@ -64,72 +40,163 @@ public final class AppleMusicDetector: @unchecked Sendable {
         return FileManager.default.fileExists(atPath: lastFMDir.path) ? lastFMDir : nil
     }
 
-    /// Fetches the currently playing Apple Music track, checking LastFM.app first if installed.
-    public func getCurrentTrack() -> AppleMusicTrack? {
-        let lastFMInstalled = isLastFMInstalled()
+    /// Parses a `com.apple.Music.playerInfo` distributed notification userInfo dictionary.
+    public func handlePlayerNotification(_ userInfo: [AnyHashable: Any]?) -> AppleMusicTrack? {
+        guard let info = userInfo else { return nil }
 
-        // 1. Primary Query: Execute compiled AppleScript for live Apple Music state
-        var scriptOutput: String?
-        scriptLock.lock()
-        if let script = currentTrackScript {
-            var error: NSDictionary?
-            let res = script.executeAndReturnError(&error)
-            scriptOutput = res.stringValue
-        }
-        scriptLock.unlock()
+        let name = (info["Name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let artist = (info["Artist"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let album = (info["Album"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let playerStateStr = (info["Player State"] as? String)?.lowercased() ?? "stopped"
 
-        guard let output = scriptOutput,
-              output != "NOT_RUNNING",
-              output != "STOPPED",
-              output != "ERROR" else {
+        guard !name.isEmpty else {
+            trackLock.lock()
+            latestTrack = nil
+            trackLock.unlock()
             return nil
         }
 
-        let parts = output.components(separatedBy: "|||")
-        guard parts.count >= 7 else { return nil }
-
-        let databaseID = Int(parts[0]) ?? 0
-        let trackName = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-        let artistName = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
-        let albumName = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
-        let duration = Double(parts[4]) ?? 0
-        let position = Double(parts[5]) ?? 0
-        let stateStr = parts[6].lowercased()
+        let totalTimeMs = (info["Total Time"] as? NSNumber)?.doubleValue ?? 0.0
+        let duration = totalTimeMs > 0 ? (totalTimeMs / 1000.0) : 0.0
+        let position = (info["Elapsed Time"] as? NSNumber)?.doubleValue ?? 0.0
+        let databaseID = (info["Database ID"] as? NSNumber)?.intValue ?? 0
 
         let state: AppleMusicTrack.PlayerState
-        if stateStr.contains("playing") {
+        if playerStateStr.contains("playing") {
             state = .playing
-        } else if stateStr.contains("paused") {
+        } else if playerStateStr.contains("paused") {
             state = .paused
         } else {
             state = .stopped
         }
 
-        let trackingSource: AppleMusicTrack.TrackingSource = lastFMInstalled ? .lastFMApp : .musicApp
+        let lastFMInstalled = isLastFMInstalled()
+        let source: AppleMusicTrack.TrackingSource = lastFMInstalled ? .lastFMApp : .musicApp
 
         var track = AppleMusicTrack(
             databaseID: databaseID,
-            name: trackName,
-            artist: artistName,
-            album: albumName,
+            name: name,
+            artist: artist,
+            album: album,
             duration: duration,
             position: position,
             playerState: state,
             artworkURL: nil,
-            source: trackingSource
+            source: source,
+            updatedAt: Date()
         )
 
-        // Resolve Artwork
-        let cacheKey = "\(artistName.lowercased()):\(albumName.lowercased())"
-        cacheLock.lock()
-        let cachedArt = artworkCache[cacheKey]
-        cacheLock.unlock()
+        // Check if artwork is already cached
+        let cacheKey = "\(artist.lowercased()):\(album.lowercased())"
+        if let cached = getCachedArtwork(for: cacheKey) {
+            track.artworkURL = cached
+        } else if lastFMInstalled, let artURL = checkLastFMCurrentArtwork() {
+            track.artworkURL = artURL
+        }
 
-        if let cachedArt {
-            track.artworkURL = cachedArt
+        trackLock.lock()
+        latestTrack = track
+        trackLock.unlock()
+
+        return track
+    }
+
+    /// Checks if LastFM has current artwork saved to disk.
+    public func checkLastFMCurrentArtwork() -> URL? {
+        guard let dir = lastFMSupportDirectory else { return nil }
+        let artPath = dir.appendingPathComponent("current_art.jpg")
+        return FileManager.default.fileExists(atPath: artPath.path) ? artPath : nil
+    }
+
+    /// Reads the latest track from LastFM's local scrobble stats if available.
+    public func readLastFMStatus() -> AppleMusicTrack? {
+        guard isLastFMInstalled(), let dir = lastFMSupportDirectory else { return nil }
+        let statsFile = dir.appendingPathComponent("scrobble_stats.json")
+        guard FileManager.default.fileExists(atPath: statsFile.path),
+              let data = try? Data(contentsOf: statsFile),
+              let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let lastEntry = jsonArray.last else {
+            return nil
+        }
+
+        guard let trackName = lastEntry["track"] as? String,
+              let artistName = lastEntry["artist"] as? String,
+              !trackName.isEmpty, !artistName.isEmpty else {
+            return nil
+        }
+
+        let albumName = lastEntry["album"] as? String ?? ""
+        let isMusicRunning = isMusicAppRunning()
+
+        let timestamp = (lastEntry["timestamp"] as? NSNumber)?.doubleValue ?? 0
+        let date = Date(timeIntervalSinceReferenceDate: timestamp)
+        let isRecent = abs(Date().timeIntervalSince(date)) < 300
+
+        let playerState: AppleMusicTrack.PlayerState = (isMusicRunning && isRecent) ? .playing : .stopped
+
+        var track = AppleMusicTrack(
+            databaseID: 0,
+            name: trackName,
+            artist: artistName,
+            album: albumName,
+            duration: 180,
+            position: 0,
+            playerState: playerState,
+            artworkURL: checkLastFMCurrentArtwork(),
+            source: .lastFMApp,
+            updatedAt: date
+        )
+
+        let cacheKey = "\(artistName.lowercased()):\(albumName.lowercased())"
+        if let cached = getCachedArtwork(for: cacheKey) {
+            track.artworkURL = cached
         }
 
         return track
+    }
+
+    /// Fetches the currently playing Apple Music track.
+    public func getCurrentTrack() -> AppleMusicTrack? {
+        trackLock.lock()
+        defer { trackLock.unlock() }
+
+        if let track = latestTrack {
+            if !isMusicAppRunning() {
+                latestTrack = nil
+                return nil
+            }
+            return track
+        }
+
+        if isLastFMInstalled() {
+            if let lastFMTrack = readLastFMStatus(), lastFMTrack.playerState.isPlaying {
+                latestTrack = lastFMTrack
+                return lastFMTrack
+            }
+        }
+
+        return nil
+    }
+
+    /// Updates the position of the current track during playback.
+    public func updatePlaybackPosition(elapsedDelta: TimeInterval) {
+        trackLock.lock()
+        defer { trackLock.unlock() }
+
+        guard let track = latestTrack, track.playerState.isPlaying else { return }
+        let newPos = track.duration > 0 ? min(track.duration, track.position + elapsedDelta) : (track.position + elapsedDelta)
+        latestTrack = AppleMusicTrack(
+            databaseID: track.databaseID,
+            name: track.name,
+            artist: track.artist,
+            album: track.album,
+            duration: track.duration,
+            position: newPos,
+            playerState: track.playerState,
+            artworkURL: track.artworkURL,
+            source: track.source,
+            updatedAt: Date()
+        )
     }
 
     private func getCachedArtwork(for key: String) -> URL? {
@@ -151,7 +218,6 @@ public final class AppleMusicDetector: @unchecked Sendable {
             return cached
         }
 
-        // Query iTunes Search API for official Apple Music cover art
         let term = "\(track.artist) \(track.name)"
         guard let encoded = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let searchURL = URL(string: "https://itunes.apple.com/search?term=\(encoded)&entity=song&limit=5") else {
@@ -167,7 +233,6 @@ public final class AppleMusicDetector: @unchecked Sendable {
                 return nil
             }
 
-            // Find best matching result
             var candidateArtURL: String?
             for result in results {
                 let resArtist = (result["artistName"] as? String ?? "").lowercased()
@@ -183,7 +248,6 @@ public final class AppleMusicDetector: @unchecked Sendable {
             }
 
             if let rawArt = candidateArtURL {
-                // Upscale thumbnail to 512x512 high-resolution artwork
                 let highResStr = rawArt
                     .replacingOccurrences(of: "100x100bb.jpg", with: "512x512bb.jpg")
                     .replacingOccurrences(of: "60x60bb.jpg", with: "512x512bb.jpg")
