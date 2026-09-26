@@ -887,8 +887,42 @@ final class TanRuntime {
 
       // 5. Native Media Lightbox Interceptor (Bypasses Discord's heavy React modal allocation)
       document.addEventListener('click', (e) => {
-        const mediaContainer = e.target.closest('div[class*="imageWrapper_"], div[class*="imageContent_"], a[class*="originalLink_"], div[class*="video_"]');
-        const mediaLink = e.target.closest('a[href*="cdn.discordapp.com/attachments/"], a[href*="media.discordapp.net/attachments/"]');
+        const target = e.target instanceof Element ? e.target : e.target?.parentElement;
+        if (!target || !target.closest) return;
+
+        // Never intercept buttons or interactive controls (favorite, copy link, options, menus, etc.)
+        if (target.closest('button, [role="button"], [role="menu"], [role="menuitem"], [role="tab"], [aria-haspopup="true"], [data-action], a:not([class*="originalLink_"]):not([class*="imageWrapper_"])')) {
+          return;
+        }
+
+        // Never intercept favorite buttons or overlay action groups on media/GIFs
+        if (target.closest('[class*="favButton" i], [class*="favorite" i], [class*="favourite" i], [class*="hoverButtonGroup" i], [class*="toolbar_" i], [class*="operations_" i], [class*="action_" i], [class*="altText_" i], [class*="badge_" i], [aria-label*="favorit" i], [aria-label*="star" i], [aria-label*="copy" i], [aria-label*="option" i], [aria-label*="more" i]')) {
+          return;
+        }
+
+        // Never intercept inside pickers (GIF picker, emoji, stickers), popouts, dialogs, modals, or chat composer
+        if (target.closest('[class*="picker" i], [class*="expressionPicker" i], [id*="gif-picker" i], [id*="picker" i], [class*="popout" i], [class*="modal" i], [role="dialog"], [class*="channelTextArea" i], form[class*="form_" i], [class*="upload_" i], [class*="drafts" i]')) {
+          return;
+        }
+
+        // Never intercept unrevealed spoilers or video player controls
+        if (target.closest('[class*="spoiler" i]:not([class*="revealed" i]), [class*="hiddenSpoiler" i], [class*="videoControls" i], [class*="mediaBar" i], [class*="playButton" i]')) {
+          return;
+        }
+
+        // Target must be inside an image wrapper/content container or direct media link
+        const mediaContainer = target.closest('div[class*="imageWrapper_"], div[class*="imageContent_"], a[class*="originalLink_"], div[class*="video_"]');
+        const mediaLink = target.closest('a[href*="cdn.discordapp.com/attachments/"], a[href*="media.discordapp.net/attachments/"]');
+        if (!mediaContainer && !mediaLink) return;
+
+        // Ensure the clicked element is actually the media itself (img, video, canvas, or direct wrapper)
+        const isDirectMediaTarget = target.tagName === 'IMG' ||
+          target.tagName === 'VIDEO' ||
+          target.tagName === 'CANVAS' ||
+          target === mediaContainer ||
+          target.closest('a[class*="originalLink_"]') !== null ||
+          target.matches('div[class*="imageWrapper_"], div[class*="imageContent_"], div[class*="video_"]');
+        if (!isDirectMediaTarget) return;
 
         let mediaUrl = null;
         let isVideo = false;
@@ -896,15 +930,15 @@ final class TanRuntime {
         if (mediaContainer) {
           const video = mediaContainer.querySelector('video') || (mediaContainer.tagName === 'VIDEO' ? mediaContainer : null);
           const img = mediaContainer.querySelector('img') || (mediaContainer.tagName === 'IMG' ? mediaContainer : null);
-          const parentA = mediaContainer.closest('a') || mediaContainer.querySelector('a');
+          const parentA = (mediaContainer.tagName === 'A' ? mediaContainer : null) || mediaContainer.closest('a');
 
           if (video) {
             mediaUrl = video.currentSrc || video.src;
             isVideo = true;
-          } else if (parentA && parentA.href && (parentA.href.includes('discordapp.com') || parentA.href.includes('discordapp.net'))) {
-            mediaUrl = parentA.href;
           } else if (img) {
             mediaUrl = (img.currentSrc && !img.currentSrc.startsWith('data:')) ? img.currentSrc : (img.__nokoOriginalSrc || img.src);
+          } else if (parentA && parentA.href && (parentA.href.includes('discordapp.com') || parentA.href.includes('discordapp.net'))) {
+            mediaUrl = parentA.href;
           }
         } else if (mediaLink) {
           mediaUrl = mediaLink.href;

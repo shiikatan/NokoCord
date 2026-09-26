@@ -353,4 +353,71 @@ final class TanRuntimeTests: XCTestCase {
         let timerCount = try await view.evaluateJavaScript("document.querySelectorAll('[data-fixture-failed-timer]').length") as? Int
         XCTAssertEqual(timerCount, 0)
     }
+
+    func testMediaLightboxInterceptorIgnoresActionButtonsAndPickers() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        final class MockHandler: NSObject, WKScriptMessageHandler {
+            var messages: [[String: Any]] = []
+            func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+                if let body = message.body as? [String: Any] { messages.append(body) }
+            }
+        }
+        let handler = MockHandler()
+        configuration.userContentController.add(handler, name: "nokoCordApp")
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+
+        let html = """
+        <!DOCTYPE html><html><body>
+            <div id="chat-messages-123">
+                <div class="imageWrapper_abc imageContent_def">
+                    <img id="gif-img" src="https://media.discordapp.net/attachments/123/456/sample.gif" />
+                    <button id="fav-btn" class="favButton_123" aria-label="Add to Favorites">
+                        <svg><path id="fav-path" d="M10 10"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="gifPicker_container">
+                <img id="picker-gif" src="https://media.discordapp.net/attachments/123/456/picker.gif" />
+            </div>
+        </body></html>
+        """
+        _ = view.loadHTMLString(html, baseURL: nil)
+        for _ in 0..<50 {
+            if let ready = try? await view.evaluateJavaScript("document.getElementById('fav-btn') !== null && document.getElementById('picker-gif') !== null") as? Bool, ready { break }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+
+        var script = TanRuntime.discordInjectedScript
+        script = script.replacingOccurrences(of: "if (location.origin !== 'https://discord.com') return;", with: "// bypassed for test")
+        _ = try await view.evaluateJavaScript(script)
+
+        func click(_ id: String) async throws {
+            _ = try await view.evaluateJavaScript("""
+            (() => {
+                const el = document.getElementById('\(id)');
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            })()
+            """)
+        }
+
+        handler.messages.removeAll()
+        try await click("fav-path")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertTrue(handler.messages.isEmpty, "Favorite button path click must not trigger openMedia")
+
+        try await click("fav-btn")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertTrue(handler.messages.isEmpty, "Favorite button click must not trigger openMedia")
+
+        try await click("picker-gif")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertTrue(handler.messages.isEmpty, "Picker GIF click must not trigger openMedia")
+
+        try await click("gif-img")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertEqual(handler.messages.count, 1)
+        XCTAssertEqual(handler.messages.first?["action"] as? String, "openMedia")
+        XCTAssertEqual(handler.messages.first?["url"] as? String, "https://media.discordapp.net/attachments/123/456/sample.gif")
+    }
 }
