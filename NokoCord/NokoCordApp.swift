@@ -33,7 +33,11 @@ struct NokoCordApp: App {
                 .task {
                     guard !handledStartup else { return }
                     handledStartup = true
-                    browser.openDiscord()
+                    if UserDefaults.standard.bool(forKey: "openDiscordOnLaunch"), !tans.safeMode {
+                        browser.openDiscord()
+                    } else {
+                        browser.showHome()
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -155,6 +159,13 @@ private struct NokoCordCommands: Commands {
                 .disabled(bookmarks == nil)
         }
         CommandGroup(after: .toolbar) {
+            Button("Open Discord") { openWindow(id: "main"); browser.openDiscord() }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+            Button("Home") {
+                if let goHome { goHome() }
+                else { browser.showHome(); openWindow(id: "main") }
+            }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
             Button("Toggle Tans") {
                 openWindow(id: "main")
                 browser.onToggleTans?()
@@ -175,7 +186,6 @@ private struct NokoCordCommands: Commands {
             Button("Disconnect Voice Call") {
                 browser.disconnectCall()
             }
-            .keyboardShortcut("d", modifiers: [.command, .shift])
             .disabled(!browser.isInCall)
             Divider()
             Button("Back") { browser.goBack() }

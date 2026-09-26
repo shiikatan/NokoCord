@@ -8,9 +8,12 @@ public final class GamePresenceService: NSObject {
     public static let shared = GamePresenceService()
 
     public private(set) var activePresence: GamePresence?
-    public var isEnabled: Bool = true {
+    public var isEnabled: Bool = false {
         didSet {
-            if !isEnabled {
+            if isEnabled {
+                startServer()
+            } else {
+                stopServer()
                 clearPresence()
             }
         }
@@ -28,7 +31,7 @@ public final class GamePresenceService: NSObject {
 
     public override init() {
         super.init()
-        startServer()
+        // Do not auto-bind sockets on startup; enabled on demand
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,

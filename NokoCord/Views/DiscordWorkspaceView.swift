@@ -1,11 +1,13 @@
 import SwiftUI
 import WebKit
+import Observation
 
 struct NokoRootView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
     @Environment(TanManager.self) private var tans
     @Environment(\.openSettings) private var openSettings
 
+    @State private var selection: NokoDestination = .home
     @State private var showTansInspector = false
     @State private var showQuickSwitcher = false
     @State private var showBookmarksDrawer = false
@@ -20,40 +22,41 @@ struct NokoRootView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            // MARK: - 1. Full-Bleed Native Discord Viewport (100% Window Edge-to-Edge)
-            Group {
-                if browser.lifecycle.phase == .failed || browser.lifecycle.phase == .crashed {
-                    ContentUnavailableView {
-                        Label(
-                            browser.lifecycle.phase == .crashed ? "Discord needs to reopen" : "Discord could not load",
-                            systemImage: "network.slash"
-                        )
-                    } description: {
-                        Text("Check your connection, then reload. Reloading interrupts any active call.")
-                    } actions: {
-                        Button("Reload Discord") { browser.reload() }
-                            .buttonStyle(.borderedProminent)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let view = browser.view {
-                    BrowserHostView(view: view, visible: true)
-                        .id(ObjectIdentifier(view))
+            if browser.lifecycle.isVisible {
+                // MARK: - 1. Full-Bleed Native Discord Viewport (100% Window Edge-to-Edge)
+                Group {
+                    if browser.lifecycle.phase == .failed || browser.lifecycle.phase == .crashed {
+                        ContentUnavailableView {
+                            Label(
+                                browser.lifecycle.phase == .crashed ? "Discord needs to reopen" : "Discord could not load",
+                                systemImage: "network.slash"
+                            )
+                        } description: {
+                            Text("Check your connection, then reload. Reloading interrupts any active call.")
+                        } actions: {
+                            Button("Reload Discord") { browser.reload() }
+                                .buttonStyle(.borderedProminent)
+                        }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    // Initial launching state before WebKit view is attached
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .controlSize(.large)
-                        Text("Opening Discord…")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
+                    } else if let view = browser.view {
+                        BrowserHostView(view: view, visible: browser.lifecycle.isVisible)
+                            .id(ObjectIdentifier(view))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        // Initial launching state before WebKit view is attached
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .controlSize(.large)
+                            Text("Opening Discord…")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea()
-            .background(Color(nsColor: NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+                .background(Color(nsColor: NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)))
 
             // MARK: - 2. Native Top Hairline Loading Progress Bar
             if browser.lifecycle.phase == .loading {
@@ -249,7 +252,11 @@ struct NokoRootView: View {
                     removal: .scale(scale: 0.98).combined(with: .opacity)
                 ))
             }
+        } else {
+            ContentView(selection: $selection, showQuickSwitcher: $showQuickSwitcher)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
         .animation(.nokoFluidSpring, value: showTansInspector)
         .animation(.nokoFluidSpring, value: showBookmarksDrawer)
         .animation(.nokoSnappySpring, value: showQuickSwitcher)
@@ -304,9 +311,8 @@ struct NokoRootView: View {
         .focusedSceneValue(\.nokoCordQuickSwitcher, $showQuickSwitcher)
         .focusedSceneValue(\.nokoCordBookmarks, $showBookmarksDrawer)
         .focusedSceneValue(\.nokoCordHome, {
-            withAnimation(.nokoFluidSpring) {
-                showTansInspector.toggle()
-            }
+            selection = .home
+            browser.showHome()
         })
         .background(WindowLifetimeObserver {
             showQuickSwitcher = false

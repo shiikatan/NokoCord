@@ -13,6 +13,23 @@ struct WorkspaceToolbar: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // MARK: - Home / Tan Hub (⌘⇧H)
+            Button {
+                browser.showHome()
+            } label: {
+                Image(systemName: "house")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Home / Tan Hub (⌘⇧H)")
+
+            Divider()
+                .frame(height: 14)
+                .padding(.horizontal, 1)
+
             // MARK: - Navigation Chevrons (shown when history is available)
             if browser.canGoBack || browser.canGoForward {
                 HStack(spacing: 2) {

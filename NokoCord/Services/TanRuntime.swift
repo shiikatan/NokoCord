@@ -264,8 +264,7 @@ final class TanRuntime {
           return str.includes('/api/v9/science') ||
                  str.includes('/api/v9/track') ||
                  str.includes('/api/v9/telemetry') ||
-                 str.includes('sentry.io') ||
-                 str.includes('braintreegateway.com');
+                 str.includes('sentry.io');
         };
 
         if (window.fetch) {
@@ -315,69 +314,21 @@ final class TanRuntime {
         }
       } catch (_) {}
 
-      // 0b. Completely eradicate Autocorrect, Spellcheck, Autocapitalize, and Autocomplete
+      // 0b. Suppress spellchecking and red underlines on active input editors
       try {
-        const targets = [
-          HTMLElement.prototype,
-          HTMLInputElement.prototype,
-          HTMLTextAreaElement.prototype
-        ];
-        targets.forEach((proto) => {
-          ['spellcheck', 'autocorrect', 'autocapitalize', 'autocomplete'].forEach((prop) => {
-            try {
-              Object.defineProperty(proto, prop, {
-                get() { return prop === 'spellcheck' ? false : 'off'; },
-                set(_) {},
-                configurable: true
-              });
-            } catch (_) {}
-          });
-        });
-
-        const origSetAttribute = Element.prototype.setAttribute;
-        Element.prototype.setAttribute = function(name, value) {
-          const lower = String(name).toLowerCase();
-          if (lower === 'spellcheck') {
-            return origSetAttribute.call(this, 'spellcheck', 'false');
-          }
-          if (lower === 'autocorrect') {
-            return origSetAttribute.call(this, 'autocorrect', 'off');
-          }
-          if (lower === 'autocapitalize') {
-            return origSetAttribute.call(this, 'autocapitalize', 'off');
-          }
-          if (lower === 'autocomplete') {
-            return origSetAttribute.call(this, 'autocomplete', 'off');
-          }
-          return origSetAttribute.call(this, name, value);
-        };
-
-        const enforceNoAutocorrect = (el) => {
+        const suppressSpellcheck = (el) => {
           if (!el || !(el instanceof HTMLElement)) return;
           if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.getAttribute('role') === 'textbox') {
             try {
               el.spellcheck = false;
-              origSetAttribute.call(el, 'spellcheck', 'false');
-              origSetAttribute.call(el, 'autocorrect', 'off');
-              origSetAttribute.call(el, 'autocapitalize', 'off');
-              origSetAttribute.call(el, 'autocomplete', 'off');
-              origSetAttribute.call(el, 'data-gramm', 'false');
-              origSetAttribute.call(el, 'data-enable-grammarly', 'false');
+              el.setAttribute('spellcheck', 'false');
+              el.setAttribute('autocorrect', 'off');
+              el.setAttribute('data-gramm', 'false');
             } catch (_) {}
           }
         };
-
-        window.addEventListener('focusin', (e) => enforceNoAutocorrect(e.target), true);
-        window.addEventListener('pointerdown', (e) => {
-          enforceNoAutocorrect(e.target);
-          if (e.target && e.target.closest) {
-            const ed = e.target.closest('[contenteditable="true"], textarea, input, [role="textbox"]');
-            if (ed) enforceNoAutocorrect(ed);
-          }
-        }, true);
-        window.addEventListener('keydown', (e) => {
-          enforceNoAutocorrect(e.target);
-        }, true);
+        window.addEventListener('focusin', (e) => suppressSpellcheck(e.target), true);
+      } catch (_) {}
       } catch (_) {}
 
       const onReady = (fn) => {
@@ -775,96 +726,9 @@ final class TanRuntime {
         };
         initObservers();
 
-        // Discord Internal Stores Access for Memory Reclamation
-        let discordMessageStore = null;
-        let discordSelectedChannelStore = null;
-        let discordDispatcher = null;
-        const recentChannelIds = [];
-
-        const getDiscordStores = () => {
-          if (discordMessageStore && discordSelectedChannelStore) return true;
-          try {
-            const chunk = window.webpackChunkdiscord_app;
-            if (!chunk || typeof chunk.push !== 'function') return false;
-            let req;
-            chunk.push([[Symbol()], {}, (r) => { req = r; }]);
-            if (!req || !req.c) return false;
-            const modules = Object.values(req.c);
-            for (let i = 0; i < modules.length; i++) {
-              const exp = modules[i]?.exports;
-              if (!exp) continue;
-              const candidates = [exp, exp.default, exp.Z, exp.ZP].filter(Boolean);
-              for (const c of candidates) {
-                if (typeof c === 'object' && c !== null) {
-                  if (typeof c.getName === 'function') {
-                    const name = c.getName();
-                    if (name === 'MessageStore') discordMessageStore = c;
-                    else if (name === 'SelectedChannelStore') discordSelectedChannelStore = c;
-                  }
-                  if (c.dispatch && c.subscribe && !discordDispatcher) {
-                    discordDispatcher = c;
-                  }
-                }
-              }
-              if (discordMessageStore && discordSelectedChannelStore && discordDispatcher) break;
-            }
-            return Boolean(discordMessageStore);
-          } catch (_) {
-            return false;
-          }
-        };
-
-        const pruneInactiveChannels = () => {
-          try {
-            getDiscordStores();
-            if (!discordMessageStore) return;
-
-            let activeChannelId = null;
-            if (discordSelectedChannelStore && typeof discordSelectedChannelStore.getChannelId === 'function') {
-              activeChannelId = discordSelectedChannelStore.getChannelId();
-            }
-            if (!activeChannelId) {
-              const match = location.pathname.match(/\/channels\/[^\/]+\/(\d+)/);
-              if (match) activeChannelId = match[1];
-            }
-            if (!activeChannelId) return;
-
-            // Maintain small LRU ring of 3 most recent channels (~600 KB total memory)
-            // for instant zero-latency back-and-forth channel navigation
-            const activeStr = String(activeChannelId);
-            const idx = recentChannelIds.indexOf(activeStr);
-            if (idx !== -1) recentChannelIds.splice(idx, 1);
-            recentChannelIds.unshift(activeStr);
-            while (recentChannelIds.length > 3) {
-              recentChannelIds.pop();
-            }
-
-            // Prune unmounted channels from Discord MessageStore outside our 3-channel ring
-            const mapNames = ['_channelMessages', 'channelMessages', '_messages'];
-            for (const mapName of mapNames) {
-              const storeMap = discordMessageStore[mapName];
-              if (storeMap && typeof storeMap === 'object') {
-                if (storeMap instanceof Map) {
-                  for (const key of Array.from(storeMap.keys())) {
-                    if (!recentChannelIds.includes(String(key))) {
-                      storeMap.delete(key);
-                    }
-                  }
-                } else {
-                  for (const key of Object.keys(storeMap)) {
-                    if (!recentChannelIds.includes(String(key))) {
-                      delete storeMap[key];
-                    }
-                  }
-                }
-              }
-            }
-          } catch (_) {}
-        };
-
+        // Safe Offscreen Media & Video Pausing
         const evictOffscreenMedia = () => {
           try {
-            // Pause out of view videos
             document.querySelectorAll('video, audio').forEach(el => {
               const r = el.getBoundingClientRect();
               if (r.bottom < 0 || r.top > window.innerHeight) {
@@ -879,7 +743,6 @@ final class TanRuntime {
 
         const onChannelNavigated = () => {
           evictOffscreenMedia();
-          pruneInactiveChannels();
           try {
             window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'channelChanged' });
           } catch (_) {}
@@ -911,33 +774,9 @@ final class TanRuntime {
 
         window.addEventListener('popstate', checkNavigation);
 
-        // Also subscribe to Discord Flux Dispatcher CHANNEL_SELECT
-        let fluxSubscribed = false;
-        const trySubscribeFlux = () => {
-          if (fluxSubscribed) return true;
-          if (getDiscordStores() && discordDispatcher && typeof discordDispatcher.subscribe === 'function') {
-            try {
-              discordDispatcher.subscribe('CHANNEL_SELECT', () => {
-                setTimeout(onChannelNavigated, 80);
-              });
-              fluxSubscribed = true;
-              return true;
-            } catch (_) {}
-          }
-          return false;
-        };
-        if (!trySubscribeFlux()) {
-          let fluxAttempts = 0;
-          const fluxTimer = setInterval(() => {
-            fluxAttempts++;
-            if (trySubscribeFlux() || fluxAttempts >= 30) clearInterval(fluxTimer);
-          }, 1500);
-        }
-
         // Memory purge & hibernation hooks called by Swift
         window.__nokoPurgeMemory = () => {
           try {
-            pruneInactiveChannels();
             evictOffscreenMedia();
             if (window.__SENTRY__?.hub?.getScope?.()?.clearBreadcrumbs) {
               window.__SENTRY__.hub.getScope().clearBreadcrumbs();
@@ -947,7 +786,6 @@ final class TanRuntime {
 
         window.__nokoHibernate = () => {
           try {
-            pruneInactiveChannels();
             evictOffscreenMedia();
             document.querySelectorAll('video, audio').forEach((el) => {
               if (typeof el.pause === 'function') el.pause();

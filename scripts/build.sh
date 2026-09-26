@@ -5,14 +5,12 @@ cd "$(dirname "$0")/.."
 # Detect Command Line Tools macOS SDK
 # On macOS 27 beta Command Line Tools, libSwiftUIMacros is not bundled;
 # using MacOSX26.sdk uses native SwiftUI property wrappers seamlessly.
-if [ -z "${SDKROOT:-}" ]; then
-    if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" ]; then
-        export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
-    elif [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ]; then
-        export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
-    else
-        export SDKROOT="$(xcrun --show-sdk-path 2>/dev/null || echo '')"
-    fi
+if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk" ]; then
+    export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
+elif [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ]; then
+    export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+elif [ -z "${SDKROOT:-}" ]; then
+    export SDKROOT="$(xcrun --show-sdk-path 2>/dev/null || echo '')"
 fi
 
 BUILD_DIR="build"

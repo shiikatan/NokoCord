@@ -75,6 +75,18 @@ struct CommandPaletteView: View {
         })
 
         items.append(PaletteAction(
+            id: "nav.home",
+            title: "Home & Tan Hub",
+            subtitle: "Return to the native shell, Tan Hub, translator, and shortcuts",
+            category: "Navigation",
+            icon: "house.fill",
+            shortcut: "⌘⇧H",
+            tint: .blue
+        ) {
+            browser.showHome()
+        })
+
+        items.append(PaletteAction(
             id: "nav.settings",
             title: "Settings",
             subtitle: "Open application preferences",
