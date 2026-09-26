@@ -9,6 +9,23 @@ enum BrowserPolicy {
         return url.scheme?.lowercased() == "https" && url.host?.lowercased() == "discord.com"
             && (url.port == nil || url.port == 443) && url.user == nil && url.password == nil
     }
+    static func isDiscordMediaURL(_ url: URL?) -> Bool {
+        guard let url, url.user == nil, url.password == nil else { return false }
+        guard url.scheme?.lowercased() == "https", (url.port == nil || url.port == 443) else { return false }
+        guard let host = url.host?.lowercased() else { return false }
+        let isAllowedHost: Bool
+        if host == "cdn.discordapp.com" || host == "media.discordapp.net" {
+            isAllowedHost = true
+        } else if host.hasSuffix(".discordapp.net") && host.hasPrefix("images-ext-") {
+            isAllowedHost = true
+        } else {
+            isAllowedHost = false
+        }
+        guard isAllowedHost else { return false }
+        let path = url.path
+        guard !path.isEmpty && !path.contains("..") else { return false }
+        return true
+    }
     static func route(_ url: URL?, isMainFrame: Bool, userActivated: Bool) -> BrowserRoute {
         guard let url, url.user == nil, url.password == nil else { return .deny }
         // This is top-level routing, not a resource or iframe domain allowlist.

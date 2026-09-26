@@ -601,8 +601,8 @@ final class TanRuntime {
             try {
               window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
                 action: 'notification',
-                title: String(title),
-                body: String(options.body || '')
+                title: String(title).slice(0, 128),
+                body: String(options.body || '').slice(0, 512)
               });
             } catch (_) {}
           }
@@ -682,6 +682,18 @@ final class TanRuntime {
               let hasRelevantNode = false;
               for (let i = 0; i < mutations.length; i++) {
                 const m = mutations[i];
+                if (m.removedNodes && m.removedNodes.length > 0) {
+                  for (let j = 0; j < m.removedNodes.length; j++) {
+                    const node = m.removedNodes[j];
+                    if (node.nodeType === 1) {
+                      if (node.tagName === 'VIDEO' || node.tagName === 'AUDIO') {
+                        mediaObserver.unobserve(node);
+                      } else if (typeof node.querySelectorAll === 'function') {
+                        node.querySelectorAll('video, audio').forEach(el => mediaObserver.unobserve(el));
+                      }
+                    }
+                  }
+                }
                 // Ignore mutations inside text inputs, slate editors, or typing areas to prevent typing hitching
                 if (m.target && m.target.nodeType === 1) {
                   if (m.target.isContentEditable || m.target.getAttribute('role') === 'textbox' || m.target.tagName === 'TEXTAREA' || m.target.tagName === 'INPUT') {
@@ -690,7 +702,6 @@ final class TanRuntime {
                 }
                 if (m.addedNodes.length > 0) {
                   hasRelevantNode = true;
-                  break;
                 }
               }
               if (hasRelevantNode) {
@@ -855,25 +866,12 @@ final class TanRuntime {
           return false;
         };
         if (!trySubscribeFlux()) {
+          let fluxAttempts = 0;
           const fluxTimer = setInterval(() => {
-            if (trySubscribeFlux()) clearInterval(fluxTimer);
+            fluxAttempts++;
+            if (trySubscribeFlux() || fluxAttempts >= 30) clearInterval(fluxTimer);
           }, 1500);
         }
-
-        // Channel Hover Pre-Warming: Pre-warms channel routing on pointerenter
-        document.addEventListener('pointerenter', (e) => {
-          const channelLink = e.target.closest?.('a[href*="/channels/"]');
-          if (channelLink && channelLink.href && !channelLink.__nokoPrewarmed) {
-            channelLink.__nokoPrewarmed = true;
-            try {
-              const prefetch = document.createElement('link');
-              prefetch.rel = 'prefetch';
-              prefetch.href = channelLink.href;
-              document.head.appendChild(prefetch);
-              setTimeout(() => { prefetch.remove(); }, 3000);
-            } catch (_) {}
-          }
-        }, true);
 
         // Memory purge hook called by Swift
         window.__nokoPurgeMemory = () => {
@@ -953,15 +951,22 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
         } else if action == "channelChanged" {
             runtime.onChannelChanged?()
         } else if action == "openMedia" {
-            if let urlStr = body["url"] as? String, let url = URL(string: urlStr) {
+            if let urlStr = body["url"] as? String,
+               let url = URL(string: urlStr),
+               BrowserPolicy.isDiscordMediaURL(url) {
                 let isVideo = body["isVideo"] as? Bool ?? false
                 runtime.onOpenMedia?(url, isVideo)
             }
         } else if action == "notification" {
             if let title = body["title"] as? String {
                 let notifBody = body["body"] as? String ?? ""
+                let cleanTitle = title.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined()
+                let cleanBody = notifBody.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined()
+                let boundedTitle = String(cleanTitle.prefix(128))
+                let boundedBody = String(cleanBody.prefix(512))
+                guard !boundedTitle.isEmpty else { return }
                 Task { @MainActor in
-                    await NotificationService.shared.deliverWebNotification(title: title, body: notifBody)
+                    await NotificationService.shared.deliverWebNotification(title: boundedTitle, body: boundedBody)
                 }
             }
         }

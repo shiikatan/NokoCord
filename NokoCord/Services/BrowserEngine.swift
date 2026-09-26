@@ -134,12 +134,13 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             }
         }
     }
-    deinit {
+    isolated deinit {
         channelPurgeTask?.cancel()
         memoryPurgeTimer?.invalidate()
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         appObservers.forEach { NotificationCenter.default.removeObserver($0) }
         observations.forEach { $0.invalidate() }
+        tanRuntime?.detach()
     }
 
     func handleChannelChanged() {
@@ -158,8 +159,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         dataStore.removeData(
             ofTypes: [
                 WKWebsiteDataTypeMemoryCache,
-                WKWebsiteDataTypeFetchCache,
-                WKWebsiteDataTypeDiskCache
+                WKWebsiteDataTypeFetchCache
             ],
             modifiedSince: .distantPast
         ) {}
@@ -214,6 +214,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         view.wantsLayer = true
         view.layer?.backgroundColor = CGColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1.0)
         tanRuntime?.attach(view)
+        observations.forEach { $0.invalidate() }
+        observations.removeAll()
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
                 Task { @MainActor [weak self] in

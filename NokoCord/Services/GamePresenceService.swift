@@ -129,6 +129,8 @@ public final class GamePresenceService: NSObject {
                 }
             }
             if clientFd >= 0 {
+                var nosigpipe: Int32 = 1
+                setsockopt(clientFd, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, socklen_t(MemoryLayout<Int32>.size))
                 Task { @MainActor [weak self] in
                     self?.acceptClient(clientFd)
                 }
@@ -151,7 +153,15 @@ public final class GamePresenceService: NSObject {
             let bytesRead = Darwin.read(fd, &temp, temp.count)
             if bytesRead <= 0 {
                 clientSource?.cancel()
-                Darwin.close(fd)
+                Task { @MainActor [weak self] in
+                    self?.handleClientDisconnect(fd)
+                }
+                return
+            }
+
+            // Guard against unbounded memory allocation / malicious buffer flood (limit buffer to 128KB)
+            if buffer.count + bytesRead > 131072 {
+                clientSource?.cancel()
                 Task { @MainActor [weak self] in
                     self?.handleClientDisconnect(fd)
                 }
@@ -163,6 +173,14 @@ public final class GamePresenceService: NSObject {
             while buffer.count >= 8 {
                 let opcode = buffer.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self).littleEndian }
                 let length = Int(buffer.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).littleEndian })
+                // Discord IPC payload length must not exceed standard 64KB packet limits
+                guard length >= 0 && length <= 65536 else {
+                    clientSource?.cancel()
+                    Task { @MainActor [weak self] in
+                        self?.handleClientDisconnect(fd)
+                    }
+                    return
+                }
                 guard buffer.count >= 8 + length else { break }
 
                 let payloadData = buffer.subdata(in: 8..<(8 + length))
@@ -254,10 +272,17 @@ public final class GamePresenceService: NSObject {
         }
     }
 
+    private static func sanitize(_ string: String, maxLength: Int) -> String {
+        let clean = string.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined()
+        return String(clean.prefix(maxLength))
+    }
+
     private func parsePresence(from dict: [String: Any], clientId: String, pid: Int?) -> GamePresence {
-        let name = (dict["name"] as? String) ?? (dict["details"] as? String) ?? "Active Game"
-        let details = dict["details"] as? String
-        let state = dict["state"] as? String
+        let rawName = (dict["name"] as? String) ?? (dict["details"] as? String) ?? "Active Game"
+        let name = Self.sanitize(rawName, maxLength: 128)
+        let details = (dict["details"] as? String).map { Self.sanitize($0, maxLength: 128) }
+        let state = (dict["state"] as? String).map { Self.sanitize($0, maxLength: 128) }
+        let safeClientId = Self.sanitize(clientId, maxLength: 32)
 
         var startDate: Date?
         var endDate: Date?
@@ -281,14 +306,14 @@ public final class GamePresenceService: NSObject {
         var smallImg: String?
         var smallTxt: String?
         if let assets = dict["assets"] as? [String: Any] {
-            largeImg = assets["large_image"] as? String
-            largeTxt = assets["large_text"] as? String
-            smallImg = assets["small_image"] as? String
-            smallTxt = assets["small_text"] as? String
+            largeImg = (assets["large_image"] as? String).map { Self.sanitize($0, maxLength: 128) }
+            largeTxt = (assets["large_text"] as? String).map { Self.sanitize($0, maxLength: 128) }
+            smallImg = (assets["small_image"] as? String).map { Self.sanitize($0, maxLength: 128) }
+            smallTxt = (assets["small_text"] as? String).map { Self.sanitize($0, maxLength: 128) }
         }
 
         return GamePresence(
-            clientId: clientId,
+            clientId: safeClientId,
             pid: pid,
             name: name,
             details: details,

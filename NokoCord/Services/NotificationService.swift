@@ -53,6 +53,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     private let center: NotificationCenterClient
     private(set) var policy: NotificationPolicy
     private var generation = UUID()
+    private var webNotificationTimestamps: [Date] = []
     var onNavigate: ((NotificationNavigation) -> Void)?
 
     init(center: NotificationCenterClient = NativeNotificationCenterClient(), preferences: NotificationPreferences = .init()) {
@@ -91,12 +92,21 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func deliverWebNotification(title: String, body: String) async {
+        let now = Date()
+        webNotificationTimestamps = webNotificationTimestamps.filter { now.timeIntervalSince($0) < 5.0 }
+        guard webNotificationTimestamps.count < 5 else { return }
+        webNotificationTimestamps.append(now)
+
         if await center.authorizationStatus() == .notDetermined {
             _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         }
+        let cleanTitle = String(title.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined().prefix(128))
+        let cleanBody = String(body.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined().prefix(512))
+        guard !cleanTitle.isEmpty else { return }
+
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
+        content.title = cleanTitle
+        content.body = cleanBody
         content.sound = .default
         let requestID = "web-notif-" + UUID().uuidString
         let request = UNNotificationRequest(identifier: requestID, content: content, trigger: nil)
@@ -105,6 +115,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     func clearOnLogout() {
         generation = UUID()
+        webNotificationTimestamps.removeAll()
         center.removeAllPendingRequests(); center.removeAllDeliveredNotifications(); policy.clearDeduplication()
     }
 

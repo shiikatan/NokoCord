@@ -51,4 +51,29 @@ final class BrowserPolicyTests: XCTestCase {
         lifecycle.loading(); lifecycle.ready()
         XCTAssertEqual(lifecycle.phase, .ready)
     }
+
+    func testDiscordMediaURLAcceptsOnlyDiscordMediaCDNsAndSafeSchemes() {
+        for valid in [
+            "https://cdn.discordapp.com/attachments/123/456/image.png",
+            "https://media.discordapp.net/attachments/123/456/video.mp4",
+            "https://images-ext-1.discordapp.net/external/abc/image.jpg",
+            "https://cdn.discordapp.com:443/attachments/123/file.webp"
+        ] {
+            XCTAssertTrue(BrowserPolicy.isDiscordMediaURL(URL(string: valid)), valid)
+        }
+        for invalid in [
+            "http://cdn.discordapp.com/attachments/123/image.png",
+            "file:///etc/passwd",
+            "file:///Applications/Calculator.app",
+            "javascript:alert(1)",
+            "data:image/png;base64,abc",
+            "https://evil.com/fake.png",
+            "https://cdn.discordapp.com.evil.com/image.png",
+            "https://user:pass@cdn.discordapp.com/attachments/123/image.png",
+            "https://cdn.discordapp.com:8080/attachments/123/image.png",
+            "https://cdn.discordapp.com/attachments/../../etc/passwd"
+        ] {
+            XCTAssertFalse(BrowserPolicy.isDiscordMediaURL(URL(string: invalid)), invalid)
+        }
+    }
 }

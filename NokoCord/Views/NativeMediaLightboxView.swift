@@ -111,7 +111,7 @@ struct NativeMediaLightboxView: View {
                                 Text("Could not preview media")
                                     .font(.headline)
                                 Button("Open Original in Browser") {
-                                    NSWorkspace.shared.open(mediaURL)
+                                    openMediaInBrowser()
                                 }
                                 .buttonStyle(.borderedProminent)
                             }
@@ -162,7 +162,7 @@ struct NativeMediaLightboxView: View {
                         .help("Copy link or image to clipboard (⌘C)")
 
                         Button {
-                            NSWorkspace.shared.open(mediaURL)
+                            openMediaInBrowser()
                         } label: {
                             Image(systemName: "arrow.up.right.square")
                                 .font(.system(size: 13, weight: .medium))
@@ -181,12 +181,23 @@ struct NativeMediaLightboxView: View {
             }
         }
         .onDisappear {
-            player?.pause()
-            player = nil
+            stopAndReleasePlayer()
         }
     }
 
+    private func stopAndReleasePlayer() {
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        player = nil
+    }
+
+    private func openMediaInBrowser() {
+        guard BrowserPolicy.isDiscordMediaURL(mediaURL) else { return }
+        NSWorkspace.shared.open(mediaURL)
+    }
+
     private func copyMediaToClipboard() {
+        guard BrowserPolicy.isDiscordMediaURL(mediaURL) else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(mediaURL.absoluteString, forType: .string)
