@@ -136,78 +136,8 @@ struct TanBridgeRequest: Decodable {
     }
 }
 
-extension TanPackage {
-    static let originals: [TanPackage] = [
-        TanPackage(manifest: TanManifest(id: "noko.clear-focus", name: "Clear Focus", version: "1.2.0", description: "Make keyboard focus clear while preserving Discord’s existing focus treatment.", authors: ["shiikatan"], target: .isolated, entry: "main.js", stylesheet: "style.css"), javascript: #"""
-NokoTan.register({
-  start(api) {
-    let marked = null, frame = null;
-    const clear = () => { marked?.deref()?.removeAttribute('data-noko-focus'); marked = null; if (frame !== null) cancelAnimationFrame(frame); frame = null; };
-    const visible = style => (style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 1 && style.outlineColor !== 'transparent' && style.outlineColor !== 'rgba(0, 0, 0, 0)') || style.boxShadow !== 'none';
-    const focus = event => {
-      clear();
-      const reference = new WeakRef(event.target);
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        const target = reference.deref();
-        if (!(target instanceof Element) || !target.isConnected || !target.matches(':focus-visible')) return;
-        // Inspect styling only, never text, inputs, credentials or session data.
-        let element = target;
-        for (let depth = 0; element && depth < 3; depth++, element = element.parentElement) {
-          if (visible(getComputedStyle(element)) || visible(getComputedStyle(element, '::before')) || visible(getComputedStyle(element, '::after'))) return;
-        }
-        target.setAttribute('data-noko-focus', ''); marked = reference;
-      });
-    };
-    api.listen(document, 'focusin', focus, true);
-    api.listen(document, 'focusout', clear, true);
-    api.onCleanup(clear);
-  }
-});
-"""#, css: "[data-noko-focus]:focus-visible { outline: 2px solid #5b9dff !important; outline-offset: 2px !important; }", origin: "Noko-Tan"),
-        TanPackage(manifest: TanManifest(id: "noko.scroll-tools", name: "Scroll Tools", version: "1.1.0", description: "Move through the active panel, from loaded history to the newest content.", authors: ["shiikatan"], target: .isolated, entry: "main.js"), javascript: #"""
-NokoTan.register({
-  start(api) {
-    let active = null;
-    const bar = document.createElement('div');
-    bar.setAttribute('data-noko-scroll-tools', '');
-    bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Noko scroll tools');
-    bar.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483000;display:flex;gap:2px;padding:4px;border:1px solid #ffffff28;border-radius:14px;background:#25252bf5;color:#f5eee4;box-shadow:0 3px 12px #0003;font:12px system-ui';
-    const eligible = element => element instanceof Element && !bar.contains(element) && element.scrollHeight > element.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(element).overflowY);
-    const remember = element => { if (eligible(element)) active = new WeakRef(element); };
-    const locate = event => {
-      let element = event.target instanceof Element ? event.target : null;
-      while (element && element !== document.documentElement) {
-        if (eligible(element)) { remember(element); return; }
-        element = element.parentElement;
-      }
-    };
-    api.listen(document, 'scroll', event => remember(event.target), {capture:true, passive:true});
-    api.listen(document, 'wheel', locate, {capture:true, passive:true});
-    api.listen(document, 'focusin', locate, true);
-    api.listen(document, 'pointerdown', event => { if (!bar.contains(event.target)) locate(event); }, true);
-    for (const [label, glyph, end] of [['Earlier', '↑', false], ['Newest', '↓', true]]) {
-      const button = document.createElement('button');
-      button.textContent = glyph + ' ' + label;
-      button.title = end ? 'Go to the end of the active panel' : 'Go to the start of loaded content. Discord may load earlier history; this is not an instant jump to the first message.';
-      button.setAttribute('aria-label', button.title);
-      button.style.cssText = 'color:inherit;background:transparent;border:0;padding:8px 11px;border-radius:10px;cursor:pointer;font:500 12px system-ui';
-      api.listen(button, 'pointerenter', () => { button.style.background = '#ffffff14'; });
-      api.listen(button, 'pointerleave', () => { button.style.background = 'transparent'; });
-      api.listen(button, 'click', () => {
-        const remembered = active?.deref();
-        const target = remembered?.isConnected ? remembered : document.scrollingElement;
-        target?.scrollTo({ top: end ? target.scrollHeight : 0, behavior: 'instant' });
-      });
-      bar.append(button);
-    }
-    api.mount(bar);
-    return () => { active = null; };
-  }
-});
-"""#, css: nil, origin: "Noko-Tan")
-    ]
-}
+// Bundled official Noko-Tans are defined in TanOriginals.swift
+
 
 extension TanManifest {
     private enum CodingKeys: String, CodingKey {

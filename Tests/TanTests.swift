@@ -370,4 +370,31 @@ final class TanTests: XCTestCase {
         XCTAssertNil(TanBridgeRequest.parse(["type": 1, "state": "started"]))
         XCTAssertNil(TanBridgeRequest.parse(["state": "started"]))
     }
+
+    func testOfficialBundledOriginalsIncludeAllOfficialTans() throws {
+        let expectedIDs = ["noko.clear-focus", "noko.scroll-tools", "noko.chat", "noko.morgana"]
+        let originalIDs = TanPackage.originals.map(\.id)
+        for expected in expectedIDs {
+            XCTAssertTrue(originalIDs.contains(expected), "Missing official Tan: \(expected)")
+        }
+        XCTAssertEqual(Set(originalIDs).count, originalIDs.count, "Official Tans must have unique IDs")
+
+        let nokoChat = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.chat" }))
+        XCTAssertEqual(nokoChat.manifest.name, "Noko-Chat")
+        XCTAssertEqual(nokoChat.manifest.version, "1.6.5")
+        XCTAssertEqual(nokoChat.manifest.target, .isolated)
+        XCTAssertFalse(nokoChat.manifest.requiresReload)
+        XCTAssertNotNil(nokoChat.javascript)
+        XCTAssertNil(nokoChat.css)
+        XCTAssertNoThrow(try nokoChat.validate())
+
+        let morgana = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.morgana" }))
+        XCTAssertEqual(morgana.manifest.name, "Morgana")
+        XCTAssertEqual(morgana.manifest.version, "1.1.0")
+        XCTAssertEqual(morgana.manifest.target, .page)
+        XCTAssertTrue(morgana.manifest.requiresReload)
+        XCTAssertNotNil(morgana.javascript)
+        XCTAssertNil(morgana.css)
+        XCTAssertNoThrow(try morgana.validate())
+    }
 }
