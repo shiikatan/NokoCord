@@ -16,6 +16,7 @@ struct NativeMediaLightboxView: View {
     @State private var isHoveringClose = false
     @State private var isHoveringAction = false
     @State private var player: AVPlayer?
+    @State private var isSaved = false
 
     var body: some View {
         ZStack {
@@ -26,6 +27,14 @@ struct NativeMediaLightboxView: View {
                 .onTapGesture {
                     onClose()
                 }
+
+            // Hidden Spacebar dismiss listener for native Quick Look feel
+            Button("") {
+                onClose()
+            }
+            .keyboardShortcut(.space, modifiers: [])
+            .opacity(0)
+            .frame(width: 0, height: 0)
 
             // Media Presentation Canvas
             Group {
@@ -75,7 +84,7 @@ struct NativeMediaLightboxView: View {
                                                 }
                                             }
                                         }
-                                )
+                                    )
                                 .simultaneousGesture(
                                     DragGesture()
                                         .onChanged { value in
@@ -134,7 +143,7 @@ struct NativeMediaLightboxView: View {
                         HStack(spacing: 5) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 11, weight: .bold))
-                            Text("Esc")
+                            Text("Esc / Space")
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                         }
                         .foregroundStyle(.white.opacity(0.85))
@@ -150,6 +159,19 @@ struct NativeMediaLightboxView: View {
                     // Action buttons
                     HStack(spacing: 8) {
                         Button {
+                            saveMediaToDownloads()
+                        } label: {
+                            Image(systemName: isSaved ? "checkmark" : "arrow.down.to.line")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(isSaved ? .green : .white.opacity(0.9))
+                                .padding(8)
+                                .background(Color.white.opacity(0.12), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut("s", modifiers: .command)
+                        .help("Save to Downloads (⌘S)")
+
+                        Button {
                             copyMediaToClipboard()
                         } label: {
                             Image(systemName: "doc.on.doc")
@@ -159,7 +181,8 @@ struct NativeMediaLightboxView: View {
                                 .background(Color.white.opacity(0.12), in: Circle())
                         }
                         .buttonStyle(.plain)
-                        .help("Copy link or image to clipboard (⌘C)")
+                        .keyboardShortcut("c", modifiers: .command)
+                        .help("Copy link to clipboard (⌘C)")
 
                         Button {
                             openMediaInBrowser()
@@ -189,6 +212,33 @@ struct NativeMediaLightboxView: View {
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player = nil
+    }
+
+    private func saveMediaToDownloads() {
+        guard BrowserPolicy.isDiscordMediaURL(mediaURL) else { return }
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        let fileName = mediaURL.lastPathComponent.isEmpty ? (isVideo ? "video.mp4" : "image.png") : mediaURL.lastPathComponent
+        let destURL = downloads.appendingPathComponent(fileName)
+
+        Task {
+            do {
+                let (tempURL, _) = try await URLSession.shared.download(from: mediaURL)
+                if FileManager.default.fileExists(atPath: destURL.path) {
+                    try? FileManager.default.removeItem(at: destURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: destURL)
+                await MainActor.run {
+                    withAnimation(.nokoSnappySpring) {
+                        isSaved = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        withAnimation(.nokoSnappySpring) {
+                            isSaved = false
+                        }
+                    }
+                }
+            } catch {}
+        }
     }
 
     private func openMediaInBrowser() {

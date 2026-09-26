@@ -81,8 +81,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var tanRuntime: TanRuntime?
     var onToggleTans: (() -> Void)?
     var onToggleQuickSwitcher: (() -> Void)?
+    var onToggleBookmarks: (() -> Void)?
     var onOpenTutorial: (() -> Void)?
     var onOpenMedia: ((URL, Bool) -> Void)?
+    var onSaveBookmark: ((NokoBookmark) -> Void)?
     private(set) var isZenMode = false
 
     init(dataStore: WKWebsiteDataStore? = nil, tans: TanManager? = nil) {
@@ -92,9 +94,11 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             let runtime = TanRuntime(manager: tans)
             runtime.onToggleTans = { [weak self] in self?.onToggleTans?() }
             runtime.onToggleQuickSwitcher = { [weak self] in self?.onToggleQuickSwitcher?() }
+            runtime.onToggleBookmarks = { [weak self] in self?.onToggleBookmarks?() }
             runtime.onOpenMedia = { [weak self] url, isVideo in self?.onOpenMedia?(url, isVideo) }
             runtime.onToggleZenMode = { [weak self] in self?.toggleZenMode() }
             runtime.onChannelChanged = { [weak self] in self?.handleChannelChanged() }
+            runtime.onSaveBookmark = { [weak self] bookmark in self?.onSaveBookmark?(bookmark) }
             tanRuntime = runtime
             tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
         }
@@ -116,12 +120,17 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         appObservers = [
             appCenter.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.purgeMemoryCache()
+                    self?.hibernate()
+                }
+            },
+            appCenter.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.resume()
                 }
             },
             appCenter.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.purgeMemoryCache()
+                    self?.hibernate()
                     self?.browserView?.pauseAllMediaPlayback()
                 }
             }
@@ -173,6 +182,26 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             } catch (_) {}
         })();
         """, completionHandler: nil)
+    }
+
+    /// Aggressively suspends background media and offscreen channel caches for sub-500MB idle memory.
+    func hibernate() {
+        purgeMemoryCache()
+        browserView?.evaluateJavaScript("try { window.__nokoHibernate?.(); } catch (_) {}", completionHandler: nil)
+    }
+
+    /// Resumes active media tracking when window regains focus.
+    func resume() {
+        browserView?.evaluateJavaScript("try { window.__nokoResume?.(); } catch (_) {}", completionHandler: nil)
+    }
+
+    /// Loads a validated Discord URL directly into the active browser workspace.
+    func openURL(_ url: URL) {
+        guard BrowserPolicy.isDiscordOrigin(url), lifecycle.phase != .clearing else { return }
+        lifecycle.show()
+        let view = prepareBrowser()
+        lifecycle.loading()
+        navigation = view.load(URLRequest(url: url))
     }
 
     func prepareBrowser() -> WKWebView {

@@ -22,7 +22,7 @@ struct NokoCordApp: App {
         _browser = State(initialValue: ActiveBrowserEngine(tans: manager))
     }
 
-    @AppStorage("showMenuBar") private var showMenuBar = false
+    @AppStorage("showMenuBar") private var showMenuBar = true
 
     var body: some Scene {
         Window("NokoCord", id: "main") {
@@ -101,12 +101,21 @@ extension FocusedValues {
         get { self[QuickSwitcherFocusKey.self] }
         set { self[QuickSwitcherFocusKey.self] = newValue }
     }
+    var nokoCordBookmarks: Binding<Bool>? {
+        get { self[BookmarksFocusKey.self] }
+        set { self[BookmarksFocusKey.self] = newValue }
+    }
+}
+
+private struct BookmarksFocusKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
 }
 
 private struct NokoCordCommands: Commands {
     let browser: ActiveBrowserEngine
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.nokoCordQuickSwitcher) private var quickSwitcher
+    @FocusedValue(\.nokoCordBookmarks) private var bookmarks
     @FocusedValue(\.nokoCordHome) private var goHome
 
     var body: some Commands {
@@ -140,6 +149,10 @@ private struct NokoCordCommands: Commands {
             Button("Quick Selector") { quickSwitcher?.wrappedValue = true }
                 .keyboardShortcut("k", modifiers: .command)
                 .disabled(quickSwitcher == nil)
+
+            Button("Saved Messages") { bookmarks?.wrappedValue = true }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .disabled(bookmarks == nil)
         }
         CommandGroup(after: .toolbar) {
             Button("Toggle Tans") {
@@ -267,6 +280,17 @@ private struct MenuBarContent: View {
             browser.onToggleQuickSwitcher?()
         }
         .keyboardShortcut("k", modifiers: .command)
+
+        Button("Saved Messages…") {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: "main")
+            }
+            browser.onToggleBookmarks?()
+        }
+        .keyboardShortcut("b", modifiers: [.command, .shift])
 
         Button("Toggle Tans Inspector") {
             NSApp.activate(ignoringOtherApps: true)

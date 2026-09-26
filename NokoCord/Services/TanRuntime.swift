@@ -19,9 +19,11 @@ final class TanRuntime {
     private var appHandler: NokoAppMessageHandler?
     var onToggleTans: (() -> Void)?
     var onToggleQuickSwitcher: (() -> Void)?
+    var onToggleBookmarks: (() -> Void)?
     var onOpenMedia: ((URL, Bool) -> Void)?
     var onToggleZenMode: (() -> Void)?
     var onChannelChanged: (() -> Void)?
+    var onSaveBookmark: ((NokoBookmark) -> Void)?
 
     init(manager: TanManager, allowedOrigin: String = "https://discord.com") {
         self.manager = manager; self.allowedOrigin = allowedOrigin
@@ -254,7 +256,66 @@ final class TanRuntime {
       if (window.__nokoCordAppInjected) return;
       window.__nokoCordAppInjected = true;
 
-      // 0. Completely eradicate Autocorrect, Spellcheck, Autocapitalize, and Autocomplete
+      // 0a. Block Discord Science Telemetry & Analytics Tracking
+      try {
+        const isTelemetryUrl = (url) => {
+          if (!url) return false;
+          const str = String(url);
+          return str.includes('/api/v9/science') ||
+                 str.includes('/api/v9/track') ||
+                 str.includes('/api/v9/telemetry') ||
+                 str.includes('sentry.io') ||
+                 str.includes('braintreegateway.com');
+        };
+
+        if (window.fetch) {
+          const origFetch = window.fetch;
+          window.fetch = function(resource, init) {
+            const url = (typeof resource === 'string') ? resource : (resource?.url || '');
+            if (isTelemetryUrl(url)) {
+              return Promise.resolve(new Response(null, { status: 204, statusText: 'No Content' }));
+            }
+            return origFetch.apply(this, arguments);
+          };
+        }
+
+        if (window.XMLHttpRequest) {
+          const origOpen = XMLHttpRequest.prototype.open;
+          const origSend = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.open = function(method, url) {
+            this.__nokoBlocked = isTelemetryUrl(url);
+            return origOpen.apply(this, arguments);
+          };
+          XMLHttpRequest.prototype.send = function() {
+            if (this.__nokoBlocked) {
+              try {
+                Object.defineProperty(this, 'status', { value: 204, writable: false });
+                Object.defineProperty(this, 'readyState', { value: 4, writable: false });
+                Object.defineProperty(this, 'responseText', { value: '', writable: false });
+              } catch (_) {}
+              setTimeout(() => {
+                try {
+                  this.dispatchEvent(new Event('readystatechange'));
+                  this.dispatchEvent(new Event('load'));
+                  this.dispatchEvent(new Event('loadend'));
+                } catch (_) {}
+              }, 1);
+              return;
+            }
+            return origSend.apply(this, arguments);
+          };
+        }
+
+        if (navigator.sendBeacon) {
+          const origBeacon = navigator.sendBeacon;
+          navigator.sendBeacon = function(url, data) {
+            if (isTelemetryUrl(url)) return true;
+            return origBeacon.apply(this, arguments);
+          };
+        }
+      } catch (_) {}
+
+      // 0b. Completely eradicate Autocorrect, Spellcheck, Autocapitalize, and Autocomplete
       try {
         const targets = [
           HTMLElement.prototype,
@@ -873,7 +934,7 @@ final class TanRuntime {
           }, 1500);
         }
 
-        // Memory purge hook called by Swift
+        // Memory purge & hibernation hooks called by Swift
         window.__nokoPurgeMemory = () => {
           try {
             pruneInactiveChannels();
@@ -881,6 +942,22 @@ final class TanRuntime {
             if (window.__SENTRY__?.hub?.getScope?.()?.clearBreadcrumbs) {
               window.__SENTRY__.hub.getScope().clearBreadcrumbs();
             }
+          } catch (_) {}
+        };
+
+        window.__nokoHibernate = () => {
+          try {
+            pruneInactiveChannels();
+            evictOffscreenMedia();
+            document.querySelectorAll('video, audio').forEach((el) => {
+              if (typeof el.pause === 'function') el.pause();
+            });
+          } catch (_) {}
+        };
+
+        window.__nokoResume = () => {
+          try {
+            scheduleTrackElements();
           } catch (_) {}
         };
       }
@@ -961,6 +1038,135 @@ final class TanRuntime {
           } catch (_) {}
         }
       }, true);
+
+      // 6. Native Spacebar Quick Look & ⌘S Quick Bookmark Handler
+      let currentHoveredMedia = null;
+      let currentHoveredMessage = null;
+
+      const saveMessageBookmark = (msgEl) => {
+        try {
+          const msgId = msgEl.id ? msgEl.id.replace(/^chat-messages-/, '') : (msgEl.getAttribute('data-list-item-id') || String(Date.now()));
+          const authorEl = msgEl.querySelector('span[class*="username_"], span[id*="message-username-"]');
+          const authorName = authorEl ? authorEl.textContent.trim() : 'Discord User';
+          const avatarEl = msgEl.querySelector('img[class*="avatar_"]');
+          const authorAvatarURL = avatarEl ? (avatarEl.currentSrc || avatarEl.src) : null;
+          const contentEl = msgEl.querySelector('div[class*="messageContent_"], div[id*="message-content-"]');
+          const content = contentEl ? contentEl.textContent.trim() : '';
+          const imgEl = msgEl.querySelector('div[class*="imageWrapper_"] img');
+          const mediaURL = imgEl ? (imgEl.currentSrc || imgEl.src) : null;
+
+          const title = document.title || '';
+          let channelName = 'general';
+          let serverName = '';
+          if (title.includes('|')) {
+            const parts = title.split('|');
+            channelName = parts[1] ? parts[1].replace(/^[#\s]+/, '').trim() : 'general';
+            serverName = parts[2] ? parts[2].trim() : (parts[0] ? parts[0].trim() : '');
+          }
+
+          const messageURL = location.origin + location.pathname + '/' + msgId;
+
+          window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
+            action: 'saveBookmark',
+            messageId: msgId,
+            authorName: authorName,
+            authorAvatarURL: authorAvatarURL,
+            channelName: channelName,
+            serverName: serverName,
+            content: content,
+            mediaURL: mediaURL,
+            messageURL: messageURL
+          });
+        } catch (_) {}
+      };
+
+      document.addEventListener('mouseover', (e) => {
+        const target = e.target instanceof Element ? e.target : e.target?.parentElement;
+        if (!target) return;
+
+        // Track hovered message for ⌘S bookmarking
+        const msgItem = target.closest('li[class*="messageListItem_"], div[id^="chat-messages-"]');
+        if (msgItem) {
+          currentHoveredMessage = msgItem;
+          // Inject subtle bookmark button if buttons container is mounted
+          const buttonsGroup = msgItem.querySelector('div[class*="buttons_"], div[class*="buttonContainer_"]');
+          if (buttonsGroup && !buttonsGroup.querySelector('.nokocord-bookmark-btn')) {
+            const btn = document.createElement('button');
+            btn.className = 'nokocord-bookmark-btn';
+            btn.setAttribute('aria-label', 'Save to NokoCord Bookmarks (⌘S)');
+            btn.title = 'Save to NokoCord Bookmarks (⌘S)';
+            btn.style.cssText = 'background:none;border:none;cursor:pointer;padding:4px 6px;color:#b5bac1;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:color 0.1s,background-color 0.1s;';
+            btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+            btn.onmouseenter = () => { btn.style.color = '#fff'; btn.style.backgroundColor = 'rgba(255,255,255,0.08)'; };
+            btn.onmouseleave = () => { btn.style.color = '#b5bac1'; btn.style.backgroundColor = 'transparent'; };
+            btn.onclick = (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              saveMessageBookmark(msgItem);
+              btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#3ba55d" stroke="#3ba55d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+              setTimeout(() => {
+                btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>';
+              }, 1500);
+            };
+            buttonsGroup.prepend(btn);
+          }
+        }
+
+        // Track hovered media for Spacebar Quick Look
+        const mediaContainer = target.closest('div[class*="imageWrapper_"], div[class*="imageContent_"], div[class*="video_"]');
+        const mediaImg = target.tagName === 'IMG' ? target : (mediaContainer?.querySelector('img') || null);
+        const mediaVideo = target.tagName === 'VIDEO' ? target : (mediaContainer?.querySelector('video') || null);
+
+        if (mediaVideo) {
+          const src = mediaVideo.currentSrc || mediaVideo.src;
+          if (src && (src.includes('discordapp.com') || src.includes('discordapp.net'))) {
+            currentHoveredMedia = { url: src, isVideo: true };
+            return;
+          }
+        }
+        if (mediaImg) {
+          const src = (mediaImg.currentSrc && !mediaImg.currentSrc.startsWith('data:')) ? mediaImg.currentSrc : (mediaImg.__nokoOriginalSrc || mediaImg.src);
+          if (src && (src.includes('discordapp.com') || src.includes('discordapp.net')) &&
+              !src.includes('/emojis/') && !src.includes('/avatars/') && !src.includes('/stickers/') && !src.includes('/badges/')) {
+            currentHoveredMedia = { url: src, isVideo: false };
+            return;
+          }
+        }
+        if (!mediaContainer) {
+          currentHoveredMedia = null;
+        }
+      }, true);
+
+      document.addEventListener('keydown', (e) => {
+        const active = document.activeElement;
+        const isTyping = active && (active.isContentEditable || active.getAttribute('role') === 'textbox' || active.tagName === 'TEXTAREA' || active.tagName === 'INPUT');
+
+        // Spacebar Native Quick Look on Hovered Media
+        if (e.code === 'Space' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+          if (!isTyping && currentHoveredMedia) {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
+                action: 'openMedia',
+                url: currentHoveredMedia.url,
+                isVideo: currentHoveredMedia.isVideo
+              });
+            } catch (_) {}
+            return;
+          }
+        }
+
+        // ⌘S: Save Hovered Message to Bookmarks
+        if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+          if (!isTyping && currentHoveredMessage) {
+            e.preventDefault();
+            e.stopPropagation();
+            saveMessageBookmark(currentHoveredMessage);
+            return;
+          }
+        }
+      }, true);
     })();
     """#
 }
@@ -980,10 +1186,43 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
             runtime.onToggleTans?()
         } else if action == "toggleQuickSwitcher" {
             runtime.onToggleQuickSwitcher?()
+        } else if action == "toggleBookmarks" {
+            runtime.onToggleBookmarks?()
         } else if action == "toggleZenMode" {
             runtime.onToggleZenMode?()
         } else if action == "channelChanged" {
             runtime.onChannelChanged?()
+        } else if action == "saveBookmark" {
+            if let msgId = body["messageId"] as? String,
+               let author = body["authorName"] as? String,
+               let channel = body["channelName"] as? String,
+               let server = body["serverName"] as? String,
+               let content = body["content"] as? String,
+               let msgUrl = body["messageURL"] as? String {
+                let avatar = body["authorAvatarURL"] as? String
+                let media = body["mediaURL"] as? String
+                let bookmark = NokoBookmark(
+                    messageId: msgId,
+                    authorName: author,
+                    authorAvatarURL: avatar,
+                    channelName: channel,
+                    serverName: server,
+                    content: content,
+                    mediaURL: media,
+                    messageURL: msgUrl
+                )
+                BookmarkStore.shared.add(
+                    messageId: msgId,
+                    authorName: author,
+                    authorAvatarURL: avatar,
+                    channelName: channel,
+                    serverName: server,
+                    content: content,
+                    mediaURL: media,
+                    messageURL: msgUrl
+                )
+                runtime.onSaveBookmark?(bookmark)
+            }
         } else if action == "openMedia" {
             if let urlStr = body["url"] as? String,
                let url = URL(string: urlStr),

@@ -99,6 +99,18 @@ struct CommandPaletteView: View {
         })
 
         items.append(PaletteAction(
+            id: "nav.bookmarks",
+            title: "Saved Messages / Bookmarks",
+            subtitle: "View private locally saved Discord messages and notes",
+            category: "Productivity",
+            icon: "bookmark.fill",
+            shortcut: "⌘⇧B",
+            tint: .accentColor
+        ) {
+            browser.onToggleBookmarks?()
+        })
+
+        items.append(PaletteAction(
             id: "nav.toolbar",
             title: showFloatingToolbar ? "Auto-hide Floating Toolbar" : "Always Show Floating Toolbar",
             subtitle: showFloatingToolbar ? "Hide the toolbar so it only reveals on hover" : "Keep the floating capsule permanently pinned",

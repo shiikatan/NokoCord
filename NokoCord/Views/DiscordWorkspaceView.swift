@@ -8,6 +8,8 @@ struct NokoRootView: View {
 
     @State private var showTansInspector = false
     @State private var showQuickSwitcher = false
+    @State private var showBookmarksDrawer = false
+    @State private var bookmarkToast: String?
     @State private var showDownloadsSheet = false
     @AppStorage("showFloatingToolbar") private var showFloatingToolbar = false
     @State private var isHoveringToolbarZone = false
@@ -85,7 +87,8 @@ struct NokoRootView: View {
             if showFloatingToolbar || isHoveringToolbarZone {
                 WorkspaceToolbar(
                     showTansInspector: $showTansInspector,
-                    showQuickSwitcher: $showQuickSwitcher
+                    showQuickSwitcher: $showQuickSwitcher,
+                    showBookmarksDrawer: $showBookmarksDrawer
                 )
                 .padding(.top, 10)
                 .padding(.trailing, 16)
@@ -137,6 +140,27 @@ struct NokoRootView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            // MARK: - 5b. Saved Bookmark Toast Banner
+            if let toast = bookmarkToast {
+                HStack(spacing: 8) {
+                    Image(systemName: "bookmark.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tint)
+                    Text(toast)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.35), radius: 10, y: 4)
+                .padding(.top, 46)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .zIndex(22)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             // MARK: - 6. In-Discord Tans Inspector Overlay
             if showTansInspector {
                 Color.black.opacity(0.28)
@@ -152,6 +176,25 @@ struct NokoRootView: View {
                 TansInspectorView(isPresented: $showTansInspector)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                     .zIndex(25)
+            }
+
+            // MARK: - 6b. Bookmarks / Saved Messages Drawer Overlay (⌘⇧B)
+            if showBookmarksDrawer {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture {
+                        withAnimation(.nokoFluidSpring) {
+                            showBookmarksDrawer = false
+                        }
+                    }
+                    .zIndex(26)
+
+                BookmarksDrawerView(isPresented: $showBookmarksDrawer, onOpenURL: { url in
+                    browser.openURL(url)
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(27)
             }
 
             // MARK: - 7. Spotlight / Raycast Liquid Glass Command Palette (⌘K)
@@ -208,6 +251,7 @@ struct NokoRootView: View {
             }
         }
         .animation(.nokoFluidSpring, value: showTansInspector)
+        .animation(.nokoFluidSpring, value: showBookmarksDrawer)
         .animation(.nokoSnappySpring, value: showQuickSwitcher)
         .animation(.nokoFluidSpring, value: showWelcomeTutorial)
         .animation(.nokoFluidSpring, value: activeMediaURL != nil)
@@ -241,8 +285,24 @@ struct NokoRootView: View {
                     showQuickSwitcher.toggle()
                 }
             }
+            browser.onToggleBookmarks = {
+                withAnimation(.nokoFluidSpring) {
+                    showBookmarksDrawer.toggle()
+                }
+            }
+            browser.onSaveBookmark = { bookmark in
+                withAnimation(.nokoSnappySpring) {
+                    bookmarkToast = "Saved message from @\(bookmark.authorName) to Bookmarks"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    withAnimation(.nokoSnappySpring) {
+                        bookmarkToast = nil
+                    }
+                }
+            }
         }
         .focusedSceneValue(\.nokoCordQuickSwitcher, $showQuickSwitcher)
+        .focusedSceneValue(\.nokoCordBookmarks, $showBookmarksDrawer)
         .focusedSceneValue(\.nokoCordHome, {
             withAnimation(.nokoFluidSpring) {
                 showTansInspector.toggle()

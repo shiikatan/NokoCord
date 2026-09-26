@@ -420,4 +420,35 @@ final class TanRuntimeTests: XCTestCase {
         XCTAssertEqual(handler.messages.first?["action"] as? String, "openMedia")
         XCTAssertEqual(handler.messages.first?["url"] as? String, "https://media.discordapp.net/attachments/123/456/sample.gif")
     }
+
+    func testTelemetryBlockingSuppressesScienceAndTrack() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+
+        _ = view.loadHTMLString("<!DOCTYPE html><html><body><div id='test'>Ready</div></body></html>", baseURL: URL(string: "https://discord.com/app")!)
+        for _ in 0..<50 {
+            if let ready = try? await view.evaluateJavaScript("document.getElementById('test') !== null") as? Bool, ready { break }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+
+        let script = TanRuntime.discordInjectedScript
+        _ = try await view.evaluateJavaScript(script)
+
+        // Test fetch blocking for science telemetry
+        _ = try await view.evaluateJavaScript("void window.fetch('https://discord.com/api/v9/science').then(r => { window.__testStatus = r.status; }).catch(e => { window.__testStatus = -1; })")
+        var fetchStatus: Int?
+        for _ in 0..<40 {
+            if let status = try? await view.evaluateJavaScript("window.__testStatus") as? Int {
+                fetchStatus = status
+                break
+            }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        XCTAssertEqual(fetchStatus, 204, "Discord science fetch must be intercepted with 204 No Content")
+
+        // Test sendBeacon suppression
+        let beaconResult = try await view.evaluateJavaScript("navigator.sendBeacon('https://discord.com/api/v9/track', 'data')") as? Bool
+        XCTAssertEqual(beaconResult, true, "Discord track sendBeacon must return true without network activity")
+    }
 }

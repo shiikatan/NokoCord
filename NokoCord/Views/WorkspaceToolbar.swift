@@ -6,6 +6,7 @@ struct WorkspaceToolbar: View {
     @Environment(TanManager.self) private var tans
     @Binding var showTansInspector: Bool
     @Binding var showQuickSwitcher: Bool
+    @Binding var showBookmarksDrawer: Bool
     @State private var showDownloadsPopover = false
     @State private var gamePresence = GamePresenceService.shared
     @State private var showGameRPPopover = false
@@ -144,6 +145,21 @@ struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .help("Quick Switcher (⌘K)")
+
+            // MARK: - Saved Messages / Bookmarks (⌘⇧B)
+            Button {
+                withAnimation(.nokoFluidSpring) {
+                    showBookmarksDrawer.toggle()
+                }
+            } label: {
+                Image(systemName: showBookmarksDrawer ? "bookmark.fill" : "bookmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(showBookmarksDrawer ? Color.accentColor : Color.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Saved Messages (⌘⇧B)")
 
             // MARK: - Downloads Popover Button
             Button {

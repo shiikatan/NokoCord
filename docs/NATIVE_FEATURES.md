@@ -114,3 +114,59 @@ Messages are passed to `NotificationService.swift` and delivered via macOS `UNUs
 * Unread mention counts are extracted by observing `WKWebView.title` for patterns like `(3) Discord | #general`.
 * Badges are displayed cleanly on the macOS Dock icon (`NSApp.dockTile.badgeLabel`) and inside the Menu Bar Extra (`NokoMenuBarIcon`).
 * **Dock Bounce Control**: Unlike annoying Electron wrappers that bounce the Dock icon persistently on every message, NokoCord adheres to standard macOS notification hygiene.
+
+---
+
+## 6. Private Local Bookmarks & Saved Messages (`BookmarkStore.swift`, `BookmarksDrawerView.swift`)
+
+Discord's native pin feature is restricted to 50 pins per channel and controlled exclusively by server administrators. NokoCord introduces a **Private Local Bookmarks Drawer**:
+
+* **Interaction**:
+  * Hover over any message in chat and press **`⌘S`**, or click the injected Bookmark star button on the message action toolbar.
+  * Press **`⌘⇧B`**, use the Command Palette (`⌘K`), or click the toolbar bookmark button to open the Liquid Glass drawer.
+* **Architecture**:
+  * Persisted locally in `~/Library/Application Support/NokoCord/bookmarks.json`.
+  * Stores message text, author, avatar, channel, server, timestamp, and attachment URLs.
+  * Instant full-text search across all saved messages without network latency or external API calls.
+  * 100% private: zero Discord API mutations, zero tracking, zero risk of rate limits.
+
+---
+
+## 7. Native Spacebar Quick Look & Direct Downloads (`NativeMediaLightboxView.swift`)
+
+Brings macOS Finder-style Quick Look directly into Discord chat:
+
+* **Instant Preview (`Space`)**: Hover over any chat image, GIF, or video attachment and tap **`Space`** (while not focused in a text input) to open the native lightbox instantly. Tap **`Space`** or **`Esc`** again to dismiss.
+* **Direct Download (`⌘S`)**: Pressing **`⌘S`** inside the lightbox directly saves the high-resolution media file into `~/Downloads` without opening a web browser.
+* **Instant Clipboard Copy (`⌘C`)**: Copies the direct media URL to the system pasteboard.
+
+---
+
+## 8. Network-Layer Science & Telemetry Blocker (`TanRuntime.swift`)
+
+Discord continuously sends behavioral telemetry, window sizing, typing metrics, and click beacons to `/api/v9/science`, `/api/v9/track`, and `sentry.io`.
+
+NokoCord intercepts these at the WebContent JavaScript network boundary:
+* `window.fetch` and `XMLHttpRequest` calls matching telemetry patterns immediately resolve with `204 No Content` without transmitting network packets.
+* `navigator.sendBeacon` is stubbed to prevent analytics beacons on page unload.
+* **Result**: Complete privacy from Discord behavioral tracking, reduced network chatter, and eliminated CPU wakeups.
+
+---
+
+## 9. One-Click Custom CSS Theme Engine (`TanManager.swift`, `TansInspectorView.swift`)
+
+NokoCord includes first-class support for Discord CSS themes (including BetterDiscord and Vencord themes):
+* Open Tans Inspector (`⌘T`) and click the **Paintbrush** button.
+* Paste raw CSS rules or theme stylesheets and provide a theme name.
+* NokoCord packages the CSS into a native schema-1 Tan (`manifest.json` + `theme.css`), installs it with secure file permissions (`0o600`), and applies it immediately with live hot-reloading.
+
+---
+
+## 10. Background Hibernation Engine (`BrowserEngine.swift`)
+
+To achieve true all-day MacBook battery life and sub-500MB memory footprint:
+* When NokoCord is hidden or backgrounded, `BrowserEngine.hibernate()` invokes `window.__nokoHibernate()`:
+  * Pauses all offscreen `<video>` and `<audio>` decoders.
+  * Prunes Flux message store rings down to only the active visible channel.
+  * Flushes decoded graphics textures and WebKit memory caches.
+* When brought back to the foreground, `resume()` reactivates viewport element tracking smoothly without page reloading or scroll jumping.

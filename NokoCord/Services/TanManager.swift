@@ -72,6 +72,42 @@ final class TanManager {
         // Installation stays disabled; no state mutation is necessary here.
         onChange?()
     }
+
+    /// Creates and installs a custom CSS theme as an active Tan with live hot-reloading.
+    @discardableResult
+    func importCustomCSSTheme(name: String, css: String) throws -> TanPackage {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { throw TanError.invalid("Theme name cannot be empty") }
+        let slug = cleanName.lowercased()
+            .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init).joined()
+        let shortSlug = slug.isEmpty ? "custom" : String(slug.prefix(30))
+        let id = "theme." + shortSlug + "." + String(UUID().uuidString.prefix(6).lowercased())
+        let manifest = TanManifest(
+            schemaVersion: 1,
+            id: id,
+            name: cleanName,
+            version: "1.0.0",
+            description: "Custom CSS theme for Discord",
+            authors: ["User"],
+            target: .css,
+            entry: nil,
+            stylesheet: "theme.css",
+            capabilities: [],
+            requiresReload: false,
+            source: nil,
+            license: "MIT"
+        )
+        let package = TanPackage(
+            manifest: manifest,
+            javascript: nil,
+            css: css,
+            origin: "Custom Theme"
+        )
+        try install(package)
+        setEnabled(id, true)
+        return package
+    }
     func availableOriginalUpdate(_ package: TanPackage) -> TanPackage? {
         guard ["Noko Original", "Noko-Tan"].contains(package.origin) else { return nil }
         return TanPackage.originals.first { $0.id == package.id && $0.contentHash != package.contentHash }

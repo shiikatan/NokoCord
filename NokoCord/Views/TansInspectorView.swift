@@ -20,6 +20,7 @@ struct TansInspectorView: View {
     @State private var importError: String?
     @State private var filePanel: NSOpenPanel?
     @State private var pendingReloadID: String?
+    @State private var showThemeEditor = false
 
     private func matches(_ package: TanPackage) -> Bool {
         search.isEmpty || (package.manifest.name + " " + package.manifest.description + " " + package.manifest.authors.joined(separator: " ")).localizedStandardContains(search)
@@ -97,6 +98,9 @@ struct TansInspectorView: View {
                 }
             }
         }
+        .sheet(isPresented: $showThemeEditor) {
+            CustomThemeSheet(isPresented: $showThemeEditor)
+        }
         .background(
             WindowLifetimeObserver(reference: windowReference) {
                 pendingReloadID = nil
@@ -141,6 +145,17 @@ struct TansInspectorView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Translate Vencord Plugin…")
+                .frame(width: 26, height: 26)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+
+                Button {
+                    showThemeEditor = true
+                } label: {
+                    Image(systemName: "paintbrush.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .help("Create or Import Custom CSS Theme…")
                 .frame(width: 26, height: 26)
                 .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
 
@@ -546,5 +561,82 @@ struct TansInspectorView: View {
             case .details(let package): "details." + package.id
             }
         }
+    }
+}
+
+private struct CustomThemeSheet: View {
+    @Binding var isPresented: Bool
+    @Environment(TanManager.self) private var tans
+
+    @State private var themeName = ""
+    @State private var cssContent = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Custom CSS Theme")
+                        .font(.headline)
+                    Text("Paste custom CSS or import Vencord/BetterDiscord styles")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(16)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Theme Name")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("e.g. Midnight Glass, Catppuccin Mocha", text: $themeName)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CSS Rules")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $cssContent)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 180)
+                        .padding(4)
+                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.1), lineWidth: 1))
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack {
+                    Spacer()
+                    Button("Install & Apply Theme") {
+                        do {
+                            try tans.importCustomCSSTheme(name: themeName, css: cssContent)
+                            isPresented = false
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cssContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(16)
+        }
+        .frame(width: 480, height: 400)
     }
 }
