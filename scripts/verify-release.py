@@ -18,11 +18,11 @@ def run(*arguments, include_stderr=False):
 EDITIONS = {
     "maomao": {
         "CFBundleIdentifier": "com.shiikatan.nokocord.maomao",
-        "CFBundleShortVersionString": "1.0.0",
-        "CFBundleVersion": "1",
+        "CFBundleShortVersionString": "1.2.0",
+        "CFBundleVersion": "2",
         "NokoEditionID": "maomao",
         "NokoEditionName": "Maomao",
-        "NokoPublicVersion": "M1.0.0",
+        "NokoPublicVersion": "M1.2.0",
         "NokoMaintainer": "Shiikatan",
     },
     "chiaki": {

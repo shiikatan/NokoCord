@@ -18,7 +18,11 @@ final class BrowserHostTests: XCTestCase {
         XCTAssertNil(first.url) // Configuration checks never contact Discord.
         XCTAssertTrue(first.customUserAgent?.isEmpty ?? true)
         XCTAssertTrue(first.configuration.userContentController.userScripts.isEmpty)
+        #if DEBUG
+        XCTAssertTrue(first.isInspectable)
+        #else
         XCTAssertFalse(first.isInspectable)
+        #endif
         XCTAssertFalse(first.configuration.websiteDataStore.isPersistent)
     }
     func testProductionProfileConfigurationIsPersistentWithoutLoadingPage() {
@@ -42,5 +46,42 @@ final class BrowserHostTests: XCTestCase {
         XCTAssertFalse(replacement === previous)
         XCTAssertTrue(replacement === engine.prepareBrowser())
         XCTAssertNil(replacement.url)
+    }
+    func testTemporaryCacheResetPreservesCookiesAndCreatesOneFreshView() async {
+        _ = NSApplication.shared
+        let store = WKWebsiteDataStore.nonPersistent()
+        let engine = WKBrowserEngine(dataStore: store)
+        let cookie = HTTPCookie(properties: [
+            .domain: "discord.com", .path: "/", .name: "nokocord-test",
+            .value: "keep", .secure: "TRUE"
+        ])!
+        await store.httpCookieStore.setCookie(cookie)
+        var previous: WKWebView? = engine.prepareBrowser()
+        for _ in 0..<3 {
+            await engine.resetTemporaryCache(reopen: false)
+            XCTAssertNil(engine.browserView)
+            XCTAssertEqual(engine.lifecycle.phase, .dormant)
+            let replacement = engine.prepareBrowser()
+            XCTAssertFalse(previous === replacement)
+            XCTAssertTrue(replacement === engine.prepareBrowser())
+            XCTAssertTrue(replacement.configuration.websiteDataStore === store)
+            previous = replacement
+        }
+        let cookies = await store.httpCookieStore.allCookies()
+        XCTAssertTrue(cookies.contains { $0.name == cookie.name && $0.value == cookie.value })
+    }
+
+    func testTemporaryCacheResetReleasesTheOldWebView() async {
+        _ = NSApplication.shared
+        let engine = WKBrowserEngine(dataStore: .nonPersistent())
+        weak var oldView: WKWebView?
+        autoreleasepool { oldView = engine.prepareBrowser() }
+        XCTAssertNotNil(oldView)
+        await engine.resetTemporaryCache(reopen: false)
+        for _ in 0..<50 where oldView != nil {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNil(oldView)
+        XCTAssertNil(engine.browserView)
     }
 }

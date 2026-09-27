@@ -10,6 +10,7 @@ protocol BrowserEngine: AnyObject {
     func showHome()
     func reload()
     func clearProfile() async
+    func clearTemporaryCache() async
 }
 
 @MainActor @Observable
@@ -41,7 +42,11 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 Task { @MainActor [weak self] in self?.lifecycle.sleep() }
             },
             center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.lifecycle.wake() }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.lifecycle.wake()
+                    self.tanRuntime?.didWake()
+                }
             }
         ]
     }
@@ -58,7 +63,11 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
+        #if DEBUG
+        view.isInspectable = true
+        #else
         view.isInspectable = false
+        #endif
         tanRuntime?.attach(view)
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
@@ -113,6 +122,31 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func clearProfile() async {
         guard lifecycle.phase != .clearing else { return }
         lifecycle.clearing()
+        await discardBrowserView()
+        // Delete without enumerating or reading cookies, credentials or records.
+        await dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        lifecycle.cleared()
+        lifecycle.hide()
+        notice = nil
+    }
+    func clearTemporaryCache() async {
+        await resetTemporaryCache(reopen: true)
+    }
+    // The isolated-store test exercises teardown without contacting Discord.
+    func resetTemporaryCache(reopen: Bool) async {
+        guard lifecycle.phase != .clearing else { return }
+        lifecycle.clearing()
+        await discardBrowserView()
+        // Keep cookies, local storage, IndexedDB and service workers in the
+        // same website data store. A live signed-in check is still required.
+        await dataStore.removeData(ofTypes: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache],
+                                   modifiedSince: .distantPast)
+        lifecycle.cleared()
+        notice = nil
+        if reopen { openDiscord() }
+        else { lifecycle.hide() }
+    }
+    private func discardBrowserView() async {
         downloads.cancelAll()
         browserView?.stopLoading()
         await browserView?.setCameraCaptureState(.none)
@@ -126,15 +160,11 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         navigation = nil
         canGoBack = false
         progress = 0
-        // Delete without enumerating or reading cookies, credentials or records.
-        await dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
-        lifecycle.cleared()
-        lifecycle.hide()
-        notice = nil
     }
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard webView === browserView, lifecycle.phase != .clearing else { return }
         self.navigation = navigation
+        tanRuntime?.documentNavigationStarted()
         notice = nil
         lifecycle.loading()
     }
@@ -160,11 +190,26 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard webView === browserView, lifecycle.phase != .clearing else { decisionHandler(.cancel); return }
         let topLevel = action.targetFrame?.isMainFrame ?? true
-        guard lifecycle.phase != .clearing else { decisionHandler(.cancel); return }
         let activated = action.navigationType == .linkActivated
         if action.shouldPerformDownload, BrowserPolicy.isDiscordOrigin(webView.url) {
             decisionHandler(.download); return
+        }
+        if action.targetFrame == nil, activated,
+           BrowserPolicy.isDiscordOrigin(webView.url),
+           BrowserPolicy.isDownloadableDiscordAttachment(action.request.url,
+                                                        sourceURL: action.sourceFrame.request.url) {
+            // Discord opens ordinary attachment files in a new window, even
+            // from its Download link. Keep the one Discord view in place and
+            // use WebKit's download machinery with its existing data store.
+            webView.startDownload(using: action.request) { [weak self, weak webView] download in
+                guard let self, let webView, self.browserView === webView,
+                      self.lifecycle.phase != .clearing else { download.cancel { _ in }; return }
+                self.downloads.attach(download)
+            }
+            decisionHandler(.cancel)
+            return
         }
         switch BrowserPolicy.route(action.request.url, isMainFrame: topLevel, userActivated: activated) {
         case .workspace:
@@ -183,10 +228,17 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        guard webView === browserView, lifecycle.phase != .clearing else { decisionHandler(.cancel); return }
         decisionHandler(response.canShowMIMEType ? .allow : .download)
     }
-    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { downloads.attach(download) }
-    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { downloads.attach(download) }
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        guard webView === browserView, lifecycle.phase != .clearing else { download.cancel { _ in }; return }
+        downloads.attach(download)
+    }
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        guard webView === browserView, lifecycle.phase != .clearing else { download.cancel { _ in }; return }
+        downloads.attach(download)
+    }
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {

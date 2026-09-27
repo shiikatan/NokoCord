@@ -5,8 +5,8 @@ struct TanDetailsView: View {
     @Environment(TanManager.self) private var tans
     @Environment(\.dismiss) private var dismiss
     let package: TanPackage
-    let reload: (String) -> Void
     @State private var confirming = false
+    @State private var confirmingUpdate = false
     @State private var removing = false
     @State private var error: String?
     @State private var translationReport: TanTranslationReport?
@@ -42,20 +42,13 @@ struct TanDetailsView: View {
                 } else if reportUnavailable {
                     Text("The saved translation report could not be read.").font(.caption).foregroundStyle(.secondary)
                 }
-                if tans.availableOriginalUpdate(package) != nil {
-                    Button("Update Noko-Tan") {
-                        do { try tans.updateOriginal(package.id); dismiss() }
-                        catch { self.error = "The update could not be installed." }
+                if let update = tans.availableOriginalUpdate(package) {
+                    Button(update.manifest.version == package.manifest.version ? "Reinstall Noko-Tan" : "Update Noko-Tan") {
+                        confirmingUpdate = true
                     }
-                    Text("Updating turns this Tan off. Enable it again when you’re ready.").font(.caption).foregroundStyle(.secondary)
                 }
-                if tans.developerMode {
-                    Text("SHA-256").font(.caption.bold())
-                    Text(package.contentHash).font(.caption.monospaced()).textSelection(.enabled)
-                    LabeledContent("Runtime", value: package.manifest.target.rawValue)
-                    Button("Reload from folder…") { dismiss(); reload(package.id) }
-                    LabeledContent("Capabilities", value: package.manifest.capabilities.isEmpty ? "None" : package.manifest.capabilities.map(\.rawValue).joined(separator: ", "))
-                }
+                LabeledContent("Runtime", value: package.manifest.target.rawValue)
+                LabeledContent("Capabilities", value: package.manifest.capabilities.isEmpty ? "None" : package.manifest.capabilities.map(\.rawValue).joined(separator: ", "))
                 HStack {
                     Button("Uninstall…", role: .destructive) { guard !confirming else { return }; error = nil; confirming = true }
                     Spacer()
@@ -64,6 +57,22 @@ struct TanDetailsView: View {
             }
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
         }.padding(28).frame(width: 440)
+            .confirmationDialog(tans.availableOriginalUpdate(package)?.manifest.version == package.manifest.version
+                                ? "Reinstall \(package.manifest.name)?" : "Update \(package.manifest.name)?",
+                                isPresented: $confirmingUpdate, titleVisibility: .visible) {
+                Button(tans.availableOriginalUpdate(package)?.manifest.version == package.manifest.version ? "Reinstall" : "Update") {
+                    do { try tans.updateOriginal(package.id); dismiss() }
+                    catch { self.error = "The update could not be installed." }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if let update = tans.availableOriginalUpdate(package) {
+                    Text("\(package.manifest.version) → \(update.manifest.version). " +
+                         (["Noko Original", "Noko-Tan"].contains(package.origin)
+                          ? "Your enabled state is preserved when the author, source, target, and native capabilities remain compatible."
+                          : "This replaces the local package with the bundled Noko-Tan. It will be disabled until you review and enable it again."))
+                }
+            }
             .task(id: package.id) {
                 do {
                     let report = try await tans.translationReport(for: package.id)

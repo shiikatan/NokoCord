@@ -31,6 +31,21 @@ final class BrowserPolicyTests: XCTestCase {
         XCTAssertFalse(BrowserPolicy.permitsMediaPrompt(scheme: "http", host: "discord.com", port: 80, frameURL: discord, topURL: discord))
         XCTAssertFalse(BrowserPolicy.permitsMediaPrompt(scheme: "https", host: "discord.com", port: 8443, frameURL: discord, topURL: discord))
     }
+    func testAttachmentPopupDownloadIsLimitedToDiscordFilesAndKeepsMediaExternal() {
+        let origin = BrowserPolicy.home
+        let archive = URL(string: "https://cdn.discordapp.com/attachments/123/456/example%20file.zip?signature=redacted")!
+        XCTAssertTrue(BrowserPolicy.isDownloadableDiscordAttachment(archive, sourceURL: origin))
+        XCTAssertFalse(BrowserPolicy.isDownloadableDiscordAttachment(archive, sourceURL: URL(string: "https://example.com")))
+        for value in ["http://cdn.discordapp.com/attachments/123/456/file.zip",
+                      "https://cdn.discordapp.com.evil.example/attachments/123/456/file.zip",
+                      "https://cdn.discordapp.com:8443/attachments/123/456/file.zip",
+                      "https://user@cdn.discordapp.com/attachments/123/456/file.zip",
+                      "https://cdn.discordapp.com/other/file.zip",
+                      "https://cdn.discordapp.com/attachments/123/456/image.png",
+                      "https://cdn.discordapp.com/attachments/123/456/movie.mp4"] {
+            XCTAssertFalse(BrowserPolicy.isDownloadableDiscordAttachment(URL(string: value), sourceURL: origin), value)
+        }
+    }
     func testSuggestedDownloadFilenameCannotSelectPathOrContainControlCharacters() {
         XCTAssertEqual(BrowserPolicy.filename("../../file.txt"), "file.txt")
         XCTAssertEqual(BrowserPolicy.filename("\u{0}name\n.txt"), "name.txt")

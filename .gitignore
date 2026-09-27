@@ -6,6 +6,9 @@ xcuserdata/
 *.log
 .env
 .env.*
+AGENTS.md
+.agents/
+.codex/
 
 __pycache__/
 *.pyc

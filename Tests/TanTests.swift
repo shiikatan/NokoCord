@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 @testable import NokoCordCore
 
@@ -65,6 +66,32 @@ final class TanTests: XCTestCase {
         XCTAssertEqual(decoded, manifest)
         XCTAssertEqual(package.id, "fixture.clear-focus")
         XCTAssertEqual(package.origin, "Local fixture")
+    }
+
+    func testBundledOriginalsPreserveSuppliedAssetsAndMorganaWakePatch() throws {
+        let expected: [(String, String, TanTarget, String)] = [
+            ("noko.chat", "1.6.5", .isolated, "11b2b65ad10453292c27626e4836ec0240dd098b47b2cb71f604298dcf06b0b8"),
+            ("noko.link-fixer", "1.1.0", .isolated, "c698116aded693596d802257ca0f72a7a00620618f924930e96b693ffcf716f3"),
+            ("noko.morgana", "1.1.1", .page, "6c3f2a2eda5c629230ee4a12df2290543f8e316316077590b276656485f97257")
+        ]
+        for (id, version, target, sourceHash) in expected {
+            let package = try XCTUnwrap(TanPackage.originals.first { $0.id == id })
+            XCTAssertEqual(package.manifest.version, version)
+            XCTAssertEqual(package.manifest.target, target)
+            XCTAssertEqual(package.origin, "Noko Original")
+            let javascript = try XCTUnwrap(package.javascript)
+            let hash = SHA256.hash(data: Data(javascript.utf8)).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(hash, sourceHash)
+            XCTAssertNoThrow(try package.validate())
+            if id == "noko.morgana" {
+                let prefix = "const CUSTOM_SOUND_BASE64 = \""
+                let suffix = "\";"
+                let audio = try XCTUnwrap(javascript.components(separatedBy: prefix).dropFirst().first?.components(separatedBy: suffix).first)
+                let audioData = try XCTUnwrap(Data(base64Encoded: audio))
+                let audioHash = SHA256.hash(data: audioData).map { String(format: "%02x", $0) }.joined()
+                XCTAssertEqual(audioHash, "7679719d508c10d289a008b06602830a522deb437a000c5462c43abe17111f64")
+            }
+        }
     }
 
     func testManifestRejectsTraversalUnsupportedSchemaPageCapabilityAndOversizeContent() throws {
@@ -251,7 +278,7 @@ final class TanTests: XCTestCase {
         XCTAssertEqual(normal.active.map(\.id), [package.id])
     }
 
-    func testDeveloperReplacementRequiresModeAndMatchingIDAndPersistsDisabledState() throws {
+    func testReplacementRequiresMatchingIDAndPreservesCompatibleEnabledState() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let original = TanPackage(manifest: cssManifest(id: "fixture.replaceable"),
@@ -271,26 +298,83 @@ final class TanTests: XCTestCase {
         manager.setEnabled(original.id, true)
         let originalHash = try XCTUnwrap(manager.installed.first?.contentHash)
 
-        assertTanInvalid(try manager.replaceFromLocalFolder(replacement))
-        manager.setDeveloperMode(true)
-        assertTanInvalid(try manager.replaceFromLocalFolder(wrongID))
-        try manager.replaceFromLocalFolder(replacement)
+        assertTanInvalid(try manager.replaceInstalled(wrongID))
+        try manager.replaceInstalled(replacement)
 
         XCTAssertEqual(manager.installed.count, 1)
         XCTAssertEqual(manager.installed[0].id, original.id)
         XCTAssertNotEqual(manager.installed[0].contentHash, originalHash)
-        XCTAssertFalse(manager.enabledIDs.contains(original.id), "Replacement must require a fresh enable decision")
+        XCTAssertTrue(manager.enabledIDs.contains(original.id))
         assertTanInvalid(try manager.install(replacement))
 
         let restarted = TanManager(root: root)
-        XCTAssertTrue(restarted.developerMode)
         XCTAssertEqual(restarted.installed.count, 1)
         XCTAssertEqual(restarted.installed[0].contentHash, manager.installed[0].contentHash)
-        XCTAssertFalse(restarted.enabledIDs.contains(original.id))
+        XCTAssertTrue(restarted.enabledIDs.contains(original.id))
         assertTanInvalid(try restarted.install(replacement))
     }
 
-    func testOfficialBundledUpdateReplacesOldVersionDisabledAcrossRestartWithoutDeveloperMode() throws {
+    func testImportDecisionUsesPackageIDAndVersionBeforeCosmeticNameSimilarity() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        func package(_ id: String, _ name: String, _ version: String) -> TanPackage {
+            TanPackage(manifest: TanManifest(id: id, name: name, version: version,
+                                             description: "Fixture", authors: ["fixture-author"],
+                                             target: .css, stylesheet: "style.css"),
+                       javascript: nil, css: ".fixture {}", origin: "Local package")
+        }
+        let manager = TanManager(root: root)
+        try manager.install(package("fixture.chat", "Noko-Chat", "1.5.0"))
+        if case .update = try manager.importDecision(for: package("fixture.chat", "Noko Chat", "1.6.0")) {} else { XCTFail("Expected update") }
+        if case .reinstall = try manager.importDecision(for: package("fixture.chat", "Noko Chat", "1.5.0")) {} else { XCTFail("Expected reinstall") }
+        if case .downgrade = try manager.importDecision(for: package("fixture.chat", "Noko Chat", "1.4.0")) {} else { XCTFail("Expected downgrade") }
+        if case .similarName = try manager.importDecision(for: package("fixture.other", "noko_chat", "1.0.0")) {} else { XCTFail("Expected similar-name warning") }
+        if case .install = try manager.importDecision(for: package("fixture.unrelated", "Different Tan", "1.0.0")) {} else { XCTFail("Expected normal install") }
+    }
+
+    func testReplacementValidationFailureKeepsInstalledPackageAndTrustChangeDisablesIt() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = TanPackage(manifest: cssManifest(id: "fixture.trust"), javascript: nil,
+                                  css: ".original {}", origin: "Local package")
+        let manager = TanManager(root: root)
+        try manager.install(original)
+        manager.setEnabled(original.id, true)
+        let invalid = TanPackage(manifest: original.manifest, javascript: nil,
+                                 css: String(repeating: "x", count: 512 * 1024 + 1), origin: "Local package")
+        assertTanInvalid(try manager.replaceInstalled(invalid))
+        XCTAssertEqual(manager.installed.first?.contentHash, original.contentHash)
+        XCTAssertTrue(manager.enabledIDs.contains(original.id))
+
+        let changed = TanPackage(manifest: TanManifest(id: original.id, name: original.manifest.name,
+                                                      version: "1.1.0", description: "Fixture",
+                                                      authors: ["another-author"], target: .css,
+                                                      stylesheet: "style.css"),
+                                 javascript: nil, css: ".replacement {}", origin: "Local package")
+        try manager.replaceInstalled(changed)
+        XCTAssertFalse(manager.enabledIDs.contains(original.id))
+        let restarted = TanManager(root: root)
+        XCTAssertEqual(restarted.installed.first?.contentHash, changed.contentHash)
+        XCTAssertFalse(restarted.enabledIDs.contains(original.id))
+    }
+
+    func testReplacingTranslatedTanRemovesItsObsoleteSourceArchive() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = TanPackage(manifest: cssManifest(id: "fixture.translation"),
+                                  javascript: nil, css: ".old {}", origin: "Translated Tan")
+        let manager = TanManager(root: root)
+        try manager.install(original)
+        let archive = root.appendingPathComponent(original.id + ".source.json")
+        try Data("fixture".utf8).write(to: archive)
+        let replacement = TanPackage(manifest: original.manifest,
+                                     javascript: nil, css: ".new {}", origin: "Local package")
+        try manager.replaceInstalled(replacement)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: archive.path))
+        XCTAssertEqual(manager.installed.first?.contentHash, replacement.contentHash)
+    }
+
+    func testOfficialBundledUpdatePreservesCompatibleEnabledStateAcrossRestart() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let original = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.clear-focus" }))
@@ -314,19 +398,17 @@ final class TanTests: XCTestCase {
         let manager = TanManager(root: root)
         try manager.install(oldPackage)
         manager.setEnabled(oldPackage.id, true)
-        XCTAssertFalse(manager.developerMode)
         XCTAssertNotEqual(oldPackage.contentHash, original.contentHash)
         XCTAssertEqual(manager.availableOriginalUpdate(oldPackage)?.contentHash, original.contentHash)
 
         try manager.updateOriginal(oldPackage.id)
         XCTAssertEqual(manager.installed.first?.contentHash, original.contentHash)
         XCTAssertEqual(manager.installed.first?.origin, original.origin)
-        XCTAssertTrue(manager.enabledIDs.isEmpty, "Official updates require a fresh enable decision")
+        XCTAssertEqual(manager.enabledIDs, Set([original.id]))
 
         let restarted = TanManager(root: root)
         XCTAssertEqual(restarted.installed.first?.contentHash, original.contentHash)
-        XCTAssertTrue(restarted.enabledIDs.isEmpty)
-        XCTAssertFalse(restarted.developerMode)
+        XCTAssertEqual(restarted.enabledIDs, Set([original.id]))
     }
 
     func testLocalSameIDPackageIsNotOfferedBundledUpdate() throws {
@@ -344,6 +426,34 @@ final class TanTests: XCTestCase {
         try manager.updateOriginal(local.id)
         XCTAssertEqual(manager.installed.first?.contentHash, beforeHash)
         XCTAssertEqual(manager.installed.first?.origin, "Local package")
+    }
+
+    func testNewerBundledVersionCanReplaceLocalSameIDOnlyAfterExplicitUpdate() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundled = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.morgana" }))
+        var previousManifest = bundled.manifest
+        previousManifest = TanManifest(schemaVersion: previousManifest.schemaVersion,
+                                       id: previousManifest.id, name: previousManifest.name,
+                                       version: "1.1.0", description: previousManifest.description,
+                                       authors: previousManifest.authors, target: previousManifest.target,
+                                       entry: previousManifest.entry, stylesheet: previousManifest.stylesheet,
+                                       capabilities: previousManifest.capabilities,
+                                       requiresReload: previousManifest.requiresReload,
+                                       source: previousManifest.source, license: previousManifest.license)
+        let local = TanPackage(manifest: previousManifest, javascript: bundled.javascript,
+                               css: bundled.css, origin: "Local package")
+        let manager = TanManager(root: root)
+        try manager.install(local)
+        manager.setEnabled(local.id, true)
+        XCTAssertEqual(manager.availableOriginalUpdate(local)?.manifest.version, "1.1.1")
+        XCTAssertEqual(manager.installed.first?.contentHash, local.contentHash)
+        try manager.updateOriginal(local.id)
+        XCTAssertEqual(manager.installed.first?.contentHash, bundled.contentHash)
+        XCTAssertFalse(manager.enabledIDs.contains(local.id))
+        let restarted = TanManager(root: root)
+        XCTAssertEqual(restarted.installed.first?.contentHash, bundled.contentHash)
+        XCTAssertFalse(restarted.enabledIDs.contains(local.id))
     }
 
     func testTanBridgePermitsOnlyDeclaredAppearanceReadOnIsolatedTarget() throws {

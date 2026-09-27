@@ -44,6 +44,9 @@
         }
       }
     },
+    "A classification describes how much conversion work is needed. It does not rate a plugin’s safety or quality." : {
+
+    },
     "A little Noko. A lot of possibility." : {
 
     },
@@ -102,6 +105,9 @@
       }
     },
     "About NokoCord" : {
+
+    },
+    "About Tans" : {
 
     },
     "Access" : {
@@ -193,6 +199,9 @@
         }
       }
     },
+    "Assisted" : {
+
+    },
     "Attachment %@" : {
 
     },
@@ -210,7 +219,7 @@
         }
       }
     },
-    "Automatic downloads are blocked. Start the download from Discord yourself." : {
+    "Automatic" : {
 
     },
     "Available only during an active call." : {
@@ -353,7 +362,7 @@
     "Choose source folder…" : {
 
     },
-    "Clear" : {
+    "Clear & Reload" : {
 
     },
     "Clear app caches and saved drafts?" : {
@@ -373,6 +382,9 @@
         }
       }
     },
+    "Clear Discord Session" : {
+
+    },
     "Clear Discord session…" : {
 
     },
@@ -386,6 +398,15 @@
 
     },
     "Clear session" : {
+
+    },
+    "Clear temporary Discord web caches and recreate its web view to release transient memory without signing you out." : {
+
+    },
+    "Clear Web & RAM Cache" : {
+
+    },
+    "Clear Web & RAM Cache?" : {
 
     },
     "Clear your Discord session?" : {
@@ -404,6 +425,9 @@
 
     },
     "Color scheme" : {
+
+    },
+    "Collapsed" : {
 
     },
     "Compatibility" : {
@@ -451,9 +475,6 @@
     "Copy" : {
 
     },
-    "Create Tan…" : {
-
-    },
     "Dark" : {
 
     },
@@ -461,9 +482,6 @@
 
     },
     "Denied" : {
-
-    },
-    "Developer Mode" : {
 
     },
     "Device" : {
@@ -481,6 +499,9 @@
       }
     },
     "Diagnostics" : {
+
+    },
+    "Different package IDs are separate Tans, even if their names resemble one another—for example, NokoChat, Noko Chat, Noko-Chat, and noko_chat." : {
 
     },
     "Direct messages" : {
@@ -517,6 +538,9 @@
     "Discord session" : {
 
     },
+    "Discord will reload in a fresh web view and keep your saved sign-in. Active calls and playback will stop." : {
+
+    },
     "Dismiss" : {
 
     },
@@ -532,6 +556,9 @@
           }
         }
       }
+    },
+    "Downgrade — Importing an older version over a newer one prompts for confirmation. Older versions may have different features, settings, or compatibility." : {
+
     },
     "Download" : {
 
@@ -582,6 +609,9 @@
 
     },
     "Event preferences" : {
+
+    },
+    "Expanded" : {
 
     },
     "Failed" : {
@@ -686,13 +716,13 @@
         }
       }
     },
-    "Inspect Discord with its context menu. Diagnostics contain lifecycle events only." : {
-
-    },
     "Install" : {
 
     },
     "Install Tan" : {
+
+    },
+    "Installing & Updating Tans" : {
 
     },
     "Keyboard shortcuts" : {
@@ -711,6 +741,9 @@
           }
         }
       }
+    },
+    "Learn about Tans, translation, updates, and package identity." : {
+
     },
     "Light" : {
 
@@ -856,6 +889,9 @@
         }
       }
     },
+    "Most supported behavior can be converted, while uncertain or unsupported parts may need review or manual adjustment." : {
+
+    },
     "Mute" : {
 
     },
@@ -892,9 +928,6 @@
 
     },
     "No downloads yet" : {
-
-    },
-    "No events yet." : {
 
     },
     "No installable Tan was created. Required behavior needs an adapter or source changes; it has not been silently removed." : {
@@ -935,6 +968,15 @@
         }
       }
     },
+    "NokoCord analyzes features, reports uncertain or unsupported behavior, converts supported parts, preserves available source and license details, then validates the Tan locally before installation." : {
+
+    },
+    "NokoCord cannot currently make a trustworthy equivalent with the available APIs and runtime. This may change as support improves." : {
+
+    },
+    "NokoCord identifies a Tan primarily by its package ID. The same ID means the same Tan; a different ID means a different Tan, even when display names look alike." : {
+
+    },
     "NokoCord shows the access your connection can verify. Messaging, calls and media stay unavailable until Discord authorizes a supported transport." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -945,6 +987,9 @@
           }
         }
       }
+    },
+    "NokoCord understands the supported functionality and converts it into Noko-Tan equivalents. Automatic conversion does not make arbitrary third-party code safe." : {
+
     },
     "Not requested" : {
 
@@ -1145,6 +1190,21 @@
         }
       }
     },
+    "Refreshing web cache" : {
+
+    },
+    "Reinstall" : {
+
+    },
+    "Reinstall — If the same Tan and exact version are imported again, NokoCord offers to install it again." : {
+
+    },
+    "Reinstall %@?" : {
+
+    },
+    "Reinstall Noko-Tan" : {
+
+    },
     "Reload" : {
 
     },
@@ -1155,9 +1215,6 @@
 
     },
     "Reload Discord to finish applying your changes." : {
-
-    },
-    "Reload from folder…" : {
 
     },
     "Reloading Discord interrupts active calls and playback." : {
@@ -1180,6 +1237,9 @@
 
     },
     "Reply to %@" : {
+
+    },
+    "Requires Native Adapter" : {
 
     },
     "Resume Tans" : {
@@ -1291,9 +1351,6 @@
     "Settings" : {
 
     },
-    "SHA-256" : {
-
-    },
     "Shortcuts" : {
 
     },
@@ -1316,6 +1373,9 @@
 
     },
     "Show NokoCord in menu bar" : {
+
+    },
+    "Show translation, updates, and package identity information" : {
 
     },
     "Sign in" : {
@@ -1459,10 +1519,10 @@
     "System WebKit" : {
 
     },
-    "Tan Console" : {
+    "Tan could not be installed or updated" : {
 
     },
-    "Tan could not be updated" : {
+    "Tan Identity & Similar Names" : {
 
     },
     "Tan Translator" : {
@@ -1632,6 +1692,9 @@
     "This removes the installed copy and its saved source, and turns it off. Keep your original source folder to import it again. Changes that need a reload are shown on Home." : {
 
     },
+    "This Tan needs functionality ordinary browser page JavaScript cannot provide. It requires an approved NokoCord native provider or capability." : {
+
+    },
     "This will open %@ in your default browser." : {
 
     },
@@ -1644,7 +1707,13 @@
     "Translate Tan…" : {
 
     },
+    "Translated code is still code. Native privileges are never granted silently, and entering a URL does not run remote JavaScript." : {
+
+    },
     "Translating…" : {
+
+    },
+    "Translation Compatibility" : {
 
     },
     "Translation details" : {
@@ -1687,16 +1756,25 @@
     "Unmute" : {
 
     },
+    "Unsupported" : {
+
+    },
     "Untitled window" : {
+
+    },
+    "Update" : {
+
+    },
+    "Update — A newer version of the same Tan. Importing it replaces the installed version and preserves compatible state or settings where possible. For example: Noko-Chat 1.5.0 → 1.6.0." : {
+
+    },
+    "Update %@?" : {
 
     },
     "Update available" : {
 
     },
     "Update Noko-Tan" : {
-
-    },
-    "Updating turns this Tan off. Enable it again when you’re ready." : {
 
     },
     "Use the HTTPS origin of your approved authentication service. Secrets are kept in Keychain by the connection layer." : {
@@ -1751,6 +1829,9 @@
           }
         }
       }
+    },
+    "When names may be confusing, NokoCord shows “Two Tans have similar names.” Check each Tan’s package ID, author, and source before installing. Install Anyway keeps both Tans; it does not replace one based on its name." : {
+
     },
     "Write a message…" : {
 

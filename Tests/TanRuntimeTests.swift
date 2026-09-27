@@ -42,6 +42,7 @@ final class TanRuntimeTests: XCTestCase {
     }
 
     private func loadFixture(_ view: WKWebView, runtime: TanRuntime) async throws {
+        runtime.documentNavigationStarted()
         view.loadHTMLString("<html><head></head><body><main id='fixture'>Fixture</main></body></html>",
                             baseURL: URL(string: fixtureOrigin + "/app")!)
         for _ in 0..<100 {
@@ -191,10 +192,62 @@ final class TanRuntimeTests: XCTestCase {
         let marker = try await view.evaluateJavaScript("document.documentElement.getAttribute('data-fixture-page-tan')") as? String
         XCTAssertEqual(marker, "active")
         XCTAssertFalse(manager.reloadRequired)
+        runtime.locationChanged() // Discord SPA navigation must not reassert reload.
+        XCTAssertFalse(manager.reloadRequired)
 
         manager.setEnabled(package.id, false)
         XCTAssertTrue(manager.reloadRequired)
         XCTAssertTrue(view.configuration.userContentController.userScripts.isEmpty)
+
+        manager.setEnabled(package.id, true)
+        XCTAssertFalse(manager.reloadRequired) // The same version is still in this document.
+        manager.setEnabled(package.id, false)
+        try await loadFixture(view, runtime: runtime)
+        XCTAssertFalse(manager.reloadRequired)
+        manager.setEnabled(package.id, true)
+        XCTAssertTrue(manager.reloadRequired)
+        try await loadFixture(view, runtime: runtime)
+        XCTAssertFalse(manager.reloadRequired)
+        runtime.locationChanged()
+        XCTAssertFalse(manager.reloadRequired)
+    }
+
+    func testMultiplePageTansTrackTheLoadedDocumentAcrossChanges() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+        func pagePackage(_ id: String) -> TanPackage {
+            TanPackage(manifest: TanManifest(id: id, name: id, version: "1.0.0",
+                                             description: "Page fixture", authors: ["fixture-author"],
+                                             target: .page, entry: "main.js"),
+                       javascript: "document.documentElement.setAttribute('data-fixture-page', '\(id)');",
+                       css: nil, origin: "Local fixture")
+        }
+        let first = pagePackage("fixture.first-page")
+        let second = pagePackage("fixture.second-page")
+        try manager.install(first)
+        try manager.install(second)
+        manager.setEnabled(first.id, true)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+        try await loadFixture(view, runtime: runtime)
+        XCTAssertFalse(manager.reloadRequired)
+
+        manager.setEnabled(second.id, true)
+        XCTAssertTrue(manager.reloadRequired)
+        runtime.locationChanged()
+        XCTAssertTrue(manager.reloadRequired)
+        try await loadFixture(view, runtime: runtime)
+        XCTAssertFalse(manager.reloadRequired)
+
+        manager.setEnabled(first.id, false)
+        XCTAssertTrue(manager.reloadRequired)
+        try await loadFixture(view, runtime: runtime)
+        XCTAssertFalse(manager.reloadRequired)
+        runtime.locationChanged()
+        XCTAssertFalse(manager.reloadRequired)
     }
 
     func testRapidEnableDisableEnableThenDisableLeavesOneCleanupTrackedElement() async throws {
@@ -352,5 +405,140 @@ final class TanRuntimeTests: XCTestCase {
         try await Task.sleep(nanoseconds: 250_000_000)
         let timerCount = try await view.evaluateJavaScript("document.querySelectorAll('[data-fixture-failed-timer]').length") as? Int
         XCTAssertEqual(timerCount, 0)
+    }
+
+    func testWakeResumesEnabledTanOncePerWakeWithoutReloadOrDuplicateResources() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = #"""
+        let api = null;
+        let removeWakeListener = null;
+        function replaceWakeListener() {
+          if (removeWakeListener) removeWakeListener();
+          removeWakeListener = api.listen(window, 'fixture-wake-resource', () => {
+            const count = Number(document.documentElement.getAttribute('data-wake-events') || '0') + 1;
+            document.documentElement.setAttribute('data-wake-events', String(count));
+          });
+        }
+        NokoTan.register({
+          start(value) {
+            api = value;
+            const starts = Number(document.documentElement.getAttribute('data-wake-starts') || '0') + 1;
+            document.documentElement.setAttribute('data-wake-starts', String(starts));
+            const marker = document.createElement('span');
+            marker.setAttribute('data-wake-mounted', 'true');
+            api.mount(marker);
+            replaceWakeListener();
+          },
+          resume() {
+            const resumes = Number(document.documentElement.getAttribute('data-wake-resumes') || '0') + 1;
+            document.documentElement.setAttribute('data-wake-resumes', String(resumes));
+            replaceWakeListener();
+          }
+        });
+        """#
+        let manager = TanManager(root: root)
+        let package = javascriptPackage(id: "fixture.wake-enabled", source: source)
+        try manager.install(package)
+        manager.setEnabled(package.id, true)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+        try await loadFixture(view, runtime: runtime)
+
+        let starts = try await waitForCount(view, "Number(document.documentElement.getAttribute('data-wake-starts') || '0')", expected: 1)
+        XCTAssertEqual(starts, 1)
+        let mounted = try await waitForCount(view, "document.querySelectorAll('[data-wake-mounted]').length", expected: 1)
+        XCTAssertEqual(mounted, 1)
+        // pageDidLoad may reapply the document-start registration. Let that
+        // transition finish, then compare against the steady-state start count.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let steadyStartCount = try await view.evaluateJavaScript("Number(document.documentElement.getAttribute('data-wake-starts') || '0')") as? Int
+        XCTAssertGreaterThanOrEqual(steadyStartCount ?? 0, 1)
+        let documentToken = UUID().uuidString
+        _ = try await view.evaluateJavaScript("document.documentElement.setAttribute('data-wake-document-token', '\(documentToken)')")
+
+        runtime.didWake()
+        let firstResume = try await waitForCount(view, "Number(document.documentElement.getAttribute('data-wake-resumes') || '0')", expected: 1)
+        XCTAssertEqual(firstResume, 1)
+        runtime.didWake()
+        let secondResume = try await waitForCount(view, "Number(document.documentElement.getAttribute('data-wake-resumes') || '0')", expected: 2)
+        XCTAssertEqual(secondResume, 2)
+
+        let finalStarts = try await view.evaluateJavaScript("Number(document.documentElement.getAttribute('data-wake-starts') || '0')") as? Int
+        XCTAssertEqual(finalStarts, steadyStartCount)
+        let finalMounted = try await view.evaluateJavaScript("document.querySelectorAll('[data-wake-mounted]').length") as? Int
+        XCTAssertEqual(finalMounted, 1)
+        let eventCount = try await view.evaluateJavaScript("window.dispatchEvent(new Event('fixture-wake-resource')); Number(document.documentElement.getAttribute('data-wake-events') || '0')") as? Int
+        XCTAssertEqual(eventCount, 1)
+        let finalDocumentToken = try await view.evaluateJavaScript("document.documentElement.getAttribute('data-wake-document-token')") as? String
+        XCTAssertEqual(finalDocumentToken, documentToken)
+    }
+
+    func testWakeDoesNotResumeDisabledTan() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = #"""
+        NokoTan.register({
+          start() {},
+          resume() {
+            const resumes = Number(document.documentElement.getAttribute('data-wake-resumes') || '0') + 1;
+            document.documentElement.setAttribute('data-wake-resumes', String(resumes));
+          },
+          stop() { document.documentElement.setAttribute('data-wake-stopped', 'true'); }
+        });
+        """#
+        let manager = TanManager(root: root)
+        let package = javascriptPackage(id: "fixture.wake-disabled", source: source)
+        try manager.install(package)
+        manager.setEnabled(package.id, true)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+        try await loadFixture(view, runtime: runtime)
+
+        manager.setEnabled(package.id, false)
+        for _ in 0..<100 {
+            if (try? await view.evaluateJavaScript("document.documentElement.getAttribute('data-wake-stopped') === 'true'") as? Bool) == true { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let stopped = try await view.evaluateJavaScript("document.documentElement.getAttribute('data-wake-stopped') === 'true'") as? Bool
+        XCTAssertEqual(stopped, true)
+
+        runtime.didWake()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let resumes = try await view.evaluateJavaScript("Number(document.documentElement.getAttribute('data-wake-resumes') || '0')") as? Int
+        XCTAssertEqual(resumes, 0)
+    }
+
+    func testWakeDoesNotResumeTanInSafeMode() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seeded = TanManager(root: root)
+        let package = javascriptPackage(id: "fixture.wake-safe-mode", source: #"""
+        NokoTan.register({
+          start() {},
+          resume() { document.documentElement.setAttribute('data-wake-resumed', 'true'); }
+        });
+        """#)
+        try seeded.install(package)
+        seeded.setEnabled(package.id, true)
+
+        let manager = TanManager(root: root, launchSafeMode: true)
+        XCTAssertTrue(manager.safeMode)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        let view = makeView(runtime: runtime)
+        XCTAssertTrue(view.configuration.userContentController.userScripts.isEmpty)
+        try await loadFixture(view, runtime: runtime)
+
+        runtime.didWake()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let resumed = try await view.evaluateJavaScript("document.documentElement.getAttribute('data-wake-resumed')") as? String
+        XCTAssertNil(resumed)
+        XCTAssertTrue(view.configuration.userContentController.userScripts.isEmpty)
+        XCTAssertEqual(manager.enabledIDs, Set([package.id]))
     }
 }

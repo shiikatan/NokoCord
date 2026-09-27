@@ -17,6 +17,17 @@ enum BrowserPolicy {
         if userActivated, ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") { return .external }
         return .deny
     }
+    static func isDownloadableDiscordAttachment(_ url: URL?, sourceURL: URL?) -> Bool {
+        guard isDiscordOrigin(sourceURL), let url,
+              url.scheme?.lowercased() == "https", url.host?.lowercased() == "cdn.discordapp.com",
+              (url.port == nil || url.port == 443), url.user == nil, url.password == nil,
+              url.path.hasPrefix("/attachments/") else { return false }
+        // Browser-displayable media keeps Discord's existing Open in Browser action.
+        let displayable: Set<String> = ["avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "webp",
+                                        "aac", "flac", "m4a", "mp3", "ogg", "wav", "webm", "mov", "mp4", "pdf",
+                                        "htm", "html", "txt", "xml"]
+        return !displayable.contains(url.pathExtension.lowercased())
+    }
     static func permitsMediaPrompt(scheme: String, host: String, port: Int, frameURL: URL?, topURL: URL?) -> Bool {
         scheme == "https" && host.lowercased() == "discord.com" && (port == 0 || port == 443)
             && isDiscordOrigin(frameURL) && isDiscordOrigin(topURL)

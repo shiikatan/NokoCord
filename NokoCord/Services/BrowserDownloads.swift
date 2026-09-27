@@ -24,11 +24,6 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
         var scoped = false
     }
     func attach(_ download: WKDownload) {
-        guard download.isUserInitiated else {
-            download.cancel { _ in }
-            error = String(localized: "Automatic downloads are blocked. Start the download from Discord yourself.")
-            return
-        }
         guard transfers.count < 3 else {
             download.cancel { _ in }
             error = String(localized: "Finish or cancel a download before starting another.")
@@ -60,7 +55,8 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         let key = ObjectIdentifier(download)
-        guard let transfer = transfers[key], panel == nil, let window = NSApp.keyWindow else {
+        guard let transfer = transfers[key], panel == nil,
+              let window = download.webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             completionHandler(nil); finish(key, status: .cancelled); return
         }
         let save = NSSavePanel()

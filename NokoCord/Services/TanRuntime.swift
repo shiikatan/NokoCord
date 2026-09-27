@@ -10,10 +10,13 @@ final class TanRuntime {
     private var configured: [TanPackage] = []
     private var worlds: [String: WKContentWorld] = [:]
     private var activeHashes: [String: String] = [:]
+    private var appliedReloadScripts: [String: String]?
+    private var pendingReloadScripts: [String: String]?
     var retainedWorldCount: Int { worlds.count }
     private var handlers: [TanMessageHandler] = []
     private var generation = UUID()
     private var transitionTask: Task<Void, Never>?
+    private var resumeTask: Task<Void, Never>?
     private var livePackages: [String: TanPackage] = [:]
     private let allowedOrigin: String
 
@@ -24,32 +27,46 @@ final class TanRuntime {
         self.controller = controller
         configureScripts()
     }
-    func attach(_ view: WKWebView) { self.view = view; view.isInspectable = manager.developerMode }
+    func attach(_ view: WKWebView) { self.view = view }
     func detach() {
         generation = UUID()
-        transitionTask = nil
+        transitionTask?.cancel(); transitionTask = nil
+        resumeTask?.cancel(); resumeTask = nil
         clearHandlers()
         controller?.removeAllUserScripts()
         controller = nil; view = nil; configured = []; livePackages = [:]
         worlds.removeAll(); activeHashes.removeAll()
+        appliedReloadScripts = nil; pendingReloadScripts = nil
+        manager.reloadRequired = false
     }
     func configurationChanged() {
         let old = configured
-        let needsReload = (old + manager.active).contains { $0.manifest.target == .page || $0.manifest.requiresReload }
         configureScripts()
-        view?.isInspectable = manager.developerMode
-        if needsReload, view?.url != nil { manager.reloadRequired = true }
+        updateReloadRequirement()
         if manager.safeMode, view?.url != nil {
             // Page-world code is trusted and may not be fully reversible. A new
             // document with no scripts is the reliable plain-Discord fallback.
-            generation = UUID(); transitionTask = nil; livePackages.removeAll(); worlds.removeAll()
+            generation = UUID(); transitionTask?.cancel(); transitionTask = nil
+            resumeTask?.cancel(); resumeTask = nil
+            livePackages.removeAll(); worlds.removeAll()
             view?.reload()
             return
         }
         applyLive(stopping: old, starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
     }
+    func documentNavigationStarted() {
+        // WebKit captures these scripts for the new document. A later Tan change
+        // must not be mistaken for code that has already run in that document.
+        pendingReloadScripts = reloadScriptHashes()
+    }
     func pageDidLoad() {
-        manager.reloadRequired = false
+        if let url = view?.url, Self.accepts(url, origin: allowedOrigin) {
+            appliedReloadScripts = pendingReloadScripts ?? reloadScriptHashes()
+        } else {
+            appliedReloadScripts = [:]
+        }
+        pendingReloadScripts = nil
+        updateReloadRequirement()
         // DOM Tans also work when Discord moves from /app to /channels during
         // startup. Registration replaces its own prior instance, never a view.
         applyLive(stopping: [], starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
@@ -60,10 +77,35 @@ final class TanRuntime {
             applyLive(stopping: configured + Array(livePackages.values), starting: [])
         } else {
             applyLive(stopping: [], starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
-            if manager.active.contains(where: { ($0.manifest.target == .page || $0.manifest.requiresReload) && livePackages[$0.id] == nil }) {
-                manager.reloadRequired = true
+        }
+        updateReloadRequirement()
+    }
+    func didWake() {
+        guard let view, let url = view.url, Self.accepts(url, origin: allowedOrigin), !manager.safeMode else { return }
+        resumeTask?.cancel()
+        let current = generation
+        let packages = manager.active
+        resumeTask = Task { @MainActor [weak self, weak view] in
+            guard let self, let view else { return }
+            defer { if self.generation == current { self.resumeTask = nil } }
+            for package in packages {
+                guard !Task.isCancelled, self.generation == current else { return }
+                let source = "globalThis[\(Self.quote(Self.key(package)))]?.resume?.();"
+                try? await self.evaluate(source, view: view, world: self.world(package))
             }
         }
+    }
+    private func reloadScriptHashes() -> [String: String] {
+        Dictionary(uniqueKeysWithValues: configured.compactMap { package in
+            guard package.manifest.target == .page || package.manifest.requiresReload,
+                  let hash = activeHashes[package.id] else { return nil }
+            return (package.id, hash)
+        })
+    }
+    private func updateReloadRequirement() {
+        guard let url = view?.url, Self.accepts(url, origin: allowedOrigin),
+              let appliedReloadScripts else { manager.reloadRequired = false; return }
+        manager.reloadRequired = appliedReloadScripts != reloadScriptHashes()
     }
     private func configureScripts() {
         guard let controller else { return }
@@ -83,6 +125,7 @@ final class TanRuntime {
         handlers.removeAll()
     }
     private func applyLive(stopping: [TanPackage], starting: [TanPackage]) {
+        resumeTask?.cancel(); resumeTask = nil
         generation = UUID(); let current = generation
         guard let view else { return }
         let pendingStops = Array(Dictionary((stopping + Array(livePackages.values)).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values)
@@ -132,7 +175,7 @@ final class TanRuntime {
               !manager.safeMode, manager.enabledIDs.contains(package.id), activeHashes[package.id] == fingerprint,
               let body = message.body as? [String: Any],
               let request = TanBridgeRequest.parse(body) else { reply(nil, "Request rejected"); return }
-        if request.type == "status", let state = request.state, let event = TanDiagnostic.Event(rawValue: state), event != .rejected {
+        if request.type == "status", let state = request.state, let event = TanLifecycleEvent(rawValue: state), event != .rejected {
             manager.record(package.id, event: event); reply(["ok": true], nil)
         } else if request.permits(package.manifest) {
             let name = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
@@ -175,6 +218,13 @@ final class TanRuntime {
             return () => { if (disposers.delete(dispose)) dispose(); };
           };
           const state = {
+            resume() {
+              if (stopped || !allowed()) return;
+              try {
+                const result = definition?.resume?.();
+                if (result && typeof result.then === 'function') throw new Error('Async lifecycle is not supported in schema 1');
+              } catch { report('failed'); }
+            },
             stop() {
               if (stopped) return; stopped = true;
               document.removeEventListener('DOMContentLoaded', start);

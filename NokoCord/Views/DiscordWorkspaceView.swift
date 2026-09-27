@@ -148,14 +148,37 @@ struct DiscordSessionPrivacySection: View {
 struct DiscordSessionControls: View {
     @Environment(ActiveBrowserEngine.self) private var browser
     @State private var confirmClear = false
+    @State private var confirmCache = false
+    @State private var clearingCache = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Clear Web & RAM Cache").font(.headline)
+                Text("Clear temporary Discord web caches and recreate its web view to release transient memory without signing you out.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button("Clear & Reload") { confirmCache = true }
+                    .buttonStyle(.bordered).tint(.orange)
+                    .disabled(browser.lifecycle.phase == .clearing)
+                    .confirmationDialog("Clear Web & RAM Cache?", isPresented: $confirmCache, titleVisibility: .visible) {
+                        Button("Clear & Reload") {
+                            clearingCache = true
+                            Task { await browser.clearTemporaryCache(); clearingCache = false }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Discord will reload in a fresh web view and keep your saved sign-in. Active calls and playback will stop.")
+                    }
+            }
+            Divider()
+            Text("Clear Discord Session").font(.headline)
             Text("Clear saved session data to sign out of Discord on this Mac. Files you have downloaded are kept.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button("Clear Discord session…", role: .destructive) { confirmClear = true }
                 .buttonStyle(.bordered).foregroundStyle(.red)
                 .disabled(browser.lifecycle.phase == .clearing)
-            if browser.lifecycle.phase == .clearing { ProgressView("Clearing session data") }
+            if browser.lifecycle.phase == .clearing {
+                ProgressView(clearingCache ? "Refreshing web cache" : "Clearing session data")
+            }
             Divider()
             Label("Camera, microphone and screen sharing require your permission.", systemImage: "lock")
                 .font(.callout).foregroundStyle(.secondary)

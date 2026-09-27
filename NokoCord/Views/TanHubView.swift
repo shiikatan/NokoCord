@@ -17,7 +17,14 @@ struct TanHubView: View {
     @State private var presentation: TanPresentation?
     @State private var importError: String?
     @State private var filePanel: NSOpenPanel?
-    @State private var pendingReloadID: String?
+    @State private var pendingImport: PendingTanImport?
+    @State private var translationInfoExpanded = false
+    @State private var translationInfoHovered = false
+
+    private struct PendingTanImport {
+        let package: TanPackage
+        let decision: TanImportDecision
+    }
 
     private func matches(_ package: TanPackage) -> Bool {
         search.isEmpty || (package.manifest.name + " " + package.manifest.description + " " + package.manifest.authors.joined(separator: " ")).localizedStandardContains(search)
@@ -33,6 +40,7 @@ struct TanHubView: View {
                         Text("A little Noko. A lot of possibility.").font(.title3).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 12)
+                    Toggle("Safe Mode", isOn: Binding(get: { tans.safeMode }, set: { tans.setSafeMode($0) })).toggleStyle(.switch)
                     Button(browser.view == nil ? "Open Discord" : "Continue to Discord", systemImage: "arrow.up.right") { browser.openDiscord() }
                         .modifier(NokoPrimaryAction()).controlSize(.large)
                         .disabled(browser.lifecycle.phase == .clearing)
@@ -133,31 +141,63 @@ struct TanHubView: View {
                     }
                 }
                 Divider()
-                HStack {
-                    Toggle("Safe Mode", isOn: Binding(get: { tans.safeMode }, set: { tans.setSafeMode($0) })).toggleStyle(.switch)
-                    Spacer()
-                    Toggle("Developer Mode", isOn: Binding(get: { tans.developerMode }, set: { tans.setDeveloperMode($0) })).toggleStyle(.switch)
-                }
-                if tans.developerMode {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Tan Console").font(.headline)
-                            Button("Create Tan…") { createTemplate() }
-                            Spacer()
-                            Button("Clear") { tans.clearConsole() }.disabled(tans.diagnostics.isEmpty)
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        translationInfoExpanded.toggle()
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "info.circle")
+                                .font(.title3)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("About Tans").font(.headline)
+                                Text("Learn about Tans, translation, updates, and package identity.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 20)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .rotationEffect(.degrees(translationInfoExpanded ? 90 : 0))
+                                .foregroundStyle(.secondary)
                         }
-                        Text("Inspect Discord with its context menu. Diagnostics contain lifecycle events only.").font(.caption).foregroundStyle(.secondary)
-                        if tans.diagnostics.isEmpty { Text("No events yet.").foregroundStyle(.secondary) }
-                        ForEach(tans.diagnostics.suffix(20).reversed()) { event in
-                            HStack {
-                                Text(event.date, style: .time).foregroundStyle(.secondary)
-                                Text(event.tanID)
-                                Spacer()
-                                Text(event.event.rawValue)
-                            }.font(.caption.monospaced())
-                        }
-                    }.padding(18).background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 14))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { translationInfoHovered = $0 }
+                    .accessibilityLabel("About Tans")
+                    .accessibilityValue(translationInfoExpanded ? "Expanded" : "Collapsed")
+                    .accessibilityHint("Show translation, updates, and package identity information")
+                    if translationInfoExpanded {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Translation Compatibility").font(.headline)
+                            Text("A classification describes how much conversion work is needed. It does not rate a plugin’s safety or quality.")
+                            Group {
+                                LabeledContent("Automatic", value: "Can be converted automatically.")
+                                Text("NokoCord understands the supported functionality and converts it into Noko-Tan equivalents. Automatic conversion does not make arbitrary third-party code safe.")
+                                LabeledContent("Assisted", value: "Mostly convertible; some parts need attention.")
+                                Text("Most supported behavior can be converted, while uncertain or unsupported parts may need review or manual adjustment.")
+                                LabeledContent("Requires Native Adapter", value: "Needs a NokoCord native capability.")
+                                Text("This Tan needs functionality ordinary browser page JavaScript cannot provide. It requires an approved NokoCord native provider or capability.")
+                                LabeledContent("Unsupported", value: "Cannot currently be converted reliably.")
+                                Text("NokoCord cannot currently make a trustworthy equivalent with the available APIs and runtime. This may change as support improves.")
+                            }
+                            Text("NokoCord analyzes features, reports uncertain or unsupported behavior, converts supported parts, preserves available source and license details, then validates the Tan locally before installation.")
+                            Text("Translated code is still code. Native privileges are never granted silently, and entering a URL does not run remote JavaScript.")
+
+                            Text("Installing & Updating Tans").font(.headline).padding(.top, 4)
+                            Text("NokoCord identifies a Tan primarily by its package ID. The same ID means the same Tan; a different ID means a different Tan, even when display names look alike.")
+                            Text("Update — A newer version of the same Tan. Importing it replaces the installed version and preserves compatible state or settings where possible. For example: Noko-Chat 1.5.0 → 1.6.0.")
+                            Text("Reinstall — If the same Tan and exact version are imported again, NokoCord offers to install it again.")
+                            Text("Downgrade — Importing an older version over a newer one prompts for confirmation. Older versions may have different features, settings, or compatibility.")
+
+                            Text("Tan Identity & Similar Names").font(.headline).padding(.top, 4)
+                            Text("Different package IDs are separate Tans, even if their names resemble one another—for example, NokoChat, Noko Chat, Noko-Chat, and noko_chat.")
+                            Text("When names may be confusing, NokoCord shows “Two Tans have similar names.” Check each Tan’s package ID, author, and source before installing. Install Anyway keeps both Tans; it does not replace one based on its name.")
+                        }.font(.callout).foregroundStyle(.secondary).padding(.top, 14)
+                    }
                 }
+                .padding(18).background(.quaternary.opacity(translationInfoHovered ? 0.42 : 0.3), in: .rect(cornerRadius: 14))
             }.frame(maxWidth: 900, alignment: .leading).padding(36).frame(maxWidth: .infinity)
         }
         .confirmationDialog("Enable \(pendingEnable?.manifest.name ?? "Tan")?", isPresented: Binding(get: { pendingEnable != nil }, set: { if !$0 { pendingEnable = nil } }), titleVisibility: .visible) {
@@ -166,29 +206,81 @@ struct TanHubView: View {
         } message: {
             Text((pendingEnable?.manifest.target == .css ? "This Tan changes the appearance of Discord. Enable only Tans you trust." : "This Tan runs code inside Discord and can interact with content in your session. Enable only code you trust.") + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : ""))
         }
-        .alert("Tan could not be updated", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
+        .confirmationDialog(importTitle, isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
+            if pendingImport != nil { Button(importActionTitle) { confirmImport() } }
+            Button("Cancel", role: .cancel) { pendingImport = nil }
+        } message: { Text(importMessage) }
+        .alert("Tan could not be installed or updated", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
             Button("OK") { importError = nil; tans.dismissError() }
         } message: { Text(importError ?? tans.error ?? "Please try again.") }
-        .sheet(item: $presentation, onDismiss: {
-            if let id = pendingReloadID { pendingReloadID = nil; importTan(replacing: id) }
-        }) { route in
+        .sheet(item: $presentation) { route in
             switch route {
             case .translator: TanTranslatorView()
-            case .details(let package):
-                TanDetailsView(package: package) { id in
-                    pendingReloadID = id
-                    presentation = nil
-                }
+            case .details(let package): TanDetailsView(package: package)
             }
         }
         .background(WindowLifetimeObserver(reference: windowReference) {
-            pendingReloadID = nil
             filePanel?.cancel(nil); filePanel = nil
             presentation = nil
             pendingEnable = nil
+            pendingImport = nil
             importError = nil
         }.frame(width: 0, height: 0))
-        .onDisappear { pendingReloadID = nil; filePanel?.cancel(nil); filePanel = nil; presentation = nil; pendingEnable = nil }
+        .onDisappear { filePanel?.cancel(nil); filePanel = nil; presentation = nil; pendingEnable = nil; pendingImport = nil }
+    }
+    private var importTitle: String {
+        guard let pendingImport else { return "Import Tan?" }
+        switch pendingImport.decision {
+        case .install: return "Install \(pendingImport.package.manifest.name)?"
+        case .update: return "Update \(pendingImport.package.manifest.name)?"
+        case .reinstall: return "Reinstall \(pendingImport.package.manifest.name) \(pendingImport.package.manifest.version)?"
+        case .downgrade: return "Downgrade \(pendingImport.package.manifest.name)?"
+        case .similarName: return "Two Tans have similar names"
+        }
+    }
+    private var importActionTitle: String {
+        guard let pendingImport else { return "Install" }
+        switch pendingImport.decision {
+        case .install: return "Install"
+        case .update: return "Update"
+        case .reinstall: return "Reinstall"
+        case .downgrade: return "Downgrade"
+        case .similarName: return "Install Anyway"
+        }
+    }
+    private var importMessage: String {
+        guard let pendingImport else { return "" }
+        let incoming = pendingImport.package
+        switch pendingImport.decision {
+        case .install: return ""
+        case .update(let existing), .reinstall(let existing), .downgrade(let existing):
+            let sameOfficialOrigin = ["Noko Original", "Noko-Tan"].contains(existing.origin)
+                && ["Noko Original", "Noko-Tan"].contains(incoming.origin)
+            let changedIdentity = existing.manifest.authors != incoming.manifest.authors
+                || existing.manifest.source != incoming.manifest.source
+                || existing.manifest.target != incoming.manifest.target
+                || existing.manifest.capabilities != incoming.manifest.capabilities
+                || (existing.origin != incoming.origin && !sameOfficialOrigin)
+            let identityNotice = changedIdentity ? " The author, source, target, origin, or native access has changed; review it before continuing. This Tan will be disabled for a fresh enable decision." : ""
+            let downgradeNotice = incoming.manifest.version.compare(existing.manifest.version, options: .numeric) == .orderedAscending
+                ? " Older code or settings may be incompatible. This Tan will be disabled." : ""
+            let identityDetails = changedIdentity
+                ? "\n\nInstalled: \(existing.manifest.authors.joined(separator: ", ")) · \(existing.manifest.source ?? existing.origin) · \(existing.manifest.target.rawValue)\nIncoming: \(incoming.manifest.authors.joined(separator: ", ")) · \(incoming.manifest.source ?? incoming.origin) · \(incoming.manifest.target.rawValue)"
+                : ""
+            return "\(existing.manifest.version) → \(incoming.manifest.version). Package ID: \(incoming.id).\(identityNotice)\(downgradeNotice)\(identityDetails)"
+        case .similarName(let existing):
+            return "These are different package IDs. Both will remain installed.\n\nInstalled: \(existing.manifest.name) \(existing.manifest.version) · \(existing.manifest.authors.joined(separator: ", ")) · \(existing.id) · \(existing.origin)\nIncoming: \(incoming.manifest.name) \(incoming.manifest.version) · \(incoming.manifest.authors.joined(separator: ", ")) · \(incoming.id) · \(incoming.origin)"
+        }
+    }
+    private func confirmImport() {
+        guard let pendingImport else { return }
+        self.pendingImport = nil
+        do {
+            switch pendingImport.decision {
+            case .install, .similarName: try tans.install(pendingImport.package)
+            case .update, .reinstall, .downgrade: try tans.replaceInstalled(pendingImport.package)
+            }
+        } catch { importError = "This Tan could not be installed. The existing package was kept." }
     }
     private enum TanPresentation: Identifiable {
         case translator, details(TanPackage)
@@ -205,32 +297,7 @@ struct TanHubView: View {
             .font(.title2).foregroundStyle(.tint).frame(width: 44, height: 44)
             .background(.tint.opacity(0.1), in: .rect(cornerRadius: 12)).accessibilityHidden(true)
     }
-    private func createTemplate() {
-        guard filePanel == nil, let owner = windowReference.window else { return }
-        let panel = NSOpenPanel()
-        filePanel = panel
-        panel.title = "Create Tan"
-        panel.message = "Choose where to create a NokoTanStarter folder. Edit its files, then import the folder."
-        panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.canCreateDirectories = true
-        panel.beginSheetModal(for: owner) { response in
-            filePanel = nil
-            guard response == .OK, let parent = panel.url else { return }
-            let access = parent.startAccessingSecurityScopedResource()
-            defer { if access { parent.stopAccessingSecurityScopedResource() } }
-            do {
-                let folder = parent.appendingPathComponent("NokoTanStarter", isDirectory: true)
-                guard !FileManager.default.fileExists(atPath: folder.path) else { throw TanError.invalid("Folder already exists") }
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-                let manifest = TanManifest(id: "local.my-tan", name: "My Tan", version: "1.0.0", description: "A small touch of your own.", authors: ["You"], target: .isolated, entry: "main.js")
-                let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                try encoder.encode(manifest).write(to: folder.appendingPathComponent("manifest.json"))
-                let code = "NokoTan.register({ start() {\n  // Add your changes here.\n  return () => { /* Remove your changes here. */ };\n} });\n"
-                try code.write(to: folder.appendingPathComponent("main.js"), atomically: true, encoding: .utf8)
-                NSWorkspace.shared.activateFileViewerSelecting([folder])
-            } catch { importError = "The starter folder could not be created. Choose a writable location without an existing NokoTanStarter folder." }
-        }
-    }
-    private func importTan(replacing id: String? = nil) {
+    private func importTan() {
         guard filePanel == nil, let owner = windowReference.window else { return }
         let panel = NSOpenPanel()
         filePanel = panel
@@ -244,10 +311,11 @@ struct TanHubView: View {
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             do {
                 let package = try TanPackage.load(folder: url)
-                if let id {
-                    guard package.id == id else { throw TanError.invalid("Select the same Tan") }
-                    try tans.replaceFromLocalFolder(package)
-                } else { try tans.install(package) }
+                let decision = try tans.importDecision(for: package)
+                switch decision {
+                case .install: try tans.install(package)
+                default: pendingImport = PendingTanImport(package: package, decision: decision)
+                }
             }
             catch { importError = "Choose a valid Tan folder. Packages must contain a supported manifest and local source files." }
         }

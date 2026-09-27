@@ -62,7 +62,7 @@ def main():
         parser.error("Commit reviewed tracked changes before exporting a public candidate")
     revision = git("rev-parse", "HEAD").decode().strip()
     archive = git("archive", "--format=tar", revision)
-    forbidden = {".git", ".agents", ".codex", "xcuserdata", "DerivedData", ".build", ".DS_Store", "__pycache__",
+    forbidden = {".git", ".agents", ".codex", "AGENTS.md", "xcuserdata", "DerivedData", ".build", ".DS_Store", "__pycache__",
                  "private-backups", "BrowserProfiles", "WebKit", "CEFProfile", "Cookies",
                  "Local Storage", "Session Storage", "NetworkCache", "WebKitCache"}
     internal_documents = {

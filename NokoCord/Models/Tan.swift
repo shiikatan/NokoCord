@@ -106,13 +106,7 @@ enum TanError: LocalizedError {
     var errorDescription: String? { if case .invalid(let text) = self { return text }; return nil }
 }
 
-struct TanDiagnostic: Identifiable {
-    let id = UUID()
-    let tanID: String
-    let event: Event
-    let date = Date()
-    enum Event: String { case started, stopped, failed, rejected }
-}
+enum TanLifecycleEvent: String { case started, stopped, failed, rejected }
 
 struct TanBridgeRequest: Decodable {
     let type: String
@@ -206,7 +200,22 @@ NokoTan.register({
   }
 });
 """#, css: nil, origin: "Noko-Tan")
-    ]
+    ] + bundledOriginals
+
+    private static let bundledOriginals: [TanPackage] = {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+        return ["NokoChat", "NokoX", "Morgana"].compactMap { name in
+            guard let url = bundle.resourceURL?.appendingPathComponent(name + ".tan.json"),
+                  let data = try? Data(contentsOf: url),
+                  let package = try? JSONDecoder().decode(TanPackage.self, from: data),
+                  (try? package.validate()) != nil else { return nil }
+            return package
+        }
+    }()
 }
 
 extension TanManifest {
