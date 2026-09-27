@@ -17,8 +17,8 @@ Discord sessions.
 ## Build and use
 
 Build with Xcode that supports the macOS 26.6 deployment target.
-`sh scripts/verify.sh` runs the Swift and Broker tests, Debug and Release
-builds, and Release app checks.
+`sh scripts/verify.sh` runs the Swift tests, Debug and Release builds, and
+Release app checks.
 The Tan translator's JavaScript tests require Node and can be run with
 `node --test Tools/TanTranslator/translator.test.mjs`.
 
