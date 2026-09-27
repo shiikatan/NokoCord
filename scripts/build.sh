@@ -79,9 +79,9 @@ cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
 	<key>CFBundleName</key>
 	<string>NokoMusicWatch</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1</string>
+	<string>1.1.5</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>3</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
@@ -107,9 +107,9 @@ cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
 	<key>CFBundleIdentifier</key>
 	<string>com.shiikatan.nokocord.chiaki</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.0</string>
+	<string>1.1.5</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>3</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>NSAppleEventsUsageDescription</key>
@@ -119,7 +119,7 @@ cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
 	<key>NokoEditionName</key>
 	<string>Chiaki</string>
 	<key>NokoPublicVersion</key>
-	<string>C1.1.0</string>
+	<string>C1.1.5</string>
 	<key>NokoMaintainer</key>
 	<string>Millx</string>
 	<key>CFBundleURLTypes</key>
