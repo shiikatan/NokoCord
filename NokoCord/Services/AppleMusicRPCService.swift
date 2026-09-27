@@ -2,9 +2,9 @@ import Foundation
 import AppKit
 import Observation
 
-/// Apple Music Rich Presence: detects local playback, resolves artwork and
-/// hands the resulting activity to the bundled `noko.apple-music` Noko-Tan,
-/// which delivers it inside the signed-in Discord session.
+/// Apple Music Rich Presence: detects local playback and resolves artwork. The
+/// bundled `noko.apple-music` Tan is the feature's switch; the app itself
+/// delivers the activity inside the signed-in Discord session.
 ///
 /// The Tan is the feature's switch. `setActive(_:)` follows `TanManager` state
 /// through the browser engine, so disabling or uninstalling the Tan, or
@@ -16,7 +16,6 @@ public final class AppleMusicRPCService: NSObject {
     /// True while the Tan is enabled and not suppressed by Safe Mode.
     public private(set) var isEnabled = false
     public private(set) var currentTrack: AppleMusicTrack?
-    public private(set) var isLastFMDetected = false
     public private(set) var lastFMStatusText = ""
     /// Set when macOS reported that NokoCord may not read Music's position.
     public private(set) var isPositionAccessDenied = false
@@ -36,8 +35,10 @@ public final class AppleMusicRPCService: NSObject {
         return digits ? stored : AppleMusicTrack.discordApplicationID
     }
 
-    /// Reports the activity the Discord session should show; `nil` clears it.
-    public var onPresenceChange: ((GamePresence?) -> Void)?
+    /// Reports that the activity to show has changed. The engine reads
+    /// `currentTrack` and builds the activity, so there is one construction
+    /// site rather than two that can drift.
+    public var onPresenceChange: (() -> Void)?
 
     @ObservationIgnored private var playerObserver: NSObjectProtocol?
     @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
@@ -72,8 +73,7 @@ public final class AppleMusicRPCService: NSObject {
     }
 
     public func refreshLastFMStatus() {
-        isLastFMDetected = detector.isLastFMInstalled()
-        if isLastFMDetected {
+        if detector.isLastFMInstalled() {
             let appInHome = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("LastFMSwift/LastFM.app").path
             lastFMStatusText = FileManager.default.fileExists(atPath: appInHome)
@@ -165,11 +165,7 @@ public final class AppleMusicRPCService: NSObject {
     }
 
     private func publish(_ track: AppleMusicTrack?) {
-        guard let track, track.playerState.isPlaying else {
-            onPresenceChange?(nil)
-            return
-        }
-        onPresenceChange?(track.toGamePresence(clientId: Self.configuredApplicationID))
+        onPresenceChange?()
     }
 
     /// NokoMusicWatch, the unsandboxed helper bundled with the app, is the
@@ -251,7 +247,11 @@ public final class AppleMusicRPCService: NSObject {
             show(track)
         case "paused", "stopped", "not_running":
             scheduleStop()
-        case "denied":
+        case "denied", "unavailable":
+            // "unavailable" is what the helper reports when the Apple Event to
+            // Music comes back empty, which in practice means macOS never
+            // granted it. Either way the player cannot be read, so surface the
+            // same explanation rather than silence.
             // macOS never prompted, or the user declined: Settings explains how
             // to allow it instead of failing silently.
             isPositionAccessDenied = true

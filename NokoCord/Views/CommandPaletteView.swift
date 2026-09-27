@@ -137,7 +137,7 @@ struct CommandPaletteView: View {
         items.append(PaletteAction(
             id: "nav.zen_mode",
             title: browser.isZenMode ? "Exit Zen Mode (Show Sidebars)" : "Enter Zen Mode (Focus Chat)",
-            subtitle: browser.isZenMode ? "Restore Discord server and channel sidebars" : "Hide sidebars to cut layout & memory overhead by ~40%",
+            subtitle: browser.isZenMode ? "Restore Discord server and channel sidebars" : "Hide sidebars to cut layout & memory overhead by a meaningful slice of",
             category: "Navigation",
             icon: "sidebar.left",
             shortcut: "⌘\\",

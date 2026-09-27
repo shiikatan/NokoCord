@@ -43,7 +43,6 @@ struct Playback {
 enum ScriptOutcome {
     case playback(Playback)
     case stopped
-    case notRunning
     case denied
     case failed(Int)
 }
@@ -142,11 +141,6 @@ private func poll() {
         guard lastBroadcast != "denied" else { return }
         lastBroadcast = "denied"
         post(["state": "denied"])
-    case .notRunning:
-        if lastBroadcast != "notRunning" {
-            lastBroadcast = "notRunning"
-            post(["state": "not_running"])
-        }
     case .failed(let code):
         // Never stay silent: if the helper cannot read the player, the app has
         // to know, otherwise the status just quietly stops updating.
@@ -154,8 +148,6 @@ private func poll() {
         guard key != lastBroadcast else { return }
         lastBroadcast = key
         post(["state": "unavailable", "code": code, "sandbox": sandboxDescription])
-    case .notRunning:
-        break
     }
 }
 

@@ -151,7 +151,8 @@ public struct AppleMusicTrack: Equatable, Sendable, Identifiable {
             // state line, and repeating it on the artwork reads as a duplicate.
             largeImageText: nil,
             smallImageKey: artistImageURL?.absoluteString,
-            smallImageText: artist.isEmpty ? nil : artist,
+            // Only label the small image when there is one to label.
+            smallImageText: artistImageURL == nil || artist.isEmpty ? nil : artist,
             buttons: buttons.isEmpty ? nil : buttons
         )
     }

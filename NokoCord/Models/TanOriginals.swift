@@ -157,11 +157,11 @@ NokoTan.register({
   start(api) {
     'use strict';
 
-    // Noko-Chat 1.6.0
+    // Noko-Chat 1.6.5
     // Pure DOM/CSS customization. No network requests, Discord tokens,
     // native bridge, helper process, or external service.
 
-    const VERSION = '1.6.4';
+    const VERSION = '1.6.5';
     const STORAGE_KEY = 'noko.chat.settings.v1';
 
     const DEFAULTS = Object.freeze({

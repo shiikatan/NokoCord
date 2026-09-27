@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import Observation
 
-/// Native Discord IPC Daemon listening on `/tmp/discord-ipc-0` to enable Game Rich Presence.
+/// Discord IPC endpoint on the standard client socket paths, which lets games publish Rich Presence without a token or a network call.
 @MainActor @Observable
 public final class GamePresenceService: NSObject {
     public static let shared = GamePresenceService()

@@ -113,7 +113,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             self?.syncGamePresenceToDiscord(presence)
             self?.syncAppleMusicPresenceToDiscord()
         }
-        AppleMusicRPCService.shared.onPresenceChange = { [weak self] _ in
+        AppleMusicRPCService.shared.onPresenceChange = { [weak self] in
             self?.syncAppleMusicPresenceToDiscord()
         }
         updateAppleMusicActivation()
@@ -198,7 +198,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         """, completionHandler: nil)
     }
 
-    /// Aggressively suspends background media and offscreen channel caches for sub-500MB idle memory.
+    /// Suspends background media and drops offscreen channel caches when the view is hidden.
     /// A call keeps its media elements untouched: they carry the live voice stream.
     func hibernate() {
         purgeMemoryCache()
@@ -247,7 +247,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         // 8. WebKit parks getUserMedia until the page is visible; a voice join
         // must be able to start while the app is briefly in the background.
         configuration.preferences.setValue(false, forKey: "getUserMediaRequiresFocus")
-        // Master Plan v2: controlled local Tans only; no auth/token bridge.
+        // Controlled local Tans only; no auth or token bridge.
         // No enabled Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)
         let view = WKWebView(frame: .zero, configuration: configuration)
@@ -457,23 +457,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// Dispatches a game activity the native IPC server received. Games outrank
     /// music, so the caller re-evaluates the music activity afterwards.
     private func syncGamePresenceToDiscord(_ presence: GamePresence?) {
-        guard let view = browserView, lifecycle.phase == .ready else { return }
+        guard browserView != nil, lifecycle.phase == .ready else { return }
         gameDispatchTask?.cancel()
-        gameDispatchTask = Task { @MainActor [weak view] in
-            guard let view else { return }
-            var payload = presence?.toDiscordPayload() ?? [:]
-            if let presence {
-                let resolved = await Self.externalAssetKeys(view: view,
-                                                            applicationId: presence.clientId,
-                                                            urls: [presence.largeImageKey, presence.smallImageKey])
-                if var assets = payload["assets"] as? [String: Any] {
-                    if let large = resolved[0] { assets["large_image"] = large }
-                    if resolved.count > 1, let small = resolved[1] { assets["small_image"] = small }
-                    payload["assets"] = assets
-                }
-            }
-            let json = payload.isEmpty ? "null" : Self.jsonLiteral(payload)
-            _ = try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: Self.gameSocketID))
+        gameDispatchTask = Task { @MainActor [weak self] in
+            await self?.dispatchLocalActivity(presence, socketID: Self.gameSocketID)
         }
     }
 
@@ -481,42 +468,48 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
 
     /// Dispatches the track the Apple Music Tan should show. Nothing is sent
     /// while the Tan is off, and the activity is cleared when music stops or a
-    /// game takes over. Delivery is confirmed against Discord's own store and
-    /// retried, because Discord accepts dispatches it does not apply while it
-    /// is still loading.
+    /// game takes over.
     private func syncAppleMusicPresenceToDiscord() {
-        guard let view = browserView, lifecycle.phase == .ready else { return }
+        guard browserView != nil, lifecycle.phase == .ready else { return }
         let service = AppleMusicRPCService.shared
         let suppressed = !service.isEnabled || GamePresenceService.shared.activePresence != nil
-        guard !suppressed, let track = service.currentTrack, track.playerState.isPlaying else {
-            let payload = Self.jsonLiteral(nil)
-            musicDispatchTask?.cancel()
-            musicDispatchTask = Task { @MainActor [weak view] in
-                _ = try? await view?.evaluateJavaScript(Self.localActivityScript(payload: payload, socketID: Self.musicSocketID))
-            }
-            return
-        }
-        let presence = track.toGamePresence(clientId: AppleMusicRPCService.configuredApplicationID)
+        let track = service.currentTrack
+        let presence = suppressed || track?.playerState.isPlaying != true
+            ? nil
+            : track?.toGamePresence(clientId: AppleMusicRPCService.configuredApplicationID)
         musicDispatchTask?.cancel()
-        musicDispatchTask = Task { @MainActor [weak self, weak view] in
-            guard let view else { return }
+        musicDispatchTask = Task { @MainActor [weak self] in
+            await self?.dispatchLocalActivity(presence, socketID: Self.musicSocketID)
+        }
+    }
+
+    /// The single place an activity reaches the page. External artwork is
+    /// resolved into Discord media-proxy keys first, and a presence that is
+    /// meant to appear is confirmed against Discord's own store and retried,
+    /// because Discord accepts dispatches it does not apply while it loads.
+    private func dispatchLocalActivity(_ presence: GamePresence?, socketID: String) async {
+        guard let view = browserView else { return }
+        var payload = presence?.toDiscordPayload() ?? [:]
+        if let presence {
             let resolved = await Self.externalAssetKeys(view: view,
                                                         applicationId: presence.clientId,
                                                         urls: [presence.largeImageKey, presence.smallImageKey])
-            var payload = presence.toDiscordPayload()
             if var assets = payload["assets"] as? [String: Any] {
                 if let large = resolved[0] { assets["large_image"] = large }
                 if resolved.count > 1, let small = resolved[1] { assets["small_image"] = small }
                 payload["assets"] = assets
             }
-            let json = Self.jsonLiteral(payload)
-            for _ in 1...15 {
-                guard !Task.isCancelled else { return }
-                let outcome = (try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: Self.musicSocketID))) as? String
-                if outcome == "applied" { return }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                _ = self
-            }
+        }
+        let json = payload.isEmpty ? "null" : Self.jsonLiteral(payload)
+        guard presence != nil else {
+            _ = try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: socketID))
+            return
+        }
+        for _ in 1...15 {
+            guard !Task.isCancelled else { return }
+            let outcome = (try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: socketID))) as? String
+            if outcome == "applied" { return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
     }
 

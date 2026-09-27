@@ -520,7 +520,7 @@ final class TanRuntime {
             padding-top: 24px !important;
           }
 
-          /* Zen Mode: Collapses server and channel sidebars to save ~40% DOM & rendering memory */
+          /* Zen Mode: Collapses server and channel sidebars to save a meaningful slice of DOM & rendering memory */
           html.nokocord-zen-mode nav[aria-label="Servers sidebar"],
           html.nokocord-zen-mode nav[class*="guilds_"],
           html.nokocord-zen-mode div[class*="guilds_"],
@@ -898,79 +898,7 @@ final class TanRuntime {
         }
       }, true);
 
-      // 6. Native Local Rich Presence Delivery (used by the Apple Music RPC Tan)
-      // Discord's module cache holds dispatchers from other runtimes that accept
-      // LOCAL_ACTIVITY_UPDATE and silently drop it, so only the dispatcher the
-      // client's own LocalActivityStore registered with is accepted.
-      if (!window.__nokoLocalActivity) {
-        const resolveLocalActivityDispatcher = () => {
-          const chunk = window.webpackChunkdiscord_app;
-          if (!chunk || typeof chunk.push !== 'function') return null;
-          const requires = [];
-          for (let i = 0; i < 3; i++) {
-            try {
-              chunk.push([[Symbol()], {}, (require) => { if (requires.indexOf(require) === -1) requires.push(require); }]);
-            } catch (_) {}
-          }
-          const usable = (candidate) => candidate && typeof candidate.dispatch === 'function' && typeof candidate.subscribe === 'function';
-          for (const require of requires) {
-            const factories = require && require.m ? require.m : null;
-            if (!factories) continue;
-            for (const id of Object.keys(factories)) {
-              let source = '';
-              try { source = Function.prototype.toString.call(factories[id]); } catch (_) { continue; }
-              if (source.indexOf('"LocalActivityStore"') === -1) continue;
-              let store = null;
-              try {
-                const exported = require(id);
-                const values = [exported, exported && exported.default];
-                if (exported && typeof exported === 'object') values.push(...Object.values(exported));
-                for (const candidate of values) {
-                  if (candidate && typeof candidate.getActivities === 'function' && typeof candidate.getPrimaryActivity === 'function') { store = candidate; break; }
-                }
-              } catch (_) { continue; }
-              if (!store) continue;
-              for (const key of Object.getOwnPropertyNames(store)) {
-                const value = store[key];
-                if (!usable(value)) continue;
-                try {
-                  const handlers = value._actionHandlers && value._actionHandlers.getOrderedActionHandlers({ type: 'LOCAL_ACTIVITY_UPDATE' });
-                  if (handlers && handlers.length) return { dispatcher: value, store };
-                } catch (_) {}
-              }
-            }
-          }
-          return null;
-        };
-        // Discord can accept a dispatch without applying it: dispatchers from
-        // other runtimes and stores from duplicate module copies both take the
-        // action and drop it. Delivery is therefore confirmed against the
-        // client's own store, and the resolution is redone for every attempt so
-        // a store the client does not render from is never reused.
-        window.__nokoLocalActivity = (socketId, activity) => {
-          const resolved = resolveLocalActivityDispatcher();
-          if (!resolved) return null;
-          let outcome = null;
-          try {
-            outcome = resolved.dispatcher.dispatch({ type: 'LOCAL_ACTIVITY_UPDATE', socketId: String(socketId), activity: activity ?? null });
-          } catch (_) {
-            return null;
-          }
-          const applied = () => {
-            try {
-              const activities = resolved.store.getActivities() ?? [];
-              const present = activities.indexOf(activity) !== -1;
-              return activity == null ? !present : present;
-            } catch (_) {
-              return false;
-            }
-          };
-          if (outcome && typeof outcome.then === 'function') return outcome.then(applied, () => false);
-          return applied();
-        };
-      }
-
-      // 6b. External image keys for activities. Discord only renders images that
+      // 6. External image keys for activities. Discord only renders images that
       // are application assets or media-proxy keys, so image URLs are resolved
       // through the client's own authenticated endpoint before dispatch.
       if (!window.__nokoResolveExternalAssets) {

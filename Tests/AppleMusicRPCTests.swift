@@ -52,6 +52,7 @@ final class AppleMusicRPCTests: XCTestCase {
         XCTAssertNil(presence.smallImageKey, "An unresolvable asset key must not be sent")
         let assets = try XCTUnwrap(presence.toDiscordPayload()["assets"] as? [String: Any])
         XCTAssertNil(assets["small_image"])
+        XCTAssertNil(assets["small_text"], "no tooltip without the image it labels")
         XCTAssertNotNil(assets["large_image"])
     }
 
