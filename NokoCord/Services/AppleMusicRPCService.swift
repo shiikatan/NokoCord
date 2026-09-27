@@ -46,6 +46,7 @@ public final class AppleMusicRPCService: NSObject {
     /// Set while NokoMusicWatch is reporting, so its exact positions win over
     /// the player notification's own elapsed time.
     @ObservationIgnored private var watcherLastSeen: Date?
+    @ObservationIgnored private var watcherWatchdog: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private let detector = AppleMusicDetector.shared
 
@@ -187,9 +188,30 @@ public final class AppleMusicRPCService: NSObject {
             }
         }
         launchWatcherIfNeeded()
+        startWatcherWatchdog()
+    }
+
+    /// A helper that quits with the app, or one that is missed because a stale
+    /// copy was still shutting down when NokoCord launched, would silently stop
+    /// all music reporting. Asking again whenever nothing has been heard is
+    /// harmless, because LaunchServices activates the running helper instead of
+    /// starting a second copy.
+    private func startWatcherWatchdog() {
+        watcherWatchdog?.cancel()
+        watcherWatchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+                guard let self, self.isEnabled else { continue }
+                let isReporting = self.watcherLastSeen.map { Date().timeIntervalSince($0) < 20 } ?? false
+                if !isReporting { self.launchWatcherIfNeeded() }
+            }
+        }
     }
 
     private func stopMusicWatcher() {
+        watcherWatchdog?.cancel()
+        watcherWatchdog = nil
+        watcherLastSeen = nil
         if let watcherObserver {
             DistributedNotificationCenter.default().removeObserver(watcherObserver)
             self.watcherObserver = nil
@@ -200,8 +222,7 @@ public final class AppleMusicRPCService: NSObject {
     }
 
     private func launchWatcherIfNeeded() {
-        guard NSRunningApplication.runningApplications(withBundleIdentifier: Self.watcherBundleID).isEmpty,
-              let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NokoMusicWatch.app", isDirectory: true) as URL?,
+        guard let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NokoMusicWatch.app", isDirectory: true) as URL?,
               FileManager.default.fileExists(atPath: url.path) else { return }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false

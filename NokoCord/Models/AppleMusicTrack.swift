@@ -147,7 +147,9 @@ public struct AppleMusicTrack: Equatable, Sendable, Identifiable {
             startTimestamp: playerState.isPlaying ? Date().addingTimeInterval(-currentPosition) : nil,
             endTimestamp: playerState.isPlaying && duration > 0 ? Date().addingTimeInterval(max(0, duration - currentPosition)) : nil,
             largeImageKey: artworkURL?.absoluteString,
-            largeImageText: album.isEmpty ? name : album,
+            // Deliberately no largeImageText: the album already occupies the
+            // state line, and repeating it on the artwork reads as a duplicate.
+            largeImageText: nil,
             smallImageKey: artistImageURL?.absoluteString,
             smallImageText: artist.isEmpty ? nil : artist,
             buttons: buttons.isEmpty ? nil : buttons

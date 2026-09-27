@@ -28,7 +28,7 @@ final class AppleMusicRPCTests: XCTestCase {
         XCTAssertEqual(presence.details, "Plastic Love")
         XCTAssertEqual(presence.state, "Variety")
         XCTAssertEqual(presence.largeImageKey, "https://is1-ssl.mzstatic.com/image/thumb/512x512bb.jpg")
-        XCTAssertEqual(presence.largeImageText, "Variety")
+        XCTAssertNil(presence.largeImageText, "the album already occupies the state line")
         XCTAssertEqual(presence.smallImageKey, "https://cdn-images.dzcdn.net/images/artist/abc/500x500.jpg")
         XCTAssertEqual(presence.smallImageText, "Mariya Takeuchi")
         XCTAssertNotNil(presence.startTimestamp)

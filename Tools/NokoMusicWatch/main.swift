@@ -45,26 +45,26 @@ enum ScriptOutcome {
     case stopped
     case notRunning
     case denied
-    case failed
+    case failed(Int)
 }
 
 private func readPlayback() -> ScriptOutcome {
-    guard let script = playbackScript else { return .failed }
+    guard let script = playbackScript else { return .failed(0) }
     var error: NSDictionary?
     let result = script.executeAndReturnError(&error)
     if let error {
         let code = (error[NSAppleScript.errorNumber] as? NSNumber)?.intValue ?? 0
         // -1743: the user has not allowed this helper to control Music.
-        return code == -1743 ? .denied : .failed
+        return code == -1743 ? .denied : .failed(code)
     }
-    guard let value = result.stringValue else { return .failed }
+    guard let value = result.stringValue else { return .failed(0) }
     if value == "STOPPED" { return .stopped }
     let fields = value.components(separatedBy: separator)
     if fields.first == "ERROR" {
         let code = fields.count > 1 ? Int(fields[1]) ?? 0 : 0
-        return code == -1743 ? .denied : .failed
+        return code == -1743 ? .denied : .failed(code)
     }
-    guard fields.count >= 7 else { return .failed }
+    guard fields.count >= 7 else { return .failed(0) }
     let name = fields[2].trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { return .stopped }
     return .playback(Playback(state: fields[0],
@@ -93,6 +93,14 @@ private func isOwnerRunning() -> Bool {
     !NSRunningApplication.runningApplications(withBundleIdentifier: ownerBundleID).isEmpty
 }
 
+/// Evidence for the failure report: a sandboxed helper is handed a container
+/// home and an APP_SANDBOX_CONTAINER_ID, which is exactly what stops it sending
+/// Apple Events to Music.
+private var sandboxDescription: String {
+    let container = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"]
+    return "container=\(container ?? "none") home=\(NSHomeDirectory())"
+}
+
 private func post(_ body: [String: Any]) {
     DistributedNotificationCenter.default().postNotificationName(notificationName,
                                                                  object: ownerBundleID,
@@ -104,18 +112,7 @@ private var lastBroadcast = ""
 private var ownerMissingSince: Date?
 
 private func poll() {
-    // Whoever launched this helper owns its lifetime: nothing lingers when the
-    // app quits or crashes.
-    if isOwnerRunning() {
-        ownerMissingSince = nil
-    } else {
-        let missingSince = ownerMissingSince ?? Date()
-        ownerMissingSince = missingSince
-        if Date().timeIntervalSince(missingSince) > ownerGracePeriod {
-            exit(EXIT_SUCCESS)
-        }
-        return
-    }
+    guard isOwnerRunning() else { return }
 
     guard isMusicRunning() else {
         if lastBroadcast != "notRunning" {
@@ -150,7 +147,14 @@ private func poll() {
             lastBroadcast = "notRunning"
             post(["state": "not_running"])
         }
-    case .failed:
+    case .failed(let code):
+        // Never stay silent: if the helper cannot read the player, the app has
+        // to know, otherwise the status just quietly stops updating.
+        let key = "failed|\(code)"
+        guard key != lastBroadcast else { return }
+        lastBroadcast = key
+        post(["state": "unavailable", "code": code, "sandbox": sandboxDescription])
+    case .notRunning:
         break
     }
 }
@@ -161,8 +165,32 @@ private func poll() {
 let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep],
                                                      reason: "Reading Apple Music playback state")
 
-let pollTimer = Timer(timeInterval: pollInterval, repeats: true) { _ in poll() }
-RunLoop.main.add(pollTimer, forMode: .common)
+// Polling and the lifetime check live on separate serial queues, and neither
+// uses the main queue. An Apple Event can block for a long time when Music is
+// busy, and this helper must still notice that NokoCord is gone and exit
+// rather than linger forever.
+private let pollQueue = DispatchQueue(label: "com.shiikatan.nokocord.musicwatch.poll")
+private let ownerQueue = DispatchQueue(label: "com.shiikatan.nokocord.musicwatch.owner")
+
+let pollTimer = DispatchSource.makeTimerSource(queue: pollQueue)
+pollTimer.schedule(deadline: .now(), repeating: pollInterval, leeway: .milliseconds(250))
+pollTimer.setEventHandler { poll() }
+pollTimer.resume()
+
+let ownerTimer = DispatchSource.makeTimerSource(queue: ownerQueue)
+ownerTimer.schedule(deadline: .now() + ownerCheckInterval, repeating: ownerCheckInterval)
+ownerTimer.setEventHandler {
+    if isOwnerRunning() {
+        ownerMissingSince = nil
+        return
+    }
+    let missingSince = ownerMissingSince ?? Date()
+    ownerMissingSince = missingSince
+    if Date().timeIntervalSince(missingSince) > ownerGracePeriod {
+        exit(EXIT_SUCCESS)
+    }
+}
+ownerTimer.resume()
+
 _ = activity
-poll()
-RunLoop.main.run()
+dispatchMain()

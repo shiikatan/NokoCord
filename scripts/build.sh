@@ -112,6 +112,8 @@ cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
 	<string>2</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>NokoCord's Apple Music helper reads the player's current track and position so your Discord listening activity stays in sync. NokoCord itself never controls Music.</string>
 	<key>NokoEditionID</key>
 	<string>chiaki</string>
 	<key>NokoEditionName</key>

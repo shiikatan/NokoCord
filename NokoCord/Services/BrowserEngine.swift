@@ -224,6 +224,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         if let browserView { return browserView }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
+        // Without a name in the user agent, Discord cannot identify the client
+        // and quietly refuses voice. WebKit is Safari's engine, so say so.
+        let system = ProcessInfo.processInfo.operatingSystemVersion
+        configuration.applicationNameForUserAgent = "Version/\(system.majorVersion).\(system.minorVersion) Safari/605.1.15"
         // WebKit Memory Footprint Optimizations:
         // 1. Explicitly disable Page Cache (WebKit's multi-hundred MB back-forward snapshot cache)
         configuration.preferences.setValue(false, forKey: "usesPageCache")
