@@ -329,7 +329,6 @@ final class TanRuntime {
         };
         window.addEventListener('focusin', (e) => suppressSpellcheck(e.target), true);
       } catch (_) {}
-      } catch (_) {}
 
       const onReady = (fn) => {
         if (document.readyState === 'interactive' || document.readyState === 'complete') {
@@ -574,31 +573,43 @@ final class TanRuntime {
       };
       injectStyles();
 
-      // 2. Intercept Command+K, Command+T, and Command+\ anywhere in Discord
-      window.addEventListener('keydown', (e) => {
-        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
-          const key = e.key.toLowerCase();
-          if (key === 't') {
+      // 2. Intercept Command+K, Command+T, Command+B, and Command+\ anywhere in Discord
+      const handleNokoShortcuts = (e) => {
+        if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+          const key = e.key ? e.key.toLowerCase() : '';
+          if (key === 'k' && !e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleTans' });
-            } catch (_) {}
-          } else if (key === 'k') {
-            e.preventDefault();
-            e.stopPropagation();
+            e.stopImmediatePropagation();
             try {
               window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleQuickSwitcher' });
             } catch (_) {}
-          } else if (key === '\\') {
+          } else if (key === 'b' && e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleBookmarks' });
+            } catch (_) {}
+          } else if (key === 't' && !e.shiftKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            try {
+              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleTans' });
+            } catch (_) {}
+          } else if (key === '\\' && !e.shiftKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
             try {
               window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleZenMode' });
             } catch (_) {}
           }
         }
-      }, true);
+      };
+      window.addEventListener('keydown', handleNokoShortcuts, true);
+      document.addEventListener('keydown', handleNokoShortcuts, true);
 
       // 3. Native macOS Notification Bridge (routes HTML5 notifications to UNUserNotificationCenter)
       if (!window.__nokoNotificationBridged) {

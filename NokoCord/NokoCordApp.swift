@@ -150,13 +150,23 @@ private struct NokoCordCommands: Commands {
             Button("Show NokoCord") { openWindow(id: "main") }
         }
         CommandGroup(after: .textEditing) {
-            Button("Quick Selector") { quickSwitcher?.wrappedValue = true }
-                .keyboardShortcut("k", modifiers: .command)
-                .disabled(quickSwitcher == nil)
+            Button("Command Palette…") {
+                if let quickSwitcher {
+                    quickSwitcher.wrappedValue.toggle()
+                } else {
+                    browser.onToggleQuickSwitcher?()
+                }
+            }
+            .keyboardShortcut("k", modifiers: .command)
 
-            Button("Saved Messages") { bookmarks?.wrappedValue = true }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-                .disabled(bookmarks == nil)
+            Button("Saved Messages…") {
+                if let bookmarks {
+                    bookmarks.wrappedValue.toggle()
+                } else {
+                    browser.onToggleBookmarks?()
+                }
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
         }
         CommandGroup(after: .toolbar) {
             Button("Open Discord") { openWindow(id: "main"); browser.openDiscord() }
