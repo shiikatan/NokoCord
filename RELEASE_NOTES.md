@@ -42,7 +42,7 @@ change happens.
 Use the Chiaki DMG or ZIP from the GitHub release with the matching SHA-256
 checksum file. The app is named `NokoCord.app` and identifies itself as
 Chiaki C1.1.5 in About. The bundle identifier is
-`com.shiikatan.nokocord.chiaki`. macOS 26.6 or newer is required.
+`com.shiikatan.nokocord.chiaki`. macOS 26.0 or newer is required.
 
 Apple Music Rich Presence is off until you enable the `noko.apple-music` Tan.
 It only ever reads the player, and nothing leaves the machine except the

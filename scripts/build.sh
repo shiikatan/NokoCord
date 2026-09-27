@@ -25,12 +25,12 @@ rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${HELPERS_DIR}" "${RESOURCES_DIR}"
 
 echo "==> [1/6] Compiling TanTranslator helper..."
-swiftc Tools/TanTranslator/Helper/main.swift -O -o "${HELPERS_DIR}/TanTranslator"
+swiftc -target arm64-apple-macos26.0 Tools/TanTranslator/Helper/main.swift -O -o "${HELPERS_DIR}/TanTranslator"
 
 echo "==> [2/6] Compiling NokoCord native binary with swiftc..."
 CPU_CORES=$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 SWIFT_FILES=$(find NokoCord -name "*.swift")
-swiftc -parse-as-library -j"${CPU_CORES}" ${SWIFT_FILES} -O -o "${MACOS_DIR}/NokoCord"
+swiftc -target arm64-apple-macos26.0 -parse-as-library -j"${CPU_CORES}" ${SWIFT_FILES} -O -o "${MACOS_DIR}/NokoCord"
 
 echo "==> [3/6] Packaging resources and app icon..."
 cp NokoCord/Resources/TanTranslatorRuntime.js "${RESOURCES_DIR}/"
@@ -61,7 +61,7 @@ echo "==> [1b/6] Building NokoMusicWatch helper..."
 WATCH_DIR="${HELPERS_DIR}/NokoMusicWatch.app"
 WATCH_MACOS="${WATCH_DIR}/Contents/MacOS"
 mkdir -p "${WATCH_MACOS}" "${WATCH_DIR}/Contents/Resources"
-swiftc Tools/NokoMusicWatch/main.swift -O -o "${WATCH_MACOS}/NokoMusicWatch"
+swiftc -target arm64-apple-macos26.0 Tools/NokoMusicWatch/main.swift -O -o "${WATCH_MACOS}/NokoMusicWatch"
 cp "${RESOURCES_DIR}/AppIcon.icns" "${WATCH_DIR}/Contents/Resources/AppIcon.icns"
 cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -83,7 +83,7 @@ cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
 	<key>CFBundleVersion</key>
 	<string>3</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
