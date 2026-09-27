@@ -8,7 +8,7 @@ modifications. NokoCord is not affiliated with or endorsed by Discord.
 
 - **Maomao** (`maomao` branch): stable edition, public version **M1.0.0**,
   maintained by Shiikatan.
-- **Chiaki** (`chiaki` branch): experimental edition, public version **C1.1.5**,
+- **Chiaki** (`chiaki` branch): experimental edition, public version **C1.1.6**,
   maintained by Millx.
 
 This is the **Chiaki** source branch. It began from the same curated source

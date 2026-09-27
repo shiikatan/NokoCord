@@ -1,48 +1,49 @@
-# NokoCord — Chiaki Edition C1.1.5
+# NokoCord — Chiaki Edition C1.1.6
 
 Chiaki is the experimental, rapid NokoCord edition maintained by Millx. It
 keeps its own app container and Discord session, separate from Maomao.
 Experiments and releases may happen about 1–2 days apart when active; behavior
 can change or be unstable, and there is no support or update promise.
 
-## What is new in C1.1.5
+## What is new in C1.1.6
 
-- The album no longer appears twice in the listening activity. It was on both
-  the state line and the artwork's tooltip; it is now on the state line only.
-- NokoCord names itself in the user agent, derived from the running system
-  version. Discord previously saw a browser with no name at all and refused
-  voice outright — calls could not be joined and the start-call button did
-  nothing, with no error shown.
-- `NokoMusicWatch` polls the player and checks whether NokoCord is still running
-  on separate queues, so a stalled Apple Event can no longer leave the helper
-  behind after the app quits. NokoCord also asks for a helper again whenever
-  nothing has reported for twenty seconds.
-- The helper reports *why* it cannot read the player instead of going quiet,
-  which is what made the following limitation take so long to find.
+- **Fixed: NokoCord refused to open on macOS 26.** The binaries were built
+  without a deployment target, so macOS saw an app that required 27.0 even
+  though it declares support for 26.0, and answered with "Cannot use NokoCord
+  with this version of macOS". C1.1.0 and C1.1.5 both shipped that way; if the
+  download would not open for you, this is why. All three binaries — the app and
+  both helpers — now build against an explicit macOS 26.0 target, and both
+  Info.plists declare the same, so the plist and the binary finally agree.
+
+Everything from C1.1.5 is included: the album appears once rather than twice in
+the listening activity, the browser identifies itself so Discord offers voice
+instead of refusing it, the music helper's lifetime is handled on separate
+queues, and it reports why it cannot read the player instead of going quiet.
 
 ## Known limitation: Apple Music access
 
 The helper reads Apple Music over Apple Events, and macOS currently declines
-that request for this build without showing a dialog. The reason is understood:
-macOS attributes the request to NokoCord, and it will not offer an Automation
-permission prompt to an app that is ad-hoc signed *and* has the hardened
-runtime, which is exactly how this release is signed. A Developer ID signature
-would remove the obstacle; so would a planned change that keeps the sandbox,
-drops the hardened runtime, and lets NokoCord read the player itself. Both are
-tracked in `docs/BACKLOG.md`.
+that request for this build **without showing a permission dialog**. macOS
+attributes the request to NokoCord, and it will not offer an Automation prompt
+to an app that is both ad-hoc signed and hardened, which is how this release is
+signed. A Developer ID signature removes the obstacle; so does a planned change
+that keeps the sandbox, drops the hardened runtime, and lets NokoCord read the
+player itself. Both are tracked in `docs/BACKLOG.md`.
 
-In practice, until that changes: the status follows track changes through the
-notifications Apple Music posts, so it looks right for normal listening, but a
-repeated track does not update it, seeking does not re-sync it, and a song that
-was already playing when NokoCord starts appears only once the next track
-change happens.
+Until then: the status follows Apple Music's own notifications, so ordinary
+listening looks right, but a repeated track does not update it, seeking does not
+re-sync it, and a song already playing when NokoCord starts appears only at the
+next track change.
 
 ## Requirements, downloads and permissions
 
 Use the Chiaki DMG or ZIP from the GitHub release with the matching SHA-256
 checksum file. The app is named `NokoCord.app` and identifies itself as
-Chiaki C1.1.5 in About. The bundle identifier is
-`com.shiikatan.nokocord.chiaki`. macOS 26.0 or newer is required.
+Chiaki C1.1.6 in About. The bundle identifier is
+`com.shiikatan.nokocord.chiaki`.
+
+**Requirements: macOS 26.0 or newer, on Apple Silicon.** This build contains an
+arm64 executable only; Intel Macs cannot run it.
 
 Apple Music Rich Presence is off until you enable the `noko.apple-music` Tan.
 It only ever reads the player, and nothing leaves the machine except the
