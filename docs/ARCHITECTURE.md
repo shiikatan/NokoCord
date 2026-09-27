@@ -166,8 +166,11 @@ Views/
 
 ## 4. Dormant Code, Deliberately Kept
 
-Some code compiles into the app but is not reachable from any UI. It is kept on
-purpose and should not be mistaken for a mistake, nor deleted without a decision:
+Some code compiles into the app but is not reachable from any UI. The
+maintainer has decided to **keep** it as the start of a native client, so it
+should not be mistaken for a mistake or deleted without a decision. It is
+maintained, not abandoned: it is expected to compile, and it is exercised by the
+test suite even though no shipping code path reaches it.
 
 * **Local account and chat stack** — `Store/AppStore.swift`,
   `Discord/Authentication.swift`, `Discord/DiscordREST.swift`,
@@ -182,9 +185,9 @@ purpose and should not be mistaken for a mistake, nor deleted without a decision
   `Media/MediaDiagnostics.swift`, `Media/LocalScreenTarget.swift`, and the models
   they use. They are the beginning of a native client UI, and the reason the
   bundle declares camera and microphone usage strings. Two of these views are
-  not mounted in any Settings tab today.
+  not mounted in any Settings tab yet.
 
-Anything else unused is a defect: delete it or wire it up.
+Code that is not listed here and not used is a defect: delete it or wire it up.
 
 ## 4. Native to Web Bridge Architecture
 
