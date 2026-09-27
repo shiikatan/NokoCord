@@ -4,7 +4,7 @@ NokoCord delivers desktop capabilities that Discord's web client lacks, while av
 
 ---
 
-## 1. Native Media Viewer (`NativeMediaViewer.swift`)
+## 1. Native Media Viewer (`Views/NativeMediaLightboxView.swift`)
 
 When users click images, attachments, or videos in Discord, the official client mounts a heavy React lightbox with canvas backdrops and multiple DOM wrappers, consuming up to **120 MB of GPU memory**.
 
@@ -13,16 +13,16 @@ NokoCord intercepts these clicks at the DOM capture phase (`TanRuntime.swift`) a
 ```mermaid
 graph LR
     A[User clicks image/video in chat] -->|TanRuntime.swift capture-phase click| B[nokoCordApp openMedia IPC]
-    B -->|ActiveBrowserEngine.swift| C[NativeMediaViewer.swift Overlay]
+    B -->|ActiveBrowserEngine.swift| C[NativeMediaLightboxView Overlay]
     C -->|Renders using native NSImage / AVPlayer| D[Zero WebContent Memory Used]
 ```
 
 ### Features & Controls
-* **Lightweight Rendering**: Uses native `AsyncImage` for pictures and native `AVPlayerView` for videos.
+* **Lightweight Rendering**: Uses SwiftUI `AsyncImage` for pictures and `VideoPlayer` for videos.
 * **Keyboard Navigation**:
   * `Escape`: Instantly closes the lightbox.
   * `⌘C`: Copies the media URL to the system clipboard.
-  * `⌘S`: Opens a native macOS save dialog to download the file directly.
+  * `⌘S`: Saves the file straight into `~/Downloads` with `URLSession`, without opening a browser or a save dialog.
 * **Dismiss Interactions**: Clicking anywhere outside the media content immediately dismisses the viewer.
 
 ---
@@ -30,23 +30,39 @@ graph LR
 ## 2. Game Presence Service (`GamePresenceService.swift`)
 
 ### The Problem
-The official Discord web application cannot detect local running games or applications because web browsers cannot inspect system processes. In official Discord and Vesktop, Rich Presence often relies on local IPC sockets (`/tmp/discord-ipc-0`) or token-based self-bot RPC.
+Games talk to the Discord desktop client over a local IPC socket to publish
+their Rich Presence. A browser cannot be that endpoint, and NokoCord must not
+touch tokens or the network on the user's behalf.
 
-### NokoCord's Safe Native Process Scanner
-NokoCord provides local Rich Presence detection **without tokens, without network self-botting, and without violating Discord's API policies**:
-1. Uses `NSWorkspace.shared.runningApplications` to inspect active bundle identifiers and executable names.
-2. Compares active processes against an internal database of game and creative application signatures:
-   * **Gaming**: Minecraft (`net.minecraft.launcher`, `org.prismlauncher.PrismLauncher`), Steam titles, Roblox, RetroArch, etc.
-   * **Development**: VS Code, Xcode, IntelliJ, Blender, Terminal.
-   * **Media**: Final Cut Pro, Logic Pro, Spotify.
-3. Formats the current activity and exposes it in:
-   * The macOS Menu Bar (`MenuBarExtra`).
-   * The Native Command Palette (`⌘K`).
-   * System status diagnostics.
+### NokoCord's IPC Endpoint
+NokoCord acts as that endpoint instead: `GamePresenceService` binds the standard
+Discord client socket paths (`/tmp/discord-ipc-0`, `/tmp/discord-ipc-1` and the
+per-user temporary directory) and speaks Discord's local RPC wire protocol —
+length-framed JSON with the usual handshake and `SET_ACTIVITY` opcodes — so a
+game or any RPC client that would talk to the desktop app talks to NokoCord.
+The activity is then dispatched into the signed-in page session, the same path
+Apple Music uses, and confirmed against Discord's own store.
+
+There is no process scanning: NokoCord never enumerates running applications to
+guess what you are playing, and there is no built-in game signature database.
+Whoever speaks the socket declares the activity.
+
+Two consequences worth being explicit about, because they surprise people:
+
+* The sockets are ordinary local sockets in a world-writable directory, exactly
+  like the ones the Discord desktop client creates. Any local process that can
+  reach them can announce an activity.
+* `scripts/test_ipc_client.py` is a working client for this endpoint and is the
+  quickest way to exercise it without launching a game.
+
+### Controls
+* The macOS Menu Bar (`MenuBarExtra`).
+* The Command Palette (`⌘K`).
+* Settings → General, and the palette's enable/disable Game Rich Presence action.
 
 ---
 
-## 3. Quick Switcher & Command Palette (`QuickSwitcherView.swift`)
+## 3. Command Palette (`CommandPaletteView.swift`)
 
 Accessible anywhere in the app via **`⌘K`** or the menu bar:
 
@@ -60,7 +76,7 @@ Accessible anywhere in the app via **`⌘K`** or the menu bar:
   * Mute / Unmute Microphone (`⌘⇧M`).
   * Disconnect Active Voice Call (`⌘⇧D`).
   * Zoom Controls: Zoom In (`⌘+`), Zoom Out (`⌘-`), Reset Zoom (`⌘0`).
-  * Clear Web Data & Cache.
+  * Purge Web Cache & RAM (frees WebKit memory without clearing the session).
 * **Keyboard Interaction**:
   * `Up` / `Down` Arrow keys to navigate results.
   * `Return` / `Enter` to execute the selected command.
@@ -183,9 +199,9 @@ Mode pauses it.
 ```mermaid
 graph TD
     A[macOS Music.app / LastFM.app] -->|"AppleMusicDetector.swift"| B["AppleMusicRPCService.swift (native detector)"]
-    B -->|"iTunes Search API / LastFM cache"| C[512x512 album artwork]
+    B -->|"iTunes Search API / LastFM cache"| C[Album artwork, 600x600 or better]
     B -->|"onPresenceChange (Tan-gated)"| D[BrowserEngine.swift]
-    D -->|"__nokoLocalActivity(socketId, activity)"| E["Discord Flux dispatcher registered by LocalActivityStore"]
+    D -->|"localActivityScript(socketId, payload)"| E["The dispatcher LocalActivityStore itself registered"]
     E -->|"socket.presenceUpdate"| F[Discord profile]
 ```
 
@@ -194,17 +210,21 @@ graph TD
   Hub or Settings → Music RPC, and it marks the page while it is on. Enabling
   or disabling it is a page-world change and therefore needs the usual Discord
   reload, exactly like the other bundled page Tans.
-* **App-owned delivery**: `BrowserEngine` delivers the activity through the
-  page helper `window.__nokoLocalActivity`. Delivery is confirmed against
-  Discord's own `LocalActivityStore` and retried, because Discord accepts
+* **App-owned delivery**: `BrowserEngine` owns the single delivery path for
+  local activities. It resolves the dispatcher the client's own
+  `LocalActivityStore` registered, dispatches, then confirms the activity
+  actually appeared in that store and retries, because Discord accepts
   `LOCAL_ACTIVITY_UPDATE` dispatches it never applies — dispatchers reached
   through the client's module cache, and stores belonging to duplicate module
-  copies, both swallow the action. Game presence uses the same verified path.
+  copies, both swallow the action. Game presence uses the same path and the same
+  confirmation, so neither can report success while nothing happened.
 * **Native detection**: `AppleMusicRPCService` runs only while the Tan is
   enabled and Safe Mode is off. It subscribes to `com.apple.Music.playerInfo`
   on `DistributedNotificationCenter` for track, pause, resume and stop
-  changes, and to Music's own launch and termination notifications. There is no
-  timer and no AppleScript bridge.
+  changes, and to Music's own launch and termination notifications, so the
+  service itself never polls the player. Reading the player is the helper's job
+  (see **Playback position**), and NokoCord keeps a ten-second watchdog that
+  re-launches the helper if nothing has reported recently.
 * **Activity payload**: the status line carries the artist (`name`), the first
   detail line the song and the second the album, with `type: 2` keeping the
   activity a Listening one.
@@ -224,13 +244,21 @@ graph TD
   Settings → Music RPC holds the Discord application id used for the activity.
   Last.fm read-only methods use the app's client key; the shared secret is
   neither needed nor shipped.
-* **Playback position**: exact positions come from `NokoMusicWatch`, the small
-  helper bundled in `Contents/Helpers` and launched only while this Tan is
-  enabled. It polls Apple Music every five seconds, broadcasts
-  track/artist/album/duration/position/state over a local distributed
-  notification and exits once NokoCord is gone. That poll is what catches a
-  track repeating, a seek, a pause or a stop that the player notification
-  stream never announces; the app re-anchors the activity's timestamps to it.
+* **Playback position**: exact positions are meant to come from
+  `NokoMusicWatch`, the small helper bundled in `Contents/Helpers` and launched
+  only while this Tan is enabled. It polls Apple Music every five seconds,
+  broadcasts track/artist/album/duration/position/state over a local distributed
+  notification and exits once NokoCord is gone. That poll is what would catch a
+  track repeating, a seek, a pause or a stop that the player notification stream
+  never announces, and the app re-anchors the activity's timestamps to it.
+
+  **This does not work in the current build.** macOS attributes the helper's
+  Apple Event to NokoCord and will not offer an Automation prompt to an app that
+  is both ad-hoc signed and hardened, so the request is declined silently and
+  the helper reports `unavailable`. Until that is resolved the status follows
+  the player's notifications only: repeats and seeks do not update it, and a
+  track already playing when NokoCord starts appears at the next track change.
+  See `docs/BACKLOG.md` for the two ways to fix it.
   The helper is deliberately the one component outside the sandbox and outside
   the hardened runtime, because macOS only offers Apple Events consent to
   locally signed apps that are neither; it reads Apple Music, posts a local
@@ -238,9 +266,9 @@ graph TD
   verifier asserts exactly that shape. Without the helper the feature falls
   back to notification-derived positions.
 * **LastFM.app integration**: When `~/LastFMSwift/LastFM.app` or
-  `/Applications/LastFM.app` is present, its `scrobble_stats.json` and
-  `current_art.jpg` provide a cold-start reading before the next player
-  notification arrives.
+  `/Applications/LastFM.app` is present, its `scrobble_stats.json` provides a
+  one-shot cold-start reading before the next player notification arrives.
+  `current_art.jpg` is not read.
 * **Native Controls**:
   * Settings → Music RPC installs, enables and disables the Tan and shows the
     live track with its progress.

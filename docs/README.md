@@ -12,8 +12,8 @@ NokoCord is a privacy-first, native macOS client wrapper for Discord built with 
 | :--- | :--- |
 | **[Architecture Specification](ARCHITECTURE.md)** | System topology, process isolation boundaries, native-to-web IPC bridge, source layout, and security guarantees. |
 | **[Performance & Memory Engineering Guide](PERFORMANCE_AND_MEMORY.md)** | Forensic memory analysis (`vmmap`/`heap`), WebKit memory policies, graphics texture optimization, reverse-scrolling physics, and typing latency solutions. |
-| **[In-Page Runtime & DOM Engine](DOM_AND_RUNTIME.md)** | Injected script lifecycle, complete autocorrect/prediction eradication, Discord Flux/Webpack store hooking, and macOS styling. |
-| **[Native Features & Integrations](NATIVE_FEATURES.md)** | Native Media Viewer (Lightbox), Game Presence local process scanner, Quick Switcher (`⌘K`), Zen Mode (`⌘\`), and Notifications. |
+| **[In-Page Runtime & DOM Engine](DOM_AND_RUNTIME.md)** | Injected script lifecycle, complete autocorrect/prediction eradication, Discord navigation hooking and local activity dispatch, and macOS styling. |
+| **[Native Features & Integrations](NATIVE_FEATURES.md)** | Native Media Viewer (Lightbox), Game Presence local IPC endpoint, Quick Switcher (`⌘K`), Zen Mode (`⌘\`), and Notifications. |
 | **[Tans Extension System](TANS.md)** | Tan package manifest schema (v1), isolation contract, native capabilities boundary (`appearance.read`), and resource limits. |
 | **[Developer & Agent Runbook](DEVELOPER_GUIDE.md)** | CLI build pipeline (`scripts/build.sh`), release verification, debugging workflows, and critical technical pitfalls for AI agents. |
 

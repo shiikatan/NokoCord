@@ -28,19 +28,33 @@ sh scripts/build.sh
 ```
 
 ### Build Pipeline Stages
-1. **Directory Preparation**: Creates `build/NokoCord.app/Contents/MacOS`, `build/NokoCord.app/Contents/Resources`, and helper tool directories.
-2. **TanTranslator Compilation**: Compiles the native Vencord-to-Tan AST translator helper (`Tools/TanTranslator/Sources/main.swift`) into `build/NokoCord.app/Contents/Helpers/TanTranslator`.
-3. **NokoCord Binary Compilation**:
-   Compiles all Swift source files in `NokoCord/` using `swiftc`:
-   * Target: Apple Silicon (`arm64-apple-macos14.0`).
-   * Linked Frameworks: `AppKit`, `WebKit`, `SwiftUI`, `CryptoKit`, `AVFoundation`, `UserNotifications`, `Observation`.
-   * Compilation flags: `-O -whole-module-optimization -parse-as-library`.
-4. **Asset & Resource Packaging**:
-   Copies application icons (`Branding/NokoCord.icns`), assets, and helper binaries into the app bundle.
-5. **Info.plist Generation**:
-   Generates `Contents/Info.plist` declaring edition identity (`NokoCord Chiaki`), bundle ID (`com.shiikatan.nokocord`), version (`C1.1.5`), and URL schemes (`discord://`, `nokocord://`).
-6. **Code Signing & Hardened Runtime**:
-   Signs the bundle with ad-hoc identity (`-s -`), hardened runtime (`--options runtime`), and sandboxing entitlements (`Config/NokoCord.entitlements`).
+`scripts/build.sh` prints one line per stage:
+
+1. **[1/6] Directories**: creates `build/NokoCord.app/Contents/{MacOS,Resources,Helpers}`.
+2. **[1/6] TanTranslator**: compiles `Tools/TanTranslator/Helper/main.swift` into `Contents/Helpers/TanTranslator`.
+3. **[1b/6] NokoMusicWatch**: compiles `Tools/NokoMusicWatch/main.swift` into its own app bundle at `Contents/Helpers/NokoMusicWatch.app`, gives it an Info.plist and the app icon, and signs it ad-hoc **without** the hardened runtime and **without** entitlements. That shape is deliberate and is asserted by the verifier: macOS only offers Apple Events consent to a locally signed helper that is neither sandboxed nor hardened.
+4. **[2/6] NokoCord binary**: compiles every Swift file under `NokoCord/` with
+   `swiftc -parse-as-library -j<cores> <sources> -O`, against the SDK named by
+   `SDKROOT` (the script falls back to the Command Line Tools SDK when the
+   default one is missing). No `-framework` flags are needed: Swift autolinks
+   from `import`.
+5. **[3/6] Resources**: copies the branding mark, builds `AppIcon.icns` from
+   `NokoCord/Assets.xcassets/AppIcon.appiconset`, and copies `Assets.xcassets`
+   and `Localizable.xcstrings`.
+6. **[4/6] Info.plist**: generates both plists — the app's (edition identity
+   `NokoCord Chiaki`, bundle id `com.shiikatan.nokocord.chiaki`, public version
+   `C1.1.5`, the `nokocord` URL scheme, camera/microphone/Apple Events usage
+   strings) and the helper's.
+7. **[5/6] Signing**: signs inside-out — the helper ad-hoc without the runtime,
+   then the app ad-hoc with the hardened runtime and the sandbox entitlements
+   from `Config/NokoCord.entitlements`.
+8. **[6/6] Verification**: runs `scripts/verify-release.py` on the finished
+   bundle and refuses to ship if any check fails.
+
+The Xcode project builds the same app for development, but it does **not**
+build the Apple Music helper; only `scripts/build.sh` assembles the shipping
+bundle. `scripts/verify.sh` therefore verifies the artifact `build.sh`
+produces, not the Xcode one.
 
 ---
 
@@ -53,11 +67,19 @@ python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
 ```
 
 ### Verification Checks
-* **Signature Integrity**: Verifies valid ad-hoc/Developer ID signature and hardened runtime flags.
-* **Architecture Validation**: Ensures universal or `arm64` binary architecture.
-* **Entitlements Audit**: Confirms sandbox compliance without unauthorized permissions.
-* **Shipped-Byte Privacy Audit**: Verifies that no private development tokens, raw process notes, or debug logs leaked into the bundle.
-* **URL Scheme Validation**: Confirms proper registration of `discord://` and `nokocord://`.
+* **Signature Integrity**: the app verifies as ad-hoc signed with the hardened
+  runtime; the helper verifies without it.
+* **Architecture Validation**: the executable contains `arm64`. Universal
+  binaries are allowed but not required.
+* **Entitlements Audit**: the app's entitlements must be exactly the reviewed
+  sandbox set — anything new fails the release until it is reviewed. The helper
+  must carry none.
+* **Helper Identity**: its bundle id, `LSUIElement` flag and Apple Events usage
+  description are asserted, because that shape is the reviewed exception that
+  makes Music access possible at all.
+* **Shipped-Byte Privacy Audit**: scans the bundle for development tokens, raw
+  process notes and debug logs.
+* **URL Scheme Validation**: the only registered scheme must be `nokocord`.
 
 ---
 
@@ -72,14 +94,19 @@ python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
 * Always check if `mutation.target` is an editable element (`[contenteditable="true"]`, `[role="textbox"]`, `textarea`, `input`). If so, skip it and debounce with `requestAnimationFrame`.
 
 ### ⚠️ Pitfall 3: Incomplete Autocorrect/Autocomplete Suppression
-* On macOS 14+ (Sonoma/Sequoia), registering `UserDefaults` is **not enough** to kill inline predictive text (grey ghost text).
+* On modern macOS, registering `UserDefaults` is **not enough** to kill inline predictive text (grey ghost text).
 * You must call `NSSpellChecker.shared` daemon methods directly:
   ```swift
   let checker = NSSpellChecker.shared
   checker.perform(NSSelectorFromString("setAutomaticInlinePredictionEnabled:"), with: false as NSNumber)
   checker.perform(NSSelectorFromString("setAutomaticInlineCompletionEnabled:"), with: false as NSNumber)
   ```
-* In the DOM, `autocomplete` does not exist on `HTMLElement.prototype`—it belongs to `HTMLInputElement.prototype` and `HTMLTextAreaElement.prototype`. Both must be overridden.
+* In the page, suppression is a capture-phase `focusin` listener that sets
+  `autocomplete="off"`, `spellcheck="false"`, `autocorrect="off"` and
+  `autocapitalize="off"` on the focused editor. It deliberately does not
+  override any prototype, because Discord's editor reads those attributes
+  directly and prototype hooks are far more likely to break typing than to fix
+  it.
 
 ### ⚠️ Pitfall 4: Script Execution at `.atDocumentStart`
 * `WKUserScript` with `.atDocumentStart` runs before `document.head` and `document.documentElement` exist.

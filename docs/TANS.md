@@ -101,7 +101,8 @@ package source on every message. No raw diagnostic payload is retained.
 
 A bundled Noko-Tan may publish a documented page-world hook that the app calls
 with data the app has already decided, such as the bundled Apple Music RPC
-Tan's presence marker or the app's `window.__nokoLocalActivity` delivery hook.
+Tan's presence marker, which the app reads to decide whether the Apple Music
+activity should be shown.
 A hook carries no native capability, adds no bridge message, must remove itself
 during Tan cleanup and is an internal contract between NokoCord and its own
 bundled Tans rather than an interface for third-party packages. It grants no

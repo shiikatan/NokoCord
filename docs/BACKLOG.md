@@ -51,6 +51,17 @@ it.
 Open Anyway, one permission prompt. If no prompt appears, nothing is lost — the
 notification-based status stays as it is.
 
+## The helper is not built by the Xcode project
+
+`NokoMusicWatch` has no target and no copy phase in `NokoCord.xcodeproj`, so the
+Xcode build produces an app without `Contents/Helpers/NokoMusicWatch.app`, while
+`scripts/verify-release.py` requires it. The release checks in
+`scripts/verify.sh` now run against the `scripts/build.sh` artifact (the one that
+is actually published) for that reason. The proper fix is a target plus an embed
+phase in the project, so both build paths produce the same bundle; until then,
+`swiftc -typecheck Tools/NokoMusicWatch/main.swift` is the cheapest way to catch
+helper-only compile errors, since nothing else compiles it.
+
 ## Voice calls in the WebView
 
 **Status:** unverified fix in the current build.

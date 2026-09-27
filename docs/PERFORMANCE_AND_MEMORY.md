@@ -83,28 +83,18 @@ configuration.preferences.setValue(true, forKey: "hiddenPageDOMTimerThrottlingEn
 configuration.preferences.setValue(true, forKey: "pageVisibilityBasedProcessSuppressionEnabled")
 ```
 
-### 4. Discord Flux Store Pruning (3-Channel LRU Ring)
-* **The Problem**: When navigating through channels in large Discord servers, Discord's internal Flux `MessageStore` accumulates message arrays indefinitely (`MessageStore._channelMessages[channelId]`).
-* **The Solution**: In `TanRuntime.swift`, `pruneInactiveChannels()` maintains an LRU ring of the **3 most recent channels**:
-  ```javascript
-  const recentChannelIds = [];
-  const activeStr = String(activeChannelId);
-  const idx = recentChannelIds.indexOf(activeStr);
-  if (idx !== -1) recentChannelIds.splice(idx, 1);
-  recentChannelIds.unshift(activeStr);
-  while (recentChannelIds.length > 3) recentChannelIds.pop();
+### 4. Memory Reclamation
 
-  for (const mapName of ['_channelMessages', 'channelMessages', '_messages']) {
-    const storeMap = discordMessageStore[mapName];
-    if (storeMap instanceof Map) {
-      for (const key of Array.from(storeMap.keys())) {
-        if (!recentChannelIds.includes(String(key))) storeMap.delete(key);
-      }
-    }
-  }
-  ```
-  *Memory cost*: ~600 KB total.
-  *Benefit*: Switching back and forth between active channels is instant (0 network requests, 0 re-render skeleton), while preventing memory from climbing unbounded as users browse hundreds of channels.
+NokoCord does not reach into Discord's own stores. An earlier revision of this
+document described pruning a Flux message store in a three-channel ring; no such
+code exists. What actually reclaims memory:
+
+* **`purgeMemoryCache()`** drops WebKit's memory cache, empties the back/forward
+  page cache, and runs a JavaScript `gc()` hint where the engine allows it.
+* **Hibernation** (`window.__nokoHibernate`) pauses offscreen media elements, so
+  a hidden window stops decoding video and audio.
+* **WebKit preferences** (page cache off, aggressive tile retention off, giant
+  tiles off, bounded media buffers) keep the baseline footprint down.
 
 ### 5. Routine 60-Second Memory Purge Timer
 In `BrowserEngine.swift`, a background timer fires every 60 seconds (down from 300s):

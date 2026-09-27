@@ -106,92 +106,59 @@ enum NativeTextCheckingSuppressor {
 #### Why Calling `NSSpellChecker.shared` Daemon Methods is Essential
 In macOS Sonoma (14+) and Sequoia (15+), **inline predictive text** (grey ghost text) and automatic completions are controlled by private internal state inside `NSSpellChecker`. Registering `UserDefaults` keys alone is insufficient once the system spellchecker daemon is active. Directly invoking `setAutomaticInlinePredictionEnabled:` and `setAutomaticInlineCompletionEnabled:` forces the system daemon to disable predictions for the current process.
 
-### 2. DOM-Level Prototype & Event Locks
-Located in `NokoCord/Services/TanRuntime.swift`:
+### 2. Editor Attributes and Navigation Hooks
 
-1. **Prototype Property Locks**:
-   `autocomplete`, `spellcheck`, `autocorrect`, and `autocapitalize` are locked on `HTMLElement.prototype`, `HTMLInputElement.prototype`, and `HTMLTextAreaElement.prototype`:
-   ```javascript
-   const targets = [
-     HTMLElement.prototype,
-     HTMLInputElement.prototype,
-     HTMLTextAreaElement.prototype
-   ];
-   targets.forEach((proto) => {
-     ['spellcheck', 'autocorrect', 'autocapitalize', 'autocomplete'].forEach((prop) => {
-       try {
-         Object.defineProperty(proto, prop, {
-           get() { return prop === 'spellcheck' ? false : 'off'; },
-           set(_) {},
-           configurable: true
-         });
-       } catch (_) {}
-     });
-   });
-   ```
-2. **`Element.prototype.setAttribute` Interception**:
-   Whenever Discord or React calls `.setAttribute('autocomplete', ...)` or `.setAttribute('spellcheck', 'true')`, the wrapper forces `'off'` and `'false'`.
-3. **Capture Phase Event Interception**:
-   `focusin`, `pointerdown`, and `keydown` events dynamically enforce attributes on any targeted editable element (`isContentEditable`, `textarea`, `input`, `[role="textbox"]`).
-4. **Grammar Extensions Neutralization**:
-   Sets `data-gramm="false"` and `data-enable-grammarly="false"` to prevent third-party spellcheck browser extensions from injecting DOM overlays.
+What the runtime actually does to the page, as opposed to what it used to be
+documented as doing:
 
----
+### Editor attribute suppression
+A capture-phase `focusin` listener sets `autocomplete`, `spellcheck`,
+`autocorrect` and `autocapitalize` on whichever editor received focus. There
+are no prototype overrides, no `setAttribute` hook and no Grammarly-specific
+attribute: on current macOS the ghost text is killed by the `NSSpellChecker`
+calls in the app, not by the page.
 
-## 3. Discord Flux Store & Webpack Hooking
+### Navigation detection
+Discord's client is a single-page app, so navigation is detected by wrapping
+`history.pushState` and `history.replaceState` and listening for `popstate` in
+the injected script, then notifying the app after a short delay so the app sees
+the settled DOM rather than a half-rendered channel.
 
-To perform clean memory management and navigation tracking without fragile DOM parsing, NokoCord taps into Discord's internal Webpack bundle.
+Earlier revisions of this document described subscribing to Discord's Flux
+stores (`MessageStore`, `SelectedChannelStore`, a `discordDispatcher` and a
+`CHANNEL_SELECT` action). None of that exists in the codebase, and nothing
+should be written against it.
 
-### Safe Webpack Extraction Pattern
-```javascript
-let discordMessageStore = null;
-let discordSelectedChannelStore = null;
-let discordDispatcher = null;
+### Local activity dispatch
+The one place the page's webpack runtime is touched is Rich Presence: the app
+resolves the dispatcher that the client's own `LocalActivityStore` registered
+and confirms the activity landed in that store. See
+[NATIVE_FEATURES.md](NATIVE_FEATURES.md) for the payload rules.
 
-const getDiscordStores = () => {
-  if (discordMessageStore && discordSelectedChannelStore && discordDispatcher) return true;
-  try {
-    const chunk = window.webpackChunkdiscord_app;
-    if (!chunk || typeof chunk.push !== 'function') return false;
-    let req;
-    chunk.push([[Symbol()], {}, (r) => { req = r; }]);
-    if (!req || !req.c) return false;
-    const modules = Object.values(req.c);
-    for (let i = 0; i < modules.length; i++) {
-      const exp = modules[i]?.exports;
-      if (!exp) continue;
-      const candidates = [exp, exp.default, exp.Z, exp.ZP].filter(Boolean);
-      for (const c of candidates) {
-        if (typeof c === 'object' && c !== null) {
-          if (typeof c.getName === 'function') {
-            const name = c.getName();
-            if (name === 'MessageStore') discordMessageStore = c;
-            else if (name === 'SelectedChannelStore') discordSelectedChannelStore = c;
-          }
-          if (c.dispatch && c.subscribe && !discordDispatcher) {
-            discordDispatcher = c;
-          }
-        }
-      }
-      if (discordMessageStore && discordSelectedChannelStore && discordDispatcher) break;
-    }
-    return Boolean(discordMessageStore);
-  } catch (_) {
-    return false;
-  }
-};
-```
+## 3. Page Runtime Touch Points
 
-### Subscribing to Discord's Dispatcher
-Instead of polling the DOM for channel changes, NokoCord hooks Discord's internal Flux Dispatcher:
-```javascript
-discordDispatcher.subscribe('CHANNEL_SELECT', () => {
-  setTimeout(onChannelNavigated, 80);
-});
-```
-This triggers instant memory pruning, offscreen media eviction, and Swift location synchronization immediately upon channel selection.
+NokoCord keeps its contact with Discord's own JavaScript deliberately small, and
+documents each place it happens.
 
----
+### Navigation
+Discord is a single-page app. The injected script wraps
+`history.pushState`/`history.replaceState` and listens for `popstate`, then
+notifies the app after a short delay so it sees a settled DOM. Earlier revisions
+of this document described subscribing to Flux stores (`MessageStore`,
+`SelectedChannelStore`, a `discordDispatcher` and a `CHANNEL_SELECT` action) —
+none of that exists in the codebase, and nothing should be written against it.
+
+### Rich Presence
+The app resolves the dispatcher that the client's own `LocalActivityStore`
+registered, dispatches the activity and confirms it appeared in that store. This
+is the only code that walks `window.webpackChunkdiscord_app`. See
+[NATIVE_FEATURES.md](NATIVE_FEATURES.md) for the payload rules and
+[TANS.md](TANS.md) for the Tan contract that switches the feature on.
+
+### Media interception
+Clicking media in Discord is intercepted and opened in the native lightbox
+(`Views/NativeMediaLightboxView.swift`), which also owns "save to Downloads" and
+"copy URL". No React internals are patched to do this.
 
 ## 4. Native Styling & macOS Parity
 
@@ -257,4 +224,4 @@ document.addEventListener('click', (e) => {
   }
 }, true);
 ```
-This bypasses Discord's React modal entirely and opens `NativeMediaViewer.swift` in native AppKit/SwiftUI.
+This bypasses Discord's React modal entirely and opens `Views/NativeMediaLightboxView.swift` in native SwiftUI.

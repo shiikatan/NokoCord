@@ -34,13 +34,13 @@ graph TD
         BrowserEng[WKBrowserEngine]
         TanMgr[TanManager & TanStorage]
         TanRun[TanRuntime Swift Bridge]
-        GamePres[GamePresenceService]
+        GamePres[Local Discord IPC endpoint]
         NotifSvc[NotificationService]
         UIViews[SwiftUI Overlay Views]
         
-        UIViews --> QuickSwitcher[QuickSwitcherView ⌘K]
+        UIViews --> QuickSwitcher[CommandPaletteView ⌘K]
         UIViews --> TansInspector[TansInspectorView ⌘T]
-        UIViews --> Lightbox[NativeMediaViewer Modal]
+        UIViews --> Lightbox[NativeMediaLightbox Modal]
         UIViews --> MenuBar[MenuBarExtra / Dock Status]
     end
 
@@ -59,7 +59,7 @@ graph TD
     BrowserEng --> TanRun
     BrowserEng --> NSSpell
     TanRun --> WKView
-    GamePres --> SysWorkspace
+    GamePres --> SysIPC
     NotifSvc --> UNNotif
 
     InjectedScript -.->|Script Message Handler: nokoCordApp| TanRun
@@ -78,46 +78,113 @@ graph TD
 
 ## 3. Component Hierarchy & Source Layout
 
-The repository is organized cleanly by functional domain:
+The repository is organised by functional domain. The tree below is the real
+layout; the file count is the best indicator of where the weight sits.
 
 ```
-NokoCord/
-├── NokoCordApp.swift              # Application entry point, AppKit delegate, MenuBarExtra
-├── ContentView.swift              # Root layout (NokoRootView), keyboard commands, split views
-├── Discord/
-│   ├── DiscordTypes.swift         # Gateway status enums, CDN URL formatters, safe parsers
-│   └── DiscordConstants.swift     # Discord bundle identifiers, API origins, endpoints
-├── Media/
-│   └── NativeMediaViewer.swift    # Zero-memory modal media viewer (images, videos)
-├── Models/
-│   ├── EditionIdentity.swift      # Chiaki build metadata, versioning, edition tags
-│   ├── BrowserPolicy.swift        # Whitelisted URLs, origin verifiers, navigation rules
-│   ├── Tan.swift                  # Tan package schema (v1), JSON validation, capabilities
-│   ├── TanOriginals.swift         # Bundled first-party Noko-Tans and their page scripts
-│   └── AppleMusicTrack.swift      # Playback state and Listening activity mapping
-├── Persistence/
-│   └── TanStorage.swift           # Disk operations for Tans (install, remove, enumerate)
-├── Resources/
-│   ├── Assets.xcassets            # Icons, branding marks (NokoMark)
-│   └── Localizable.xcstrings      # Localized strings catalog
-├── Services/
-│   ├── BrowserEngine.swift        # WKBrowserEngine, WKPreferences, memory timers
-│   ├── NokoMusicWatch (Tools/)    # Unsandboxed Apple Music reader, launched per Tan state
-│   ├── TanRuntime.swift           # Injected scripts, CSS overrides, bridge handlers
-│   ├── TanManager.swift           # State machine for enabled/disabled/safe-mode Tans
-│   ├── NotificationService.swift  # Native notification deliverer (UNUserNotificationCenter)
-│   ├── GamePresenceService.swift  # Running game process scanner for Rich Presence
-│   ├── AppleMusicRPCService.swift # Tan-gated Apple Music Rich Presence detector
-│   └── AppleMusicDetector.swift   # Music.app notifications and LastFM.app readings
-└── Views/
-    ├── QuickSwitcherView.swift    # Spotlight-style ⌘K command palette and channel finder
-    ├── TansInspectorView.swift    # ⌘T developer inspector for installed Tan extensions
-    ├── SettingsView.swift         # General preferences, developer mode, safe mode toggle
-    ├── BrowserView.swift          # NSViewRepresentable wrapping the active WKWebView
-    └── WebKitView.swift           # Low-level NSView host for WKWebView
+ContentView.swift
+NokoCordApp.swift
+Assets.xcassets/
+│   AccentColor.colorset/
+│   AppIcon.appiconset/
+│   NokoMark.imageset/
+Discord/
+│   Authentication.swift
+│   DiscordREST.swift
+│   HTTPClient.swift
+Media/
+│   LocalScreenTarget.swift
+│   MediaDiagnostics.swift
+Models/
+│   AppleMusicTrack.swift
+│   BrowserPolicy.swift
+│   CallState.swift
+│   ChatModels.swift
+│   ChatTimestamp.swift
+│   ChatTimestampScanner.swift
+│   CodeHighlighter.swift
+│   ComposerState.swift
+│   DiscordModels.swift
+│   EditionIdentity.swift
+│   GamePresence.swift
+│   NotificationPolicy.swift
+│   Tan.swift
+│   TanOriginals.swift
+Persistence/
+│   AccountCache.swift
+│   BookmarkStore.swift
+│   CredentialStore.swift
+│   DraftStore.swift
+│   NotificationPreferencesStore.swift
+Resources/
+Services/
+│   ActiveBrowserEngine.swift
+│   AppleMusicDetector.swift
+│   AppleMusicRPCService.swift
+│   AvatarPipeline.swift
+│   BrowserDownloads.swift
+│   BrowserEngine.swift
+│   CapturePermissionGate.swift
+│   CaptureSessionLifecycle.swift
+│   GamePresenceService.swift
+│   NotificationService.swift
+│   ScreenPreviewSession.swift
+│   TanManager.swift
+│   TanRuntime.swift
+│   TanTranslationService.swift
+Store/
+│   AppStore.swift
+│   ConversationDraft.swift
+│   NotificationSettings.swift
+│   StoreDependencies.swift
+Views/
+│   AppleMusicSettingsSection.swift
+│   AvatarView.swift
+│   BookmarksDrawerView.swift
+│   CallView.swift
+│   ChatComponents.swift
+│   ChatComposer.swift
+│   CommandPaletteView.swift
+│   DiscordWorkspaceView.swift
+│   DownloadsPopoverView.swift
+│   GamePresencePopoverView.swift
+│   MediaSettingsView.swift
+│   NativeMediaLightboxView.swift
+│   NotificationSettingsView.swift
+│   TanDetailsView.swift
+│   TanHubView.swift
+│   TanTranslatorView.swift
+│   TansInspectorView.swift
+│   UIComponents.swift
+│   WelcomeTutorialView.swift
+│   WindowLifetimeObserver.swift
+│   WorkspaceToolbar.swift
 ```
+
 
 ---
+
+## 4. Dormant Code, Deliberately Kept
+
+Some code compiles into the app but is not reachable from any UI. It is kept on
+purpose and should not be mistaken for a mistake, nor deleted without a decision:
+
+* **Local account and chat stack** — `Store/AppStore.swift`,
+  `Discord/Authentication.swift`, `Discord/DiscordREST.swift`,
+  `Persistence/CredentialStore.swift`, `Persistence/AccountCache.swift`,
+  `Broker/oauth_broker.py`. This is the groundwork for native account and chat
+  features. It is exercised by the test suite and by `scripts/verify.sh`, which
+  runs the broker's tests, but nothing in the shipping app instantiates it. No
+  token or credential is read or written at runtime.
+* **Native chat, call and media views** — `Views/ChatComposer.swift`,
+  `Views/ChatComponents.swift`, `Views/CallView.swift`, `Views/AvatarView.swift`,
+  `Views/MediaSettingsView.swift`, `Views/NotificationSettingsView.swift`,
+  `Media/MediaDiagnostics.swift`, `Media/LocalScreenTarget.swift`, and the models
+  they use. They are the beginning of a native client UI, and the reason the
+  bundle declares camera and microphone usage strings. Two of these views are
+  not mounted in any Settings tab today.
+
+Anything else unused is a defect: delete it or wire it up.
 
 ## 4. Native to Web Bridge Architecture
 
