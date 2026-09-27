@@ -38,7 +38,7 @@ sh scripts/build.sh
 4. **Asset & Resource Packaging**:
    Copies application icons (`Branding/NokoCord.icns`), assets, and helper binaries into the app bundle.
 5. **Info.plist Generation**:
-   Generates `Contents/Info.plist` declaring edition identity (`NokoCord Chiaki`), bundle ID (`com.shiikatan.nokocord`), version (`C1.0.0`), and URL schemes (`discord://`, `nokocord://`).
+   Generates `Contents/Info.plist` declaring edition identity (`NokoCord Chiaki`), bundle ID (`com.shiikatan.nokocord`), version (`C1.1.0`), and URL schemes (`discord://`, `nokocord://`).
 6. **Code Signing & Hardened Runtime**:
    Signs the bundle with ad-hoc identity (`-s -`), hardened runtime (`--options runtime`), and sandboxing entitlements (`Config/NokoCord.entitlements`).
 
