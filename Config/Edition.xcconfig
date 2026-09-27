@@ -1,7 +1,7 @@
 // Chiaki's identity is independent of Maomao's.
 NOKO_BUNDLE_ID = com.shiikatan.nokocord.chiaki
-NOKO_APPLE_VERSION = 1.0.0
+NOKO_APPLE_VERSION = 1.1.5
 NOKO_EDITION_ID = chiaki
 NOKO_EDITION_NAME = Chiaki
-NOKO_PUBLIC_VERSION = C1.0.0
+NOKO_PUBLIC_VERSION = C1.1.5
 NOKO_MAINTAINER = Millx
