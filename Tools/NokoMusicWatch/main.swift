@@ -1,0 +1,168 @@
+import AppKit
+
+// NokoMusicWatch is the small unsandboxed companion NokoCord launches to read
+// Apple Music's own playback state. Apple Events to Music require a consent
+// macOS only grants to apps outside the sandbox, so this helper runs as its own
+// app bundle under NokoCord's Helpers directory, only ever *reads* the player,
+// and exits when the app that launched it is gone.
+
+private let notificationName = Notification.Name("com.shiikatan.nokocord.music")
+private let defaultOwnerBundleID = "com.shiikatan.nokocord.chiaki"
+private let pollInterval: TimeInterval = 5
+private let ownerCheckInterval: TimeInterval = 5
+private let ownerGracePeriod: TimeInterval = 30
+
+/// Field separator for the AppleScript result. Music track names may contain
+/// almost anything, so the script returns one separator-joined line and the
+/// parser rejects anything that does not split cleanly.
+private let separator = "\u{1F}"
+
+private let playbackScript = NSAppleScript(source: """
+    tell application "Music"
+        try
+            set playerState to player state as string
+            if playerState is "stopped" then return "STOPPED"
+            set t to current track
+            return playerState & "\u{1F}" & (player position as string) & "\u{1F}" & (name of t) & "\u{1F}" & (artist of t) & "\u{1F}" & (album of t) & "\u{1F}" & (duration of t) & "\u{1F}" & (database ID of t as string)
+        on error errNumber
+            return "ERROR\u{1F}" & errNumber
+        end try
+    end tell
+    """)
+
+struct Playback {
+    let state: String
+    let position: Double
+    let name: String
+    let artist: String
+    let album: String
+    let duration: Double
+    let databaseID: Int
+}
+
+enum ScriptOutcome {
+    case playback(Playback)
+    case stopped
+    case notRunning
+    case denied
+    case failed
+}
+
+private func readPlayback() -> ScriptOutcome {
+    guard let script = playbackScript else { return .failed }
+    var error: NSDictionary?
+    let result = script.executeAndReturnError(&error)
+    if let error {
+        let code = (error[NSAppleScript.errorNumber] as? NSNumber)?.intValue ?? 0
+        // -1743: the user has not allowed this helper to control Music.
+        return code == -1743 ? .denied : .failed
+    }
+    guard let value = result.stringValue else { return .failed }
+    if value == "STOPPED" { return .stopped }
+    let fields = value.components(separatedBy: separator)
+    if fields.first == "ERROR" {
+        let code = fields.count > 1 ? Int(fields[1]) ?? 0 : 0
+        return code == -1743 ? .denied : .failed
+    }
+    guard fields.count >= 7 else { return .failed }
+    let name = fields[2].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else { return .stopped }
+    return .playback(Playback(state: fields[0],
+                              position: max(0, Double(fields[1]) ?? 0),
+                              name: name,
+                              artist: fields[3],
+                              album: fields[4],
+                              duration: max(0, Double(fields[5]) ?? 0),
+                              databaseID: Int(fields[6]) ?? 0))
+}
+
+private func isMusicRunning() -> Bool {
+    !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
+}
+
+private let ownerBundleID: String = {
+    let arguments = CommandLine.arguments
+    if let index = arguments.firstIndex(of: "--owner"), index + 1 < arguments.count {
+        let value = arguments[index + 1]
+        if !value.isEmpty { return value }
+    }
+    return defaultOwnerBundleID
+}()
+
+private func isOwnerRunning() -> Bool {
+    !NSRunningApplication.runningApplications(withBundleIdentifier: ownerBundleID).isEmpty
+}
+
+private func post(_ body: [String: Any]) {
+    DistributedNotificationCenter.default().postNotificationName(notificationName,
+                                                                 object: ownerBundleID,
+                                                                 userInfo: body,
+                                                                 deliverImmediately: true)
+}
+
+private var lastBroadcast = ""
+private var ownerMissingSince: Date?
+
+private func poll() {
+    // Whoever launched this helper owns its lifetime: nothing lingers when the
+    // app quits or crashes.
+    if isOwnerRunning() {
+        ownerMissingSince = nil
+    } else {
+        let missingSince = ownerMissingSince ?? Date()
+        ownerMissingSince = missingSince
+        if Date().timeIntervalSince(missingSince) > ownerGracePeriod {
+            exit(EXIT_SUCCESS)
+        }
+        return
+    }
+
+    guard isMusicRunning() else {
+        if lastBroadcast != "notRunning" {
+            lastBroadcast = "notRunning"
+            post(["state": "not_running"])
+        }
+        return
+    }
+
+    switch readPlayback() {
+    case .playback(let playback):
+        let key = "\(playback.databaseID)|\(playback.state)|\(Int(playback.position))"
+        guard key != lastBroadcast else { return }
+        lastBroadcast = key
+        post(["state": playback.state,
+              "name": playback.name,
+              "artist": playback.artist,
+              "album": playback.album,
+              "duration": playback.duration,
+              "position": playback.position,
+              "databaseID": playback.databaseID])
+    case .stopped:
+        guard lastBroadcast != "stopped" else { return }
+        lastBroadcast = "stopped"
+        post(["state": "stopped"])
+    case .denied:
+        guard lastBroadcast != "denied" else { return }
+        lastBroadcast = "denied"
+        post(["state": "denied"])
+    case .notRunning:
+        if lastBroadcast != "notRunning" {
+            lastBroadcast = "notRunning"
+            post(["state": "not_running"])
+        }
+    case .failed:
+        break
+    }
+}
+
+// Reading the player every five seconds is the point of this helper, so it
+// takes an activity assertion: without one App Nap coalesces the timer and the
+// reported position drifts away from the player.
+let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep],
+                                                     reason: "Reading Apple Music playback state")
+
+let pollTimer = Timer(timeInterval: pollInterval, repeats: true) { _ in poll() }
+RunLoop.main.add(pollTimer, forMode: .common)
+_ = activity
+poll()
+RunLoop.main.run()

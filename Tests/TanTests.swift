@@ -372,7 +372,7 @@ final class TanTests: XCTestCase {
     }
 
     func testOfficialBundledOriginalsIncludeAllOfficialTans() throws {
-        let expectedIDs = ["noko.clear-focus", "noko.scroll-tools", "noko.chat", "noko.morgana"]
+        let expectedIDs = ["noko.clear-focus", "noko.scroll-tools", "noko.chat", "noko.morgana", "noko.apple-music"]
         let originalIDs = TanPackage.originals.map(\.id)
         for expected in expectedIDs {
             XCTAssertTrue(originalIDs.contains(expected), "Missing official Tan: \(expected)")
@@ -396,5 +396,38 @@ final class TanTests: XCTestCase {
         XCTAssertNotNil(morgana.javascript)
         XCTAssertNil(morgana.css)
         XCTAssertNoThrow(try morgana.validate())
+
+        let appleMusic = TanPackage.appleMusicRPC
+        XCTAssertEqual(appleMusic.id, "noko.apple-music")
+        XCTAssertEqual(appleMusic.manifest.name, "Apple Music RPC")
+        XCTAssertEqual(appleMusic.manifest.target, .page)
+        XCTAssertTrue(appleMusic.manifest.requiresReload)
+        XCTAssertTrue(appleMusic.manifest.capabilities.isEmpty)
+        XCTAssertEqual(appleMusic.origin, "Noko-Tan")
+        XCTAssertNotNil(appleMusic.javascript)
+        XCTAssertNil(appleMusic.css)
+        XCTAssertNoThrow(try appleMusic.validate())
+        XCTAssertTrue(TanPackage.originals.contains(appleMusic))
+    }
+
+    func testEnableOriginalInstallsAndEnablesBundledTanOnly() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+
+        manager.enableOriginal(TanPackage.appleMusicRPC)
+        XCTAssertNil(manager.error)
+        XCTAssertEqual(manager.installed.map(\.id), [TanPackage.appleMusicRPC.id])
+        XCTAssertEqual(manager.enabledIDs, Set([TanPackage.appleMusicRPC.id]))
+        XCTAssertTrue(manager.active.contains { $0.id == TanPackage.appleMusicRPC.id })
+
+        let local = TanPackage(manifest: cssManifest(id: "fixture.not-bundled"),
+                               javascript: nil,
+                               css: ".fixture {}",
+                               origin: "Local fixture")
+        manager.enableOriginal(local)
+        XCTAssertNotNil(manager.error)
+        XCTAssertFalse(manager.installed.contains { $0.id == local.id })
+        XCTAssertFalse(manager.enabledIDs.contains(local.id))
     }
 }

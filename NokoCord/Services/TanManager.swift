@@ -116,6 +116,20 @@ final class TanManager {
         guard let package = installed.first(where: { $0.id == id }), let update = availableOriginalUpdate(package) else { return }
         try replace(update)
     }
+    /// Installs a bundled Noko-Tan when it is absent, then enables it. Bundled
+    /// originals are first-party, but enabling one stays an explicit choice.
+    func enableOriginal(_ package: TanPackage) {
+        guard TanPackage.originals.contains(package) else {
+            error = "Only bundled Noko-Tans can be enabled this way."
+            return
+        }
+        do {
+            if !installed.contains(where: { $0.id == package.id }) { try install(package) }
+            setEnabled(package.id, true)
+        } catch {
+            self.error = "The Tan could not be installed. Try again from the Tan Hub."
+        }
+    }
     func replaceFromLocalFolder(_ package: TanPackage) throws {
         guard developerMode else { throw TanError.invalid("Enable Developer Mode to reload local code") }
         try replace(package)

@@ -354,6 +354,28 @@ final class TanRuntimeTests: XCTestCase {
         XCTAssertEqual(timerCount, 0)
     }
 
+    func testBundledAppleMusicTanMarksThePageAndCleansUpWhenDisabled() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+        let original = TanPackage.appleMusicRPC
+        try manager.install(original)
+        manager.setEnabled(original.id, true)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+        try await loadFixture(view, runtime: runtime)
+
+        let marker = try await view.evaluateJavaScript("document.documentElement.getAttribute('data-noko-apple-music')") as? String
+        XCTAssertEqual(marker, "enabled")
+
+        manager.setEnabled(original.id, false)
+        XCTAssertTrue(manager.reloadRequired, "Page-world Tans require a reload when they change")
+        let removed = try await waitForCount(view, "document.documentElement.getAttribute('data-noko-apple-music') === null ? 1 : 0", expected: 1)
+        XCTAssertEqual(removed, 1)
+    }
+
     func testMediaLightboxInterceptorIgnoresActionButtonsAndPickers() async throws {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()

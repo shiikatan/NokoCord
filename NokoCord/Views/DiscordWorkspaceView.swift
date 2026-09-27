@@ -39,7 +39,9 @@ struct NokoRootView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let view = browser.view {
-                        BrowserHostView(view: view, visible: browser.lifecycle.isVisible)
+                        // WebKit parks getUserMedia while the view is hidden, so a
+                        // call keeps the page visible even off the Discord screen.
+                        BrowserHostView(view: view, visible: browser.lifecycle.isVisible || browser.isInCall)
                             .id(ObjectIdentifier(view))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {

@@ -78,6 +78,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var channelPurgeTask: Task<Void, Never>?
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
+    @ObservationIgnored private let tans: TanManager?
     @ObservationIgnored private var tanRuntime: TanRuntime?
     var onToggleTans: (() -> Void)?
     var onToggleQuickSwitcher: (() -> Void)?
@@ -89,6 +90,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
 
     init(dataStore: WKWebsiteDataStore? = nil, tans: TanManager? = nil) {
         self.dataStore = dataStore ?? .default()
+        self.tans = tans
         super.init()
         if let tans {
             let runtime = TanRuntime(manager: tans)
@@ -100,16 +102,21 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             runtime.onChannelChanged = { [weak self] in self?.handleChannelChanged() }
             runtime.onSaveBookmark = { [weak self] bookmark in self?.onSaveBookmark?(bookmark) }
             tanRuntime = runtime
-            tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
-        }
-        GamePresenceService.shared.onPresenceChange = { [weak self] presence in
-            self?.syncPresenceToDiscord(presence ?? AppleMusicRPCService.shared.currentTrack?.toGamePresence())
-        }
-        AppleMusicRPCService.shared.onPresenceChange = { [weak self] presence in
-            if GamePresenceService.shared.activePresence == nil {
-                self?.syncPresenceToDiscord(presence)
+            tans.onChange = { [weak self] in
+                self?.tanRuntime?.configurationChanged()
+                self?.updateAppleMusicActivation()
             }
         }
+        // Local Rich Presence is delivered per feature: game presence is a native
+        // capability, Apple Music presence belongs to the noko.apple-music Tan.
+        GamePresenceService.shared.onPresenceChange = { [weak self] presence in
+            self?.syncGamePresenceToDiscord(presence)
+            self?.syncAppleMusicPresenceToDiscord()
+        }
+        AppleMusicRPCService.shared.onPresenceChange = { [weak self] _ in
+            self?.syncAppleMusicPresenceToDiscord()
+        }
+        updateAppleMusicActivation()
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers = [
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -135,8 +142,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             },
             appCenter.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.hibernate()
-                    self?.browserView?.pauseAllMediaPlayback()
+                    guard let self else { return }
+                    // Pausing media elements would silence an active call's audio.
+                    self.hibernate()
+                    if !self.isInCall { self.browserView?.pauseAllMediaPlayback() }
                 }
             }
         ]
@@ -190,8 +199,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
 
     /// Aggressively suspends background media and offscreen channel caches for sub-500MB idle memory.
+    /// A call keeps its media elements untouched: they carry the live voice stream.
     func hibernate() {
         purgeMemoryCache()
+        guard !isInCall else { return }
         browserView?.evaluateJavaScript("try { window.__nokoHibernate?.(); } catch (_) {}", completionHandler: nil)
     }
 
@@ -229,6 +240,9 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         configuration.preferences.setValue(true, forKey: "pageVisibilityBasedProcessSuppressionEnabled")
         // 7. Enforce zero autocorrect, spellchecking, prediction, or text replacement
         NativeTextCheckingSuppressor.suppressAll()
+        // 8. WebKit parks getUserMedia until the page is visible; a voice join
+        // must be able to start while the app is briefly in the background.
+        configuration.preferences.setValue(false, forKey: "getUserMediaRequiresFocus")
         // Master Plan v2: controlled local Tans only; no auth/token bridge.
         // No enabled Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)
@@ -423,63 +437,179 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing, self.navigation === navigation else { return }
         lifecycle.ready()
         tanRuntime?.pageDidLoad()
-        if let presence = GamePresenceService.shared.activePresence ?? AppleMusicRPCService.shared.currentTrack?.toGamePresence() {
-            syncPresenceToDiscord(presence)
+        syncGamePresenceToDiscord(GamePresenceService.shared.activePresence)
+        syncAppleMusicPresenceToDiscord()
+    }
+
+    /// The bundled Apple Music Tan owns the feature; its active state is the
+    /// service's switch, and Safe Mode leaves that state empty.
+    private func updateAppleMusicActivation() {
+        let active = tans?.active.contains(where: { $0.id == TanPackage.appleMusicRPC.id }) ?? false
+        AppleMusicRPCService.shared.setActive(active)
+    }
+
+    private static let gameSocketID = "nokocord-game-rp"
+
+    /// Dispatches a game activity the native IPC server received. Games outrank
+    /// music, so the caller re-evaluates the music activity afterwards.
+    private func syncGamePresenceToDiscord(_ presence: GamePresence?) {
+        guard let view = browserView, lifecycle.phase == .ready else { return }
+        gameDispatchTask?.cancel()
+        gameDispatchTask = Task { @MainActor [weak view] in
+            guard let view else { return }
+            var payload = presence?.toDiscordPayload() ?? [:]
+            if let presence {
+                let resolved = await Self.externalAssetKeys(view: view,
+                                                            applicationId: presence.clientId,
+                                                            urls: [presence.largeImageKey, presence.smallImageKey])
+                if var assets = payload["assets"] as? [String: Any] {
+                    if let large = resolved[0] { assets["large_image"] = large }
+                    if resolved.count > 1, let small = resolved[1] { assets["small_image"] = small }
+                    payload["assets"] = assets
+                }
+            }
+            let json = payload.isEmpty ? "null" : Self.jsonLiteral(payload)
+            _ = try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: Self.gameSocketID))
         }
     }
 
-    /// Dispatches active Game Rich Presence payload to Discord's web client FluxDispatcher via WKWebView.
-    func syncPresenceToDiscord(_ presence: GamePresence?) {
+    @ObservationIgnored private var gameDispatchTask: Task<Void, Never>?
+
+    /// Dispatches the track the Apple Music Tan should show. Nothing is sent
+    /// while the Tan is off, and the activity is cleared when music stops or a
+    /// game takes over. Delivery is confirmed against Discord's own store and
+    /// retried, because Discord accepts dispatches it does not apply while it
+    /// is still loading.
+    private func syncAppleMusicPresenceToDiscord() {
         guard let view = browserView, lifecycle.phase == .ready else { return }
-
-        let jsonString: String
-        if let presence,
-           let data = try? JSONSerialization.data(withJSONObject: presence.toDiscordPayload()),
-           let str = String(data: data, encoding: .utf8) {
-            jsonString = str
-        } else {
-            jsonString = "null"
+        let service = AppleMusicRPCService.shared
+        let suppressed = !service.isEnabled || GamePresenceService.shared.activePresence != nil
+        guard !suppressed, let track = service.currentTrack, track.playerState.isPlaying else {
+            let payload = Self.jsonLiteral(nil)
+            musicDispatchTask?.cancel()
+            musicDispatchTask = Task { @MainActor [weak view] in
+                _ = try? await view?.evaluateJavaScript(Self.localActivityScript(payload: payload, socketID: Self.musicSocketID))
+            }
+            return
         }
+        let presence = track.toGamePresence(clientId: AppleMusicRPCService.configuredApplicationID)
+        musicDispatchTask?.cancel()
+        musicDispatchTask = Task { @MainActor [weak self, weak view] in
+            guard let view else { return }
+            let resolved = await Self.externalAssetKeys(view: view,
+                                                        applicationId: presence.clientId,
+                                                        urls: [presence.largeImageKey, presence.smallImageKey])
+            var payload = presence.toDiscordPayload()
+            if var assets = payload["assets"] as? [String: Any] {
+                if let large = resolved[0] { assets["large_image"] = large }
+                if resolved.count > 1, let small = resolved[1] { assets["small_image"] = small }
+                payload["assets"] = assets
+            }
+            let json = Self.jsonLiteral(payload)
+            for _ in 1...15 {
+                guard !Task.isCancelled else { return }
+                let outcome = (try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: Self.musicSocketID))) as? String
+                if outcome == "applied" { return }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                _ = self
+            }
+        }
+    }
 
+    /// Converts external image URLs into Discord media-proxy keys with the
+    /// client's own authenticated endpoint, because Discord only renders images
+    /// that are application assets or `mp:` keys.
+    private static func externalAssetKeys(view: WKWebView, applicationId: String, urls: [String?]) async -> [String?] {
+        guard urls.contains(where: { $0?.hasPrefix("http") == true }) else { return urls }
         let script = """
+        const resolved = await window.__nokoResolveExternalAssets(applicationId, urls);
+        return JSON.stringify(Array.isArray(resolved) ? resolved : []);
+        """
+        let arguments: [String: Any] = ["applicationId": applicationId, "urls": urls.map { $0 ?? "" }]
+        guard let value = try? await view.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page) as? String,
+              let data = value.data(using: .utf8),
+              let resolved = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+            return urls
+        }
+        return urls.indices.map { index in
+            guard index < resolved.count, let key = resolved[index] as? String, !key.isEmpty else { return urls[index] }
+            return key
+        }
+    }
+
+    @ObservationIgnored private var musicDispatchTask: Task<Void, Never>?
+    private static let musicSocketID = "nokocord-apple-music"
+
+    /// Serializes an activity payload as a JavaScript literal for page evaluation.
+    private static func jsonLiteral(_ payload: [String: Any]?) -> String {
+        guard let payload,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else { return "null" }
+        return text
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+    }
+
+    /// Delivers one local activity to the Flux dispatcher Discord's own
+    /// LocalActivityStore registered with, then confirms the client applied it.
+    /// Dispatchers reached through the module cache, and stores belonging to
+    /// duplicate module copies, accept the action and drop it.
+    private static func localActivityScript(payload: String, socketID: String) -> String {
+        """
         (() => {
             try {
-                const act = \(jsonString);
-                const wp = window.webpackChunkdiscord_app;
-                if (!wp) return;
-                let modules;
-                try {
-                    wp.push([[Symbol()], {}, e => { modules = e.c; }]);
-                } catch (_) {}
-                if (!modules) return;
-
-                let dispatcher = null;
-                for (const id in modules) {
-                    const m = modules[id]?.exports;
-                    if (!m) continue;
-                    if (m.default && typeof m.default.dispatch === 'function' && typeof m.default.subscribe === 'function') {
-                        dispatcher = m.default;
-                        break;
-                    }
-                    if (typeof m.dispatch === 'function' && typeof m.subscribe === 'function') {
-                        dispatcher = m;
-                        break;
-                    }
+                const activity = \(payload);
+                const chunk = window.webpackChunkdiscord_app;
+                if (!chunk || typeof chunk.push !== 'function') return 'no-webpack';
+                const requires = [];
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        chunk.push([[Symbol()], {}, (require) => { if (requires.indexOf(require) === -1) requires.push(require); }]);
+                    } catch (_) {}
                 }
-
-                if (dispatcher) {
-                    dispatcher.dispatch({
-                        type: "LOCAL_ACTIVITY_UPDATE",
-                        socketId: "nokocord-game-rp",
-                        activity: act
-                    });
+                const usable = (candidate) => candidate && typeof candidate.dispatch === 'function' && typeof candidate.subscribe === 'function';
+                let dispatcher = null, store = null;
+                for (const require of requires) {
+                    const factories = require && require.m ? require.m : null;
+                    if (!factories) continue;
+                    for (const id of Object.keys(factories)) {
+                        let source = '';
+                        try { source = Function.prototype.toString.call(factories[id]); } catch (_) { continue; }
+                        if (source.indexOf('"LocalActivityStore"') === -1) continue;
+                        try {
+                            const exported = require(id);
+                            const values = [exported, exported && exported.default];
+                            if (exported && typeof exported === 'object') values.push(...Object.values(exported));
+                            for (const candidate of values) {
+                                if (candidate && typeof candidate.getActivities === 'function' && typeof candidate.getPrimaryActivity === 'function') { store = candidate; break; }
+                            }
+                        } catch (_) { continue; }
+                        if (!store) continue;
+                        for (const key of Object.getOwnPropertyNames(store)) {
+                            const value = store[key];
+                            if (!usable(value)) continue;
+                            try {
+                                const handlers = value._actionHandlers && value._actionHandlers.getOrderedActionHandlers({ type: 'LOCAL_ACTIVITY_UPDATE' });
+                                if (handlers && handlers.length) { dispatcher = value; break; }
+                            } catch (_) {}
+                        }
+                        if (dispatcher) break;
+                    }
+                    if (dispatcher) break;
                 }
-            } catch (_) {}
+                if (!dispatcher || !store) return 'no-dispatcher';
+                dispatcher.dispatch({ type: 'LOCAL_ACTIVITY_UPDATE', socketId: "\(socketID)", activity });
+                const applications = new Set([activity && activity.application_id, "\(socketID)"].filter(Boolean));
+                const present = (store.getActivities() ?? []).some((entry) => entry && applications.has(entry.application_id));
+                if (activity === null) return present ? 'not-applied' : 'applied';
+                return present ? 'applied' : 'not-applied';
+            } catch (_) {
+                return 'threw';
+            }
         })();
         """
-
-        view.evaluateJavaScript(script, completionHandler: nil)
     }
+
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         failed(navigation, error: error)
     }
@@ -529,7 +659,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
         let safe = BrowserPolicy.permitsMediaPrompt(scheme: origin.protocol, host: origin.host, port: origin.port,
                                                    frameURL: frame.request.url, topURL: webView.url)
-        decisionHandler(safe ? .prompt : .deny)
+        // macOS still gates this with the app's TCC permission and the usage
+        // description; granting here avoids WebKit's second sheet, which cannot
+        // be presented while the web view has no window.
+        decisionHandler(safe ? .grant : .deny)
     }
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {

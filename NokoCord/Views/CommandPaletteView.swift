@@ -173,6 +173,8 @@ struct CommandPaletteView: View {
         })
 
         // MARK: - Apple Music Rich Presence
+        let musicPackage = TanPackage.appleMusicRPC
+        let musicEnabled = tans.enabledIDs.contains(musicPackage.id)
         if let track = AppleMusicRPCService.shared.currentTrack, track.playerState.isPlaying {
             items.append(PaletteAction(
                 id: "applemusic.now_playing",
@@ -183,19 +185,24 @@ struct CommandPaletteView: View {
                 shortcut: nil,
                 tint: .pink
             ) {
-                AppleMusicRPCService.shared.poll()
+                AppleMusicRPCService.shared.refresh()
             })
         }
         items.append(PaletteAction(
             id: "applemusic.toggle_rpc",
-            title: AppleMusicRPCService.shared.isEnabled ? "Disable Apple Music RPC" : "Enable Apple Music RPC",
-            subtitle: AppleMusicRPCService.shared.isEnabled ? "Stop broadcasting Apple Music status to Discord" : "Broadcast Apple Music tracks, artwork and time to Discord",
+            title: musicEnabled ? "Disable Apple Music RPC" : "Enable Apple Music RPC",
+            subtitle: musicEnabled
+                ? "Stop broadcasting Apple Music status to Discord"
+                : (tans.installed.contains { $0.id == musicPackage.id }
+                    ? "Enable the Noko-Tan, then reload Discord to apply"
+                    : "Install and enable the bundled Noko-Tan, then reload Discord"),
             category: "Apple Music RPC",
             icon: "waveform",
             shortcut: nil,
-            tint: AppleMusicRPCService.shared.isEnabled ? .pink : .gray
+            tint: musicEnabled ? .pink : .gray
         ) {
-            AppleMusicRPCService.shared.toggle()
+            if musicEnabled { tans.setEnabled(musicPackage.id, false) }
+            else { tans.enableOriginal(musicPackage) }
         })
 
         // MARK: - Tans Extensions

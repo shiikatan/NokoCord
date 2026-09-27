@@ -173,27 +173,82 @@ To achieve true all-day MacBook battery life and sub-500MB memory footprint:
 
 ---
 
-## 11. Apple Music Rich Presence & Discord Social SDK (`AppleMusicRPCService.swift`)
+## 11. Apple Music Rich Presence (`noko.apple-music` Noko-Tan)
 
-NokoCord includes native macOS Apple Music Rich Presence that seamlessly broadcasts what you're listening to across Discord:
+Apple Music Rich Presence shows the song playing on this Mac as a Listening
+activity on the user's Discord profile. It ships as an official bundled
+Noko-Tan, so it is installed, enabled and disabled like any other Tan, and Safe
+Mode pauses it.
 
 ```mermaid
 graph TD
-    A[macOS Music.app / LastFM.app] -->|AppleMusicDetector.swift| B[AppleMusicRPCService.swift]
-    B -->|iTunes Search API / LastFM Cache| C[High-Res 512x512 Artwork]
-    B -->|syncPresenceToDiscord LOCAL_ACTIVITY_UPDATE| D[NokoCord WebClient FluxDispatcher]
-    B -->|DiscordSocialSDKBridge / Unix IPC /tmp/discord-ipc-0| E[Discord Desktop App / Social SDK]
+    A[macOS Music.app / LastFM.app] -->|"AppleMusicDetector.swift"| B["AppleMusicRPCService.swift (native detector)"]
+    B -->|"iTunes Search API / LastFM cache"| C[512x512 album artwork]
+    B -->|"onPresenceChange (Tan-gated)"| D[BrowserEngine.swift]
+    D -->|"__nokoLocalActivity(socketId, activity)"| E["Discord Flux dispatcher registered by LocalActivityStore"]
+    E -->|"socket.presenceUpdate"| F[Discord profile]
 ```
 
 ### Architecture & Capabilities
-* **Dual Detection Engine**:
-  * **LastFM.app Integration**: Detects if `~/LastFMSwift/LastFM.app` (or `/Applications/LastFM.app`) is installed. Automatically checks `~/Library/Application Support/LastFM/monitor_debug.log`, `scrobble_stats.json`, and `current_art.jpg` for album artwork and scrobbler state.
-  * **macOS System Integration**: Subscribes to `com.apple.Music.playerInfo` on `DistributedNotificationCenter` for push notifications on track changes, and uses compiled `NSAppleScript` for zero-drift player position tracking.
-* **Dual Discord Dispatch**:
-  * **In-Workspace NokoCord**: Dispatches `LOCAL_ACTIVITY_UPDATE` (`type: 2` "Listening to Apple Music") directly into Discord's Flux Dispatcher in WKWebView, displaying animated seek bars, song title, artist, and album on the user's active Discord profile.
-  * **Discord Desktop / Social SDK**: Dynamically links `libdiscord_partner_sdk.dylib` from the Discord Social SDK (`~/Downloads/discord_social_sdk`), and maintains a native Unix domain socket client (`/tmp/discord-ipc-0`) to update running Discord Desktop clients concurrently.
-* **Artwork Resolution**: Queries the iTunes Search API asynchronously with in-memory caching to upscale thumbnail covers to crisp 512x512 album artwork.
+* **Tan as the switch**: `noko.apple-music` is enabled or disabled from the Tan
+  Hub or Settings → Music RPC, and it marks the page while it is on. Enabling
+  or disabling it is a page-world change and therefore needs the usual Discord
+  reload, exactly like the other bundled page Tans.
+* **App-owned delivery**: `BrowserEngine` delivers the activity through the
+  page helper `window.__nokoLocalActivity`. Delivery is confirmed against
+  Discord's own `LocalActivityStore` and retried, because Discord accepts
+  `LOCAL_ACTIVITY_UPDATE` dispatches it never applies — dispatchers reached
+  through the client's module cache, and stores belonging to duplicate module
+  copies, both swallow the action. Game presence uses the same verified path.
+* **Native detection**: `AppleMusicRPCService` runs only while the Tan is
+  enabled and Safe Mode is off. It subscribes to `com.apple.Music.playerInfo`
+  on `DistributedNotificationCenter` for track, pause, resume and stop
+  changes, and to Music's own launch and termination notifications. There is no
+  timer and no AppleScript bridge.
+* **Activity payload**: the status line carries the artist (`name`), the first
+  detail line the song and the second the album, with `type: 2` keeping the
+  activity a Listening one.
+* **Artwork**: album art comes from Last.fm's album-scoped lookups
+  (`album.getinfo`, then `track.getinfo` with the album the player reports) at
+  600×600, because a track-only lookup resolves to a different release's cover
+  whenever a song appears on a single, an EP and an album. When Last.fm has no
+  match the chain falls back to a strict iTunes search (artist plus album or
+  track title must agree) and then a strict Deezer album search for releases
+  iTunes does not carry. The artist's profile
+  image comes from Deezer, whose artist photos are real; Last.fm's artist
+  images are a generic placeholder and are never used. Only Last.fm, iTunes and
+  Deezer image hosts are accepted. Both URLs are then converted into Discord
+  media-proxy keys through the client's own authenticated
+  `applications/<id>/external-assets` call before dispatch, because Discord
+  renders neither raw URLs nor asset keys the application does not define.
+  Settings → Music RPC holds the Discord application id used for the activity.
+  Last.fm read-only methods use the app's client key; the shared secret is
+  neither needed nor shipped.
+* **Playback position**: exact positions come from `NokoMusicWatch`, the small
+  helper bundled in `Contents/Helpers` and launched only while this Tan is
+  enabled. It polls Apple Music every five seconds, broadcasts
+  track/artist/album/duration/position/state over a local distributed
+  notification and exits once NokoCord is gone. That poll is what catches a
+  track repeating, a seek, a pause or a stop that the player notification
+  stream never announces; the app re-anchors the activity's timestamps to it.
+  The helper is deliberately the one component outside the sandbox and outside
+  the hardened runtime, because macOS only offers Apple Events consent to
+  locally signed apps that are neither; it reads Apple Music, posts a local
+  notification and has no network or file access of its own. The release
+  verifier asserts exactly that shape. Without the helper the feature falls
+  back to notification-derived positions.
+* **LastFM.app integration**: When `~/LastFMSwift/LastFM.app` or
+  `/Applications/LastFM.app` is present, its `scrobble_stats.json` and
+  `current_art.jpg` provide a cold-start reading before the next player
+  notification arrives.
 * **Native Controls**:
-  * Floating toolbar music status pill with live playback duration.
-  * Command Palette (`⌘K`) actions: "Now Playing: [Track]" and "Toggle Apple Music RPC".
-  * Dedicated "Music RPC" tab in NokoCord Settings.
+  * Settings → Music RPC installs, enables and disables the Tan and shows the
+    live track with its progress.
+  * Command Palette (`⌘K`) actions: "Now Playing: [Track]" and "Enable/Disable
+    Apple Music RPC".
+  * Floating toolbar music status pill while a track is playing.
+
+A local game activity takes precedence over music; the music activity returns
+when the game clears. Delivery happens inside NokoCord's own Discord session:
+NokoCord does not drive a separately running Discord Desktop client and does
+not bundle or load the Discord Social SDK.

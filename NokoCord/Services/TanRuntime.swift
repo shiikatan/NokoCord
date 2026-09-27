@@ -646,6 +646,14 @@ final class TanRuntime {
         const BLANK_PIXEL = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>';
 
         // Auto-pause offscreen media (videos, gifs, audios) to stop GPU decode loops
+        // Voice and other live streams carry a srcObject; pausing those would
+        // silence a call, so they are never tracked by the media observer.
+        const isLiveStream = (el) => {
+          try {
+            const stream = el.srcObject;
+            return stream != null && (typeof stream.getTracks === 'function' ? stream.getTracks().length > 0 : true);
+          } catch (_) { return false; }
+        };
         const mediaObserver = new IntersectionObserver((entries) => {
           for (const entry of entries) {
             const el = entry.target;
@@ -674,7 +682,7 @@ final class TanRuntime {
 
         const trackElements = () => {
           document.querySelectorAll('video, audio').forEach(el => {
-            if (!el.__nokoTracked) {
+            if (!el.__nokoTracked && !isLiveStream(el)) {
               el.__nokoTracked = true;
               mediaObserver.observe(el);
             }
@@ -741,6 +749,7 @@ final class TanRuntime {
         const evictOffscreenMedia = () => {
           try {
             document.querySelectorAll('video, audio').forEach(el => {
+              if (isLiveStream(el)) return;
               const r = el.getBoundingClientRect();
               if (r.bottom < 0 || r.top > window.innerHeight) {
                 if (typeof el.pause === 'function') {
@@ -799,6 +808,7 @@ final class TanRuntime {
           try {
             evictOffscreenMedia();
             document.querySelectorAll('video, audio').forEach((el) => {
+              if (isLiveStream(el)) return;
               if (typeof el.pause === 'function') el.pause();
             });
           } catch (_) {}
@@ -888,7 +898,126 @@ final class TanRuntime {
         }
       }, true);
 
-      // 6. Native Spacebar Quick Look & ⌘S Quick Bookmark Handler
+      // 6. Native Local Rich Presence Delivery (used by the Apple Music RPC Tan)
+      // Discord's module cache holds dispatchers from other runtimes that accept
+      // LOCAL_ACTIVITY_UPDATE and silently drop it, so only the dispatcher the
+      // client's own LocalActivityStore registered with is accepted.
+      if (!window.__nokoLocalActivity) {
+        const resolveLocalActivityDispatcher = () => {
+          const chunk = window.webpackChunkdiscord_app;
+          if (!chunk || typeof chunk.push !== 'function') return null;
+          const requires = [];
+          for (let i = 0; i < 3; i++) {
+            try {
+              chunk.push([[Symbol()], {}, (require) => { if (requires.indexOf(require) === -1) requires.push(require); }]);
+            } catch (_) {}
+          }
+          const usable = (candidate) => candidate && typeof candidate.dispatch === 'function' && typeof candidate.subscribe === 'function';
+          for (const require of requires) {
+            const factories = require && require.m ? require.m : null;
+            if (!factories) continue;
+            for (const id of Object.keys(factories)) {
+              let source = '';
+              try { source = Function.prototype.toString.call(factories[id]); } catch (_) { continue; }
+              if (source.indexOf('"LocalActivityStore"') === -1) continue;
+              let store = null;
+              try {
+                const exported = require(id);
+                const values = [exported, exported && exported.default];
+                if (exported && typeof exported === 'object') values.push(...Object.values(exported));
+                for (const candidate of values) {
+                  if (candidate && typeof candidate.getActivities === 'function' && typeof candidate.getPrimaryActivity === 'function') { store = candidate; break; }
+                }
+              } catch (_) { continue; }
+              if (!store) continue;
+              for (const key of Object.getOwnPropertyNames(store)) {
+                const value = store[key];
+                if (!usable(value)) continue;
+                try {
+                  const handlers = value._actionHandlers && value._actionHandlers.getOrderedActionHandlers({ type: 'LOCAL_ACTIVITY_UPDATE' });
+                  if (handlers && handlers.length) return { dispatcher: value, store };
+                } catch (_) {}
+              }
+            }
+          }
+          return null;
+        };
+        // Discord can accept a dispatch without applying it: dispatchers from
+        // other runtimes and stores from duplicate module copies both take the
+        // action and drop it. Delivery is therefore confirmed against the
+        // client's own store, and the resolution is redone for every attempt so
+        // a store the client does not render from is never reused.
+        window.__nokoLocalActivity = (socketId, activity) => {
+          const resolved = resolveLocalActivityDispatcher();
+          if (!resolved) return null;
+          let outcome = null;
+          try {
+            outcome = resolved.dispatcher.dispatch({ type: 'LOCAL_ACTIVITY_UPDATE', socketId: String(socketId), activity: activity ?? null });
+          } catch (_) {
+            return null;
+          }
+          const applied = () => {
+            try {
+              const activities = resolved.store.getActivities() ?? [];
+              const present = activities.indexOf(activity) !== -1;
+              return activity == null ? !present : present;
+            } catch (_) {
+              return false;
+            }
+          };
+          if (outcome && typeof outcome.then === 'function') return outcome.then(applied, () => false);
+          return applied();
+        };
+      }
+
+      // 6b. External image keys for activities. Discord only renders images that
+      // are application assets or media-proxy keys, so image URLs are resolved
+      // through the client's own authenticated endpoint before dispatch.
+      if (!window.__nokoResolveExternalAssets) {
+        window.__nokoResolveExternalAssets = async (applicationId, urls) => {
+          const slots = Array.isArray(urls) ? urls : [];
+          const list = slots.filter((value) => typeof value === 'string' && /^https?:\/\//.test(value));
+          if (list.length === 0) return slots;
+          const chunk = window.webpackChunkdiscord_app;
+          if (!chunk || typeof chunk.push !== 'function') return urls ?? [];
+          const requires = [];
+          for (let i = 0; i < 3; i++) {
+            try {
+              chunk.push([[Symbol()], {}, (require) => { if (requires.indexOf(require) === -1) requires.push(require); }]);
+            } catch (_) {}
+          }
+          for (const require of requires) {
+            const factories = require && require.m ? require.m : null;
+            if (!factories) continue;
+            for (const id of Object.keys(factories)) {
+              let source = '';
+              try { source = Function.prototype.toString.call(factories[id]); } catch (_) { continue; }
+              if (source.indexOf('external_asset_path') === -1) continue;
+              let exported = null;
+              try { exported = require(id); } catch (_) { continue; }
+              for (const candidate of Object.values(exported ?? {})) {
+                if (typeof candidate !== 'function' || candidate.length < 2) continue;
+                try {
+                  const resolved = await candidate(String(applicationId), list);
+                  if (Array.isArray(resolved) && resolved.some((value) => typeof value === 'string' && value.startsWith('mp:'))) {
+                    // Map results back onto the caller's slots so an image that
+                    // was not requested can never take another's place.
+                    let cursor = 0;
+                    return slots.map((value) => {
+                      const needed = typeof value === 'string' && /^https?:\/\//.test(value);
+                      const result = needed ? resolved[cursor++] : null;
+                      return typeof result === 'string' && result.startsWith('mp:') ? result : value;
+                    });
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+          return urls ?? [];
+        };
+      }
+
+      // 7. Native Spacebar Quick Look & ⌘S Quick Bookmark Handler
       let currentHoveredMedia = null;
       let currentHoveredMessage = null;
 

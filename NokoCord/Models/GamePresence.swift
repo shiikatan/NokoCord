@@ -48,18 +48,23 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
     }
 
     /// Converts the GamePresence into a Discord LOCAL_ACTIVITY_UPDATE compatible dictionary.
+    ///
+    /// Field bounds follow the RPC/activity contract: names, detail lines and
+    /// tooltips are at most 128 characters (detail lines need at least 2), and
+    /// an image is either an application asset key or an external image URL of
+    /// at most 300 characters.
     public func toDiscordPayload() -> [String: Any] {
         var activity: [String: Any] = [
             "application_id": clientId,
-            "name": name,
+            "name": Self.bounded(name, minimum: 1) ?? "Activity",
             "type": type,
             "flags": 1
         ]
 
-        if let details = details, !details.isEmpty {
+        if let details = Self.bounded(details, minimum: 2) {
             activity["details"] = details
         }
-        if let state = state, !state.isEmpty {
+        if let state = Self.bounded(state, minimum: 2) {
             activity["state"] = state
         }
 
@@ -75,10 +80,10 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
         }
 
         var assets: [String: Any] = [:]
-        if let key = largeImageKey, !key.isEmpty { assets["large_image"] = key }
-        if let text = largeImageText, !text.isEmpty { assets["large_text"] = text }
-        if let key = smallImageKey, !key.isEmpty { assets["small_image"] = key }
-        if let text = smallImageText, !text.isEmpty { assets["small_text"] = text }
+        if let key = Self.imageKey(largeImageKey, maximum: 300) { assets["large_image"] = key }
+        if let text = Self.bounded(largeImageText, minimum: 2) { assets["large_text"] = text }
+        if let key = Self.imageKey(smallImageKey, maximum: 300) { assets["small_image"] = key }
+        if let text = Self.bounded(smallImageText, minimum: 2) { assets["small_text"] = text }
         if !assets.isEmpty {
             activity["assets"] = assets
         }
@@ -92,6 +97,24 @@ public struct GamePresence: Equatable, Sendable, Identifiable {
         }
 
         return activity
+    }
+
+    /// An activity image is either an application asset key, a Discord media
+    /// proxy key, or an https URL. Local files cannot be fetched by Discord, so
+    /// they are never sent.
+    private static func imageKey(_ value: String?, maximum: Int) -> String? {
+        guard let candidate = bounded(value, minimum: 1, maximum: maximum) else { return nil }
+        if candidate.hasPrefix("mp:") { return candidate }
+        if candidate.hasPrefix("https://") { return candidate }
+        if candidate.contains("/") { return nil }
+        return candidate
+    }
+
+    private static func bounded(_ value: String?, minimum: Int, maximum: Int = 128) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= minimum else { return nil }
+        return trimmed.count <= maximum ? trimmed : String(trimmed.prefix(maximum))
     }
 
     public static func == (lhs: GamePresence, rhs: GamePresence) -> Bool {

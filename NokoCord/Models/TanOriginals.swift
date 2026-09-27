@@ -60,7 +60,27 @@ extension TanPackage {
             css: nil,
             origin: "Noko-Tan"
         ),
+        appleMusicRPC,
     ]
+
+    /// The page-world half of Apple Music Rich Presence. `AppleMusicRPCService`
+    /// owns detection and calls the hook this Tan publishes; nothing is read
+    /// from or written to the session by the Tan itself.
+    static let appleMusicRPC = TanPackage(
+        manifest: TanManifest(
+            id: "noko.apple-music",
+            name: "Apple Music RPC",
+            version: "1.0.0",
+            description: "Shows the song playing in Apple Music on this Mac as a Listening activity on your Discord profile.",
+            authors: ["shiikatan"],
+            target: .page,
+            entry: "main.js",
+            requiresReload: true
+        ),
+        javascript: appleMusicRPCJS,
+        css: nil,
+        origin: "Noko-Tan"
+    )
 
     private static let clearFocusJS = ##"""
 NokoTan.register({
@@ -1823,5 +1843,21 @@ html[data-noko-chat-hide-apps="true"] :is([class^="channelTextArea_"], [class*="
   });
 })();
 
+"""##
+
+    private static let appleMusicRPCJS = ##"""
+NokoTan.register({
+  start(api) {
+    // The feature's switch. Apple Music presence is delivered by the app's own
+    // page runtime, which confirms each activity against Discord's
+    // LocalActivityStore; this Tan marks the page while it is enabled so the
+    // page, the inspector and Safe Mode all agree on the feature's state.
+    const marker = 'data-noko-apple-music';
+    document.documentElement.setAttribute(marker, 'enabled');
+    api.onCleanup(() => {
+      if (document.documentElement.getAttribute(marker) === 'enabled') document.documentElement.removeAttribute(marker);
+    });
+  }
+});
 """##
 }

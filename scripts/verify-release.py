@@ -86,6 +86,31 @@ def verify(app, edition=None):
     architectures = run("/usr/bin/lipo", "-archs", str(executable)).decode().split()
     if "arm64" not in architectures:
         raise ValueError("Apple Silicon executable missing")
+    watcher = app / "Contents/Helpers/NokoMusicWatch.app"
+    if not watcher.is_dir():
+        raise ValueError("NokoMusicWatch helper is missing")
+    run("/usr/bin/codesign", "--verify", "--strict", str(watcher))
+    watcher_signature = run("/usr/bin/codesign", "-dv", "--verbose=4", str(watcher), include_stderr=True).decode()
+    watcher_flags = re.search(r"flags=0x([0-9a-fA-F]+)", watcher_signature)
+    if not watcher_flags or int(watcher_flags.group(1), 16) & 0x10000:
+        raise ValueError("Watcher must not enable the hardened runtime")
+    # The watcher is the reviewed exception in this bundle: outside the sandbox
+    # and outside the hardened runtime, because macOS only offers Apple Events
+    # consent to locally signed apps that are neither. It reads Apple Music and
+    # posts a local notification, and carries no entitlements at all.
+    watcher_entitlement_output = run("/usr/bin/codesign", "-d", "--entitlements", "-", "--xml", str(watcher), include_stderr=True)
+    if b"<plist" in watcher_entitlement_output:
+        watcher_entitlements = plistlib.loads(watcher_entitlement_output[watcher_entitlement_output.index(b"<plist"):])
+        if watcher_entitlements:
+            raise ValueError("Unexpected watcher entitlements")
+    watcher_plist = plistlib.loads((watcher / "Contents/Info.plist").read_bytes())
+    if watcher_plist.get("CFBundleIdentifier") != "com.shiikatan.nokocord.musicwatch":
+        raise ValueError("Unexpected watcher identity")
+    if not isinstance(watcher_plist.get("NSAppleEventsUsageDescription"), str):
+        raise ValueError("Missing watcher usage description")
+    if watcher_plist.get("LSUIElement") is not True:
+        raise ValueError("Watcher must stay a background agent")
+
     helper = app / "Contents/Helpers/TanTranslator"
     run("/usr/bin/codesign", "--verify", "--strict", str(helper))
     helper_signature = run("/usr/bin/codesign", "-dv", "--verbose=4", str(helper), include_stderr=True).decode()
@@ -131,7 +156,7 @@ def verify(app, edition=None):
                     raise ValueError(f"Artifact privacy scan: {label} in {relative}")
     label = f"{info['NokoEditionName']} {info['NokoPublicVersion']}" if edition else info['CFBundleShortVersionString']
     print(f"Release artifact checks passed: NokoCord {label} ({info['CFBundleVersion']})")
-    print("Verified signature integrity, identity, callback scheme, Apple Silicon, hardened runtime and reviewed sandbox entitlements and shipped-byte privacy patterns.")
+    print("Verified signature integrity, identity, callback scheme, Apple Silicon, hardened runtime, reviewed sandbox entitlements and the reviewed unsandboxed Apple Music watcher, and shipped-byte privacy patterns.")
     print("Developer ID, notarization, runtime behavior and live Discord access remain separate release gates.")
 
 

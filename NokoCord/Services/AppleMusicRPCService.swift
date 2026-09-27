@@ -2,195 +2,283 @@ import Foundation
 import AppKit
 import Observation
 
-/// Coordinates Apple Music playback tracking, LastFM integration, and Discord Rich Presence broadcasting.
+/// Apple Music Rich Presence: detects local playback, resolves artwork and
+/// hands the resulting activity to the bundled `noko.apple-music` Noko-Tan,
+/// which delivers it inside the signed-in Discord session.
+///
+/// The Tan is the feature's switch. `setActive(_:)` follows `TanManager` state
+/// through the browser engine, so disabling or uninstalling the Tan, or
+/// entering Safe Mode, stops detection and delivery together.
 @MainActor @Observable
 public final class AppleMusicRPCService: NSObject {
     public static let shared = AppleMusicRPCService()
 
-    public var isEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(isEnabled, forKey: "appleMusicRPCEnabled")
-            if isEnabled {
-                start()
-            } else {
-                stop()
-            }
-        }
+    /// True while the Tan is enabled and not suppressed by Safe Mode.
+    public private(set) var isEnabled = false
+    public private(set) var currentTrack: AppleMusicTrack?
+    public private(set) var isLastFMDetected = false
+    public private(set) var lastFMStatusText = ""
+    /// Set when macOS reported that NokoCord may not read Music's position.
+    public private(set) var isPositionAccessDenied = false
+
+    static let watcherNotification = "com.shiikatan.nokocord.music"
+    static let watcherBundleID = "com.shiikatan.nokocord.musicwatch"
+
+    /// UserDefaults key holding the Discord application id sent with the
+    /// activity. Artwork and images only resolve for a registered application.
+    public static let applicationIDKey = "appleMusicDiscordApplicationID"
+
+    /// The configured Discord application id, falling back to the bundled one.
+    public static var configuredApplicationID: String {
+        let stored = (UserDefaults.standard.string(forKey: applicationIDKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = stored.allSatisfy(\.isNumber) && (17...20).contains(stored.count)
+        return digits ? stored : AppleMusicTrack.discordApplicationID
     }
 
-    public private(set) var currentTrack: AppleMusicTrack?
-    public private(set) var isLastFMDetected: Bool = false
-    public private(set) var lastFMStatusText: String = ""
-    public private(set) var isDiscordDesktopConnected: Bool = false
-    public private(set) var isRunning: Bool = false
-
+    /// Reports the activity the Discord session should show; `nil` clears it.
     public var onPresenceChange: ((GamePresence?) -> Void)?
 
-    @ObservationIgnored private var pollTimer: Timer?
-    @ObservationIgnored private var distributedObserver: NSObjectProtocol?
+    @ObservationIgnored private var playerObserver: NSObjectProtocol?
+    @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var artworkTask: Task<Void, Never>?
+    @ObservationIgnored private var watcherObserver: NSObjectProtocol?
+    /// Set while NokoMusicWatch is reporting, so its exact positions win over
+    /// the player notification's own elapsed time.
+    @ObservationIgnored private var watcherLastSeen: Date?
+    @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private let detector = AppleMusicDetector.shared
-    @ObservationIgnored private let socialBridge = DiscordSocialSDKBridge.shared
 
-    public override init() {
-        let stored = UserDefaults.standard.object(forKey: "appleMusicRPCEnabled") as? Bool ?? true
-        self.isEnabled = stored
-        super.init()
+    /// Starts or stops the service with the bundled Tan's active state.
+    public func setActive(_ active: Bool) {
+        guard active != isEnabled else { return }
+        isEnabled = active
+        if active { begin() } else { end() }
+    }
 
-        // Defer startup to avoid blocking app initialization
-        if isEnabled {
-            DispatchQueue.main.async { [weak self] in
-                self?.start()
-            }
+    /// One-shot status check for cold starts and explicit refreshes. Playback
+    /// changes arrive as notifications; the service never polls.
+    public func refresh() {
+        guard isEnabled else { return }
+        guard detector.isMusicAppRunning() else {
+            stopPlayback()
+            return
+        }
+        if let track = detector.getCurrentTrack(), track.playerState.isPlaying {
+            show(track)
+        } else {
         }
     }
 
     public func refreshLastFMStatus() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let lastFMInstalled = detector.isLastFMInstalled()
-        self.isLastFMDetected = lastFMInstalled
-
-        if lastFMInstalled {
-            let lastFMSwiftPath = home.appendingPathComponent("LastFMSwift/LastFM.app").path
-            if FileManager.default.fileExists(atPath: lastFMSwiftPath) {
-                lastFMStatusText = "Active: LastFM.app detected in LastFMSwift"
-            } else {
-                lastFMStatusText = "Active: LastFM.app installed in Applications"
-            }
+        isLastFMDetected = detector.isLastFMInstalled()
+        if isLastFMDetected {
+            let appInHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("LastFMSwift/LastFM.app").path
+            lastFMStatusText = FileManager.default.fileExists(atPath: appInHome)
+                ? String(localized: "Active: LastFM.app detected in LastFMSwift")
+                : String(localized: "Active: LastFM.app installed in Applications")
         } else {
-            lastFMStatusText = "Native Apple Music detector"
+            lastFMStatusText = String(localized: "Native Apple Music detector")
         }
     }
 
-    public func start() {
-        guard !isRunning else { return }
-        isRunning = true
-
+    private func begin() {
         refreshLastFMStatus()
-
-        // 1. Subscribe to macOS distributed player notifications for zero-latency, sandbox-safe track changes
-        if distributedObserver == nil {
-            distributedObserver = DistributedNotificationCenter.default().addObserver(
-                forName: NSNotification.Name("com.apple.Music.playerInfo"),
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                Task { @MainActor [weak self] in
-                    guard let self = self, self.isEnabled else { return }
-                    if let track = self.detector.handlePlayerNotification(notification.userInfo) {
-                        self.applyTrack(track)
-                    } else {
-                        self.stopPlayback()
-                    }
-                }
-            }
-        }
-
-        // 2. Poll every 3 seconds for smooth progress tracking and app lifecycle monitoring
-        pollTimer?.invalidate()
-        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.poll()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
-
-        // 3. Initial non-blocking check
-        poll()
+        observePlayerNotifications()
+        observeMusicApplication()
+        refresh()
+        startMusicWatcher()
     }
 
-    public func stop() {
-        isRunning = false
-        pollTimer?.invalidate()
-        pollTimer = nil
-
-        if let obs = distributedObserver {
-            DistributedNotificationCenter.default().removeObserver(obs)
-            distributedObserver = nil
-        }
-
+    private func end() {
+        cancelScheduledStop()
+        stopMusicWatcher()
+        removeObservers()
+        artworkTask?.cancel()
+        artworkTask = nil
         stopPlayback()
     }
 
-    public func toggle() {
-        isEnabled.toggle()
-    }
-
-    private func applyTrack(_ track: AppleMusicTrack) {
-        guard track.playerState.isPlaying else {
-            stopPlayback()
-            return
-        }
-
-        let trackChanged = currentTrack?.id != track.id || currentTrack?.playerState != track.playerState
+    /// Adopts a track the detector reported. The Discord progress bar comes from
+    /// the activity's start and end timestamps, so no position ticker is needed.
+    private func show(_ track: AppleMusicTrack) {
+        let changed = currentTrack?.id != track.id || currentTrack?.playerState != track.playerState
         var updated = track
-
-        if trackChanged {
-            self.currentTrack = updated
-            Task { [weak self] in
-                guard let self = self else { return }
-                if let artworkURL = await self.detector.resolveArtwork(for: updated) {
-                    await MainActor.run {
-                        if self.currentTrack?.id == updated.id {
-                            updated.artworkURL = artworkURL
-                            self.currentTrack = updated
-                            self.broadcastPresence(updated)
-                        }
-                    }
-                }
+        if changed {
+            cancelScheduledStop()
+            currentTrack = updated
+            publish(updated)
+            guard updated.artworkURL == nil || updated.artistImageURL == nil else { return }
+            let pending = updated
+            artworkTask?.cancel()
+            artworkTask = Task { [weak self] in
+                guard let self else { return }
+                async let artwork = pending.artworkURL == nil ? self.detector.resolveArtwork(for: pending) : nil
+                async let artistImage = pending.artistImageURL == nil ? self.detector.resolveArtistImage(for: pending) : nil
+                let (resolvedArtwork, resolvedArtist) = await (artwork, artistImage)
+                guard !Task.isCancelled, self.isEnabled, self.currentTrack?.id == pending.id,
+                      self.currentTrack?.playerState == pending.playerState,
+                      resolvedArtwork != nil || resolvedArtist != nil else { return }
+                var merged = pending
+                if let resolvedArtwork { merged.artworkURL = resolvedArtwork }
+                if let resolvedArtist { merged.artistImageURL = resolvedArtist }
+                self.currentTrack = merged
+                self.publish(merged)
             }
         } else {
             updated.artworkURL = currentTrack?.artworkURL
-            self.currentTrack = updated
+            updated.artistImageURL = currentTrack?.artistImageURL
+            if let watcherLastSeen, Date().timeIntervalSince(watcherLastSeen) < 20 {
+                // Keep the watcher's position; the notification's elapsed time
+                // can lag well behind the player.
+                updated = updated.repositioned(to: currentTrack?.currentPosition ?? updated.position)
+            }
+            currentTrack = updated
+            publish(updated)
         }
-
-        broadcastPresence(updated)
     }
 
     private func stopPlayback() {
-        if currentTrack != nil {
-            currentTrack = nil
+        currentTrack = nil
+        publish(nil)
+    }
+
+    /// A track that ends posts a stopped state just before the next play, and a
+    /// repeat may not post anything else. Clearing straight away is what made a
+    /// looping song vanish, so the clear waits briefly for that next play.
+    private func scheduleStop() {
+        guard stopTask == nil else { return }
+        stopTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.stopTask = nil
+            guard self.currentTrack?.playerState.isPlaying != true else { return }
+            self.stopPlayback()
+        }
+    }
+
+    private func cancelScheduledStop() {
+        stopTask?.cancel()
+        stopTask = nil
+    }
+
+    private func publish(_ track: AppleMusicTrack?) {
+        guard let track, track.playerState.isPlaying else {
             onPresenceChange?(nil)
-            socialBridge.clearPresence()
+            return
+        }
+        onPresenceChange?(track.toGamePresence(clientId: Self.configuredApplicationID))
+    }
+
+    /// NokoMusicWatch, the unsandboxed helper bundled with the app, is the
+    /// only component that may read Music over Apple Events. It polls the
+    /// player and broadcasts what it sees, which is what reports a repeated
+    /// track, a seek or a stop that the player never announces.
+    private func startMusicWatcher() {
+        watcherObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name(Self.watcherNotification),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self, self.isEnabled else { return }
+                self.applyWatcherBroadcast(notification.userInfo)
+            }
+        }
+        launchWatcherIfNeeded()
+    }
+
+    private func stopMusicWatcher() {
+        if let watcherObserver {
+            DistributedNotificationCenter.default().removeObserver(watcherObserver)
+            self.watcherObserver = nil
+        }
+        for application in NSRunningApplication.runningApplications(withBundleIdentifier: Self.watcherBundleID) {
+            application.terminate()
         }
     }
 
-    /// Checks the current Apple Music state and synchronizes with Discord.
-    public func poll() {
-        guard isEnabled else { return }
+    private func launchWatcherIfNeeded() {
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: Self.watcherBundleID).isEmpty,
+              let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NokoMusicWatch.app", isDirectory: true) as URL?,
+              FileManager.default.fileExists(atPath: url.path) else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.arguments = ["--owner", Bundle.main.bundleIdentifier ?? ""]
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: nil)
+    }
 
-        // If Apple Music is not running, stop playback
-        if !detector.isMusicAppRunning() {
-            if currentTrack != nil {
-                stopPlayback()
+    /// Adopts what the helper saw. Positions are exact, so this is also the
+    /// path that re-anchors the seek bar and catches a repeating track.
+    private func applyWatcherBroadcast(_ userInfo: [AnyHashable: Any]?) {
+        watcherLastSeen = Date()
+        guard let state = userInfo?["state"] as? String else { return }
+        switch state {
+        case "playing":
+            guard let track = AppleMusicTrack(watcherBroadcast: userInfo) else { return }
+            isPositionAccessDenied = false
+            cancelScheduledStop()
+            if let current = currentTrack, current.playerState.isPlaying,
+               current.name == track.name, current.artist == track.artist {
+                guard abs(track.position - current.currentPosition) > 2 else { return }
+                let reanchored = current.repositioned(to: track.position)
+                currentTrack = reanchored
+                publish(reanchored)
+                return
             }
-            return
-        }
-
-        // If we have an active track playing, advance its position smoothly
-        if let current = currentTrack, current.playerState.isPlaying {
-            detector.updatePlaybackPosition(elapsedDelta: 3.0)
-            if let updated = detector.getCurrentTrack() {
-                self.currentTrack = updated
-                broadcastPresence(updated)
-            }
-            return
-        }
-
-        // Otherwise check for existing track state (e.g. from LastFM cold start)
-        if let track = detector.getCurrentTrack(), track.playerState.isPlaying {
-            applyTrack(track)
+            show(track)
+        case "paused", "stopped", "not_running":
+            scheduleStop()
+        case "denied":
+            // macOS never prompted, or the user declined: Settings explains how
+            // to allow it instead of failing silently.
+            isPositionAccessDenied = true
+        default:
+            break
         }
     }
 
-    private func broadcastPresence(_ track: AppleMusicTrack) {
-        let presence = track.toGamePresence()
+    private func observePlayerNotifications() {
+        guard playerObserver == nil else { return }
+        playerObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.Music.playerInfo"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self, self.isEnabled else { return }
+                if let track = self.detector.handlePlayerNotification(notification.userInfo), track.playerState.isPlaying {
+                    self.cancelScheduledStop()
+                    self.show(track)
+                } else {
+                    self.scheduleStop()
+                }
+            }
+        }
+    }
 
-        // 1. Dispatch to NokoCord's internal Discord session
-        onPresenceChange?(presence)
+    /// Playback notifications stop arriving when Music quits, so the app's own
+    /// launch and termination events complete the picture without polling.
+    private func observeMusicApplication() {
+        guard workspaceObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      application.bundleIdentifier == AppleMusicDetector.musicBundleIdentifier else { return }
+                Task { @MainActor [weak self] in self?.refresh() }
+            })
+        }
+    }
 
-        // 2. Dispatch to Discord Desktop via Social SDK and Unix IPC socket
-        socialBridge.updatePresence(for: track)
-        isDiscordDesktopConnected = socialBridge.isIPCConnected
+    private func removeObservers() {
+        if let playerObserver {
+            DistributedNotificationCenter.default().removeObserver(playerObserver)
+            self.playerObserver = nil
+        }
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.forEach { center.removeObserver($0) }
+        workspaceObservers.removeAll()
     }
 }

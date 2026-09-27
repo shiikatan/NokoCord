@@ -96,3 +96,13 @@ Native bridge messages use exactly `{type: "status", state: "started" | "stopped
 "failed"}` or `{type: "capability", capability: "appearance.read"}`. Extra fields,
 unknown enums and wrong types are rejected. Cached active hashes avoid re-encoding
 package source on every message. No raw diagnostic payload is retained.
+
+## App-called page hooks
+
+A bundled Noko-Tan may publish a documented page-world hook that the app calls
+with data the app has already decided, such as the bundled Apple Music RPC
+Tan's presence marker or the app's `window.__nokoLocalActivity` delivery hook.
+A hook carries no native capability, adds no bridge message, must remove itself
+during Tan cleanup and is an internal contract between NokoCord and its own
+bundled Tans rather than an interface for third-party packages. It grants no
+access to credentials, session content or native state.

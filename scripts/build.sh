@@ -18,19 +18,11 @@ APP_DIR="${BUILD_DIR}/NokoCord.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 HELPERS_DIR="${CONTENTS_DIR}/Helpers"
-FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 
 echo "==> Preparing build directories in ${BUILD_DIR}..."
 rm -rf "${APP_DIR}"
-mkdir -p "${MACOS_DIR}" "${HELPERS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}"
-
-# Bundle Discord Social SDK if available
-SOCIAL_SDK_SRC="${HOME}/Downloads/discord_social_sdk/lib/release/libdiscord_partner_sdk.dylib"
-if [ -f "${SOCIAL_SDK_SRC}" ]; then
-    echo "==> Bundling Discord Social SDK partner dylib..."
-    cp "${SOCIAL_SDK_SRC}" "${FRAMEWORKS_DIR}/libdiscord_partner_sdk.dylib"
-fi
+mkdir -p "${MACOS_DIR}" "${HELPERS_DIR}" "${RESOURCES_DIR}"
 
 echo "==> [1/6] Compiling TanTranslator helper..."
 swiftc Tools/TanTranslator/Helper/main.swift -O -o "${HELPERS_DIR}/TanTranslator"
@@ -64,6 +56,41 @@ cp "${APPICON_SRC}/icon-512@1x.png" "${TMP_ICONSET}/icon_512x512.png"
 cp "${APPICON_SRC}/icon-512@2x.png" "${TMP_ICONSET}/icon_512x512@2x.png"
 iconutil -c icns "${TMP_ICONSET}" -o "${RESOURCES_DIR}/AppIcon.icns"
 rm -rf "${TMP_ICONSET}"
+
+echo "==> [1b/6] Building NokoMusicWatch helper..."
+WATCH_DIR="${HELPERS_DIR}/NokoMusicWatch.app"
+WATCH_MACOS="${WATCH_DIR}/Contents/MacOS"
+mkdir -p "${WATCH_MACOS}" "${WATCH_DIR}/Contents/Resources"
+swiftc Tools/NokoMusicWatch/main.swift -O -o "${WATCH_MACOS}/NokoMusicWatch"
+cp "${RESOURCES_DIR}/AppIcon.icns" "${WATCH_DIR}/Contents/Resources/AppIcon.icns"
+cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleExecutable</key>
+	<string>NokoMusicWatch</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.shiikatan.nokocord.musicwatch</string>
+	<key>CFBundleName</key>
+	<string>NokoMusicWatch</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Read the Apple Music playback position so your Discord listening activity stays in sync with the song, including when you seek or repeat a track.</string>
+</dict>
+</plist>
+WATCH_PLIST_EOF
 
 echo "==> [4/6] Generating Info.plist..."
 cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
@@ -115,14 +142,15 @@ cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
 PLIST_EOF
 
 echo "==> [5/6] Code signing with hardened runtime and sandboxing..."
-if [ -f "${FRAMEWORKS_DIR}/libdiscord_partner_sdk.dylib" ]; then
-    /usr/bin/codesign --force --sign - --options runtime \
-        "${FRAMEWORKS_DIR}/libdiscord_partner_sdk.dylib"
-fi
-
 /usr/bin/codesign --force --sign - --options runtime \
     --entitlements Config/TanTranslator.entitlements \
     "${HELPERS_DIR}/TanTranslator"
+
+# The watcher is deliberately the one component outside the sandbox and without
+# the hardened runtime: macOS only offers Apple Events consent to apps that are
+# neither sandboxed nor hardened when they are signed locally, and consent is
+# what lets it read Apple Music at all.
+/usr/bin/codesign --force --sign - "${WATCH_DIR}"
 
 /usr/bin/codesign --force --sign - --options runtime \
     --entitlements Config/NokoCord.entitlements \

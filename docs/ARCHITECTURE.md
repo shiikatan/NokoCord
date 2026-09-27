@@ -54,6 +54,7 @@ graph TD
     end
 
     AppEntry --> Delegate
+    AppEntry --> Watcher["NokoMusicWatch (unsandboxed helper)"]
     AppEntry --> BrowserEng
     BrowserEng --> TanRun
     BrowserEng --> NSSpell
@@ -91,8 +92,9 @@ NokoCord/
 ├── Models/
 │   ├── EditionIdentity.swift      # Chiaki build metadata, versioning, edition tags
 │   ├── BrowserPolicy.swift        # Whitelisted URLs, origin verifiers, navigation rules
-│   ├── TanManifest.swift          # Tan package schema (v1), JSON validation, capabilities
-│   └── TanPackage.swift           # Installed Tan metadata, SHA-256 integrity fingerprints
+│   ├── Tan.swift                  # Tan package schema (v1), JSON validation, capabilities
+│   ├── TanOriginals.swift         # Bundled first-party Noko-Tans and their page scripts
+│   └── AppleMusicTrack.swift      # Playback state and Listening activity mapping
 ├── Persistence/
 │   └── TanStorage.swift           # Disk operations for Tans (install, remove, enumerate)
 ├── Resources/
@@ -100,10 +102,13 @@ NokoCord/
 │   └── Localizable.xcstrings      # Localized strings catalog
 ├── Services/
 │   ├── BrowserEngine.swift        # WKBrowserEngine, WKPreferences, memory timers
+│   ├── NokoMusicWatch (Tools/)    # Unsandboxed Apple Music reader, launched per Tan state
 │   ├── TanRuntime.swift           # Injected scripts, CSS overrides, bridge handlers
 │   ├── TanManager.swift           # State machine for enabled/disabled/safe-mode Tans
 │   ├── NotificationService.swift  # Native notification deliverer (UNUserNotificationCenter)
-│   └── GamePresenceService.swift  # Running game process scanner for Rich Presence
+│   ├── GamePresenceService.swift  # Running game process scanner for Rich Presence
+│   ├── AppleMusicRPCService.swift # Tan-gated Apple Music Rich Presence detector
+│   └── AppleMusicDetector.swift   # Music.app notifications and LastFM.app readings
 └── Views/
     ├── QuickSwitcherView.swift    # Spotlight-style ⌘K command palette and channel finder
     ├── TansInspectorView.swift    # ⌘T developer inspector for installed Tan extensions
