@@ -68,32 +68,6 @@ struct ContentView: View {
     private var home: some View { TanHubView() }
 }
 
-private struct HomeAction: View {
-    let title: String
-    let detail: String
-    let symbol: String
-    let action: () -> Void
-    @State private var hovered = false
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: symbol).font(.title3).foregroundStyle(.tint).frame(width: 28)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.headline)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-            }.padding(17).frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-                .contentShape(.rect(cornerRadius: 14))
-        }.buttonStyle(.plain)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(hovered ? 1 : 0.65), in: .rect(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(hovered ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.08)))
-            .onHover { hovered = $0 }
-    }
-}
-
 struct NokoPageHeader: View {
     let title: String
     let subtitle: String
@@ -242,10 +216,6 @@ struct SettingsView: View {
     @AppStorage("openDiscordOnLaunch") private var openDiscordOnLaunch = false
     @AppStorage("showMenuBar") private var showMenuBar = false
     @AppStorage("appearance") private var appearance = "system"
-    @Environment(ActiveBrowserEngine.self) private var browser
-    @State private var confirmLocalCleanup = false
-    @State private var cleanupMessage: String?
-    @State private var cleaning = false
     var body: some View {
         TabView {
             Form {
@@ -287,35 +257,7 @@ struct SettingsView: View {
                 DiscordSessionPrivacySection()
                 Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }
-            Form {
-                Section("Diagnostics") { LabeledContent("Engine", value: browser.engineDescription) }
-                Section("Maintenance") {
-                    Button("Clear app caches and saved drafts…", role: .destructive) { confirmLocalCleanup = true }
-                        .disabled(cleaning)
-                    if cleaning { ProgressView("Clearing local data") }
-                    if let cleanupMessage { Text(cleanupMessage).foregroundStyle(.secondary) }
-                }
-            }.formStyle(.grouped).tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
         }.frame(width: 640, height: 480).nokoCordAppearance()
-            .confirmationDialog("Clear app caches and saved drafts?", isPresented: $confirmLocalCleanup, titleVisibility: .visible) {
-                Button("Clear local data", role: .destructive) {
-                    cleaning = true
-                    Task {
-                        do {
-                            try await DraftStore.shared.clearAll()
-                            try await AccountCache().clear()
-                            await AvatarPipeline.shared.clear()
-                            cleanupMessage = String(localized: "Local caches and saved drafts cleared.")
-                        } catch {
-                            cleanupMessage = String(localized: "Some local data could not be cleared. Try again.")
-                        }
-                        cleaning = false
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This deletes NokoCord’s local caches and saved drafts. Your Discord session and downloaded files are kept.")
-            }
     }
 }
 

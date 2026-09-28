@@ -132,6 +132,16 @@ private struct NokoCordCommands: Commands {
 
 @MainActor
 private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // On a fresh install SwiftUI can create the single Window scene without
+        // ordering it on screen. Present that existing window once at launch.
+        DispatchQueue.main.async {
+            guard let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }),
+                  !main.isVisible else { return }
+            main.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
     static func requestTermination() {
         // AppKit may defer its standard termination action while a sheet is
         // modal. Clear owned presentation state before invoking that action.

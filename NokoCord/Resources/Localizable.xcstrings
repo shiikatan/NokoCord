@@ -34,64 +34,10 @@
         }
       }
     },
-    "••••" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "••••"
-          }
-        }
-      }
-    },
     "A classification describes how much conversion work is needed. It does not rate a plugin’s safety or quality." : {
 
     },
     "A little Noko. A lot of possibility." : {
-
-    },
-    "A preview frame could not be captured." : {
-
-    },
-    "A quiet, native home for the Discord access your account has approved." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A quiet, native home for the Discord access your account has approved."
-          }
-        }
-      }
-    },
-    "A server-list grant does not grant channel history, sending, reactions, threads, forums or search." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A server-list grant does not grant channel history, sending, reactions, threads, forums or search."
-          }
-        }
-      }
-    },
-    "A single bounded preview frame is captured after you choose a display or window. No screen stream is started." : {
-
-    },
-    "A single bounded preview frame is captured after you choose a window. No screen stream is started." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A single bounded preview frame is captured after you choose a window. No screen stream is started."
-          }
-        }
-      }
-    },
-    "A thread has new activity." : {
-
-    },
-    "A verified call session will appear here when one is available." : {
 
     },
     "About" : {
@@ -121,72 +67,10 @@
         }
       }
     },
-    "Access boundaries" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Access boundaries"
-          }
-        }
-      }
-    },
-    "Access inspector" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Access inspector"
-          }
-        }
-      }
-    },
-    "Account" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account"
-          }
-        }
-      }
-    },
-    "Account and servers" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account and servers"
-          }
-        }
-      }
-    },
-    "Account connected" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account connected"
-          }
-        }
-      }
-    },
-    "Advanced" : {
-
-    },
     "All" : {
 
     },
-    "Allow notifications…" : {
-
-    },
     "Allowed" : {
-
-    },
-    "An approved call transport is required." : {
 
     },
     "Appearance" : {
@@ -205,24 +89,7 @@
     "Attachment %@" : {
 
     },
-    "Authorization is invalid and Keychain cleanup failed. Retry Disconnect Profile." : {
-
-    },
-    "Authorization is invalid and Keychain cleanup failed. Retry Sign Out." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Authorization is invalid and Keychain cleanup failed. Retry Sign Out."
-          }
-        }
-      }
-    },
     "Automatic" : {
-
-    },
-    "Available only during an active call." : {
 
     },
     "Back" : {
@@ -241,15 +108,6 @@
     "By" : {
 
     },
-    "Call failed" : {
-
-    },
-    "Call participants" : {
-
-    },
-    "Calls unavailable" : {
-
-    },
     "Camera" : {
       "localizations" : {
         "en" : {
@@ -259,15 +117,6 @@
           }
         }
       }
-    },
-    "Camera could not be started. Check the device and try again." : {
-
-    },
-    "Camera permission was not granted." : {
-
-    },
-    "Camera unavailable" : {
-
     },
     "Camera, microphone and screen sharing require your permission." : {
 
@@ -282,19 +131,6 @@
         }
       }
     },
-    "Cancel reply" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancel reply"
-          }
-        }
-      }
-    },
-    "Cancel screen check" : {
-
-    },
     "Cancel translation" : {
 
     },
@@ -304,41 +140,7 @@
     "Capabilities" : {
 
     },
-    "Channels are unavailable" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Channels are unavailable"
-          }
-        }
-      }
-    },
-    "Chat timeline" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chat timeline"
-          }
-        }
-      }
-    },
     "Check your connection, then reload. Reloading interrupts any active call." : {
-
-    },
-    "Choose a camera" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a camera"
-          }
-        }
-      }
-    },
-    "Choose a camera first." : {
 
     },
     "Choose a destination" : {
@@ -365,30 +167,10 @@
     "Clear & Reload" : {
 
     },
-    "Clear app caches and saved drafts?" : {
-
-    },
-    "Clear app caches and saved drafts…" : {
-
-    },
-    "Clear cached account data and avatars" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear cached account data and avatars"
-          }
-        }
-      }
-    },
     "Clear Discord Session" : {
 
     },
     "Clear Discord session…" : {
-
-    },
-    "Clear local data" : {
 
     },
     "Clear saved session data to sign out of Discord on this Mac. Files you have downloaded are kept." : {
@@ -412,9 +194,6 @@
     "Clear your Discord session?" : {
 
     },
-    "Clearing local data" : {
-
-    },
     "Clearing session data" : {
 
     },
@@ -436,40 +215,13 @@
     "Completed" : {
 
     },
-    "Configure a valid HTTPS authentication service origin in Settings." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Configure a valid HTTPS authentication service origin in Settings."
-          }
-        }
-      }
-    },
     "Connected" : {
 
-    },
-    "Connecting" : {
-
-    },
-    "Connection" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connection"
-          }
-        }
-      }
     },
     "Continue to Discord" : {
 
     },
     "Convert with document-ready startup" : {
-
-    },
-    "Copied" : {
 
     },
     "Copy" : {
@@ -478,53 +230,17 @@
     "Dark" : {
 
     },
-    "Deafen" : {
-
-    },
-    "Denied" : {
-
-    },
     "Device" : {
-
-    },
-    "Devices" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Devices"
-          }
-        }
-      }
-    },
-    "Diagnostics" : {
 
     },
     "Different package IDs are separate Tans, even if their names resemble one another—for example, NokoChat, Noko Chat, Noko-Chat, and noko_chat." : {
 
     },
-    "Direct messages" : {
-
-    },
     "Disabled" : {
-
-    },
-    "Disconnect" : {
 
     },
     "Discord" : {
 
-    },
-    "Discord approval required" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Discord approval required"
-          }
-        }
-      }
     },
     "Discord could not load" : {
 
@@ -569,16 +285,6 @@
     "Downloads from Discord appear here during this session." : {
 
     },
-    "edited" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "edited"
-          }
-        }
-      }
-    },
     "Edition" : {
 
     },
@@ -592,23 +298,6 @@
 
     },
     "Engine" : {
-
-    },
-    "Esc" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esc"
-          }
-        }
-      }
-    },
-    "Establishing the approved encrypted call transport." : {
-
-    },
-    "Event preferences" : {
 
     },
     "Expanded" : {
@@ -633,22 +322,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Forward"
-          }
-        }
-      }
-    },
-    "Friend request" : {
-
-    },
-    "Friend requests" : {
-
-    },
-    "Friends and direct messages" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Friends and direct messages"
           }
         }
       }
@@ -682,39 +355,8 @@
     "Home (⇧⌘H)" : {
 
     },
-    "https://service.example.com" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "https://service.example.com"
-          }
-        }
-      }
-    },
-    "Idle" : {
-
-    },
     "Import Tan…" : {
 
-    },
-    "Incoming call" : {
-
-    },
-    "Incoming calls" : {
-
-    },
-    "Inspect access" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Inspect access"
-          }
-        }
-      }
     },
     "Install" : {
 
@@ -728,20 +370,6 @@
     "Keyboard shortcuts" : {
 
     },
-    "Keychain cleanup failed. Retry Disconnect Profile before quitting; saved credentials may remain on this Mac." : {
-
-    },
-    "Keychain cleanup failed. Retry Sign Out before quitting; saved credentials may remain on this Mac." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keychain cleanup failed. Retry Sign Out before quitting; saved credentials may remain on this Mac."
-          }
-        }
-      }
-    },
     "Learn about Tans, translation, updates, and package identity." : {
 
     },
@@ -751,86 +379,13 @@
     "Liquid Glass" : {
 
     },
-    "List displays and windows" : {
-
-    },
-    "List shareable windows" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "List shareable windows"
-          }
-        }
-      }
-    },
-    "Listening locally" : {
-
-    },
-    "Loading account" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading account"
-          }
-        }
-      }
-    },
-    "Local account cache cleanup failed. Retry Disconnect Profile. Remove NokoCord from Discord’s Authorized Apps if remote revocation is uncertain." : {
-
-    },
-    "Local account cache cleanup failed. Retry Sign Out. Remove NokoCord from Discord’s Authorized Apps if remote revocation is uncertain." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Local account cache cleanup failed. Retry Sign Out. Remove NokoCord from Discord’s Authorized Apps if remote revocation is uncertain."
-          }
-        }
-      }
-    },
-    "Local caches and saved drafts cleared." : {
-
-    },
-    "Local camera preview" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Local camera preview"
-          }
-        }
-      }
-    },
-    "Local diagnostics" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Local diagnostics"
-          }
-        }
-      }
-    },
     "Made by shiikatan" : {
 
     },
     "Maintainer" : {
 
     },
-    "Maintenance" : {
-
-    },
     "Make it yours." : {
-
-    },
-    "Mentions" : {
-
-    },
-    "Message composer" : {
 
     },
     "Message from %@, %@" : {
@@ -843,22 +398,6 @@
         }
       }
     },
-    "Messages and channels" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Messages and channels"
-          }
-        }
-      }
-    },
-    "Messaging is not available for this connection." : {
-
-    },
-    "Messaging unavailable" : {
-
-    },
     "Microphone" : {
       "localizations" : {
         "en" : {
@@ -869,39 +408,7 @@
         }
       }
     },
-    "Microphone could not be started." : {
-
-    },
-    "Microphone format is unavailable." : {
-
-    },
-    "Microphone permission was not granted." : {
-
-    },
-    "More" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More"
-          }
-        }
-      }
-    },
     "Most supported behavior can be converted, while uncertain or unsupported parts may need review or manual adjustment." : {
-
-    },
-    "Mute" : {
-
-    },
-    "New message" : {
-
-    },
-    "New reply" : {
-
-    },
-    "No active call" : {
 
     },
     "No analytics or telemetry" : {
@@ -914,19 +421,6 @@
         }
       }
     },
-    "No approved call transport is configured. NokoCord never starts an unencrypted fallback call." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No approved call transport is configured. NokoCord never starts an unencrypted fallback call."
-          }
-        }
-      }
-    },
-    "No approved video transport is configured." : {
-
-    },
     "No downloads yet" : {
 
     },
@@ -938,19 +432,6 @@
     },
     "No matching Tans" : {
 
-    },
-    "No participants" : {
-
-    },
-    "No supported transport" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No supported transport"
-          }
-        }
-      }
     },
     "No Tans match this filter. Choose All to see your collection." : {
 
@@ -977,71 +458,8 @@
     "NokoCord identifies a Tan primarily by its package ID. The same ID means the same Tan; a different ID means a different Tan, even when display names look alike." : {
 
     },
-    "NokoCord shows the access your connection can verify. Messaging, calls and media stay unavailable until Discord authorizes a supported transport." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "NokoCord shows the access your connection can verify. Messaging, calls and media stay unavailable until Discord authorizes a supported transport."
-          }
-        }
-      }
-    },
     "NokoCord understands the supported functionality and converts it into Noko-Tan equivalents. Automatic conversion does not make arbitrary third-party code safe." : {
 
-    },
-    "Not requested" : {
-
-    },
-    "not speaking" : {
-
-    },
-    "Not speaking" : {
-
-    },
-    "Notification delivery is unavailable with the current Discord connection. Preferences are saved for supported events when an authorized connection becomes available." : {
-
-    },
-    "Notification permission could not be requested. Try again." : {
-
-    },
-    "Notification preferences could not be saved. Try again." : {
-
-    },
-    "Notifications" : {
-
-    },
-    "OAuth setup required" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OAuth setup required"
-          }
-        }
-      }
-    },
-    "OAuth tokens are handled transiently by the broker" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OAuth tokens are handled transiently by the broker"
-          }
-        }
-      }
-    },
-    "Offline" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Offline"
-          }
-        }
-      }
     },
     "OK" : {
 
@@ -1052,22 +470,10 @@
     "Open %@" : {
 
     },
-    "Open attachment" : {
-
-    },
-    "Open attachment in your default browser" : {
-
-    },
-    "Open attachment?" : {
-
-    },
     "Open Discord" : {
 
     },
     "Open Discord on Launch" : {
-
-    },
-    "Open link?" : {
 
     },
     "Open NokoCord" : {
@@ -1093,9 +499,6 @@
         }
       }
     },
-    "Previews are hidden by default. Changing preferences clears existing NokoCord notifications." : {
-
-    },
     "Previous Discord page" : {
 
     },
@@ -1109,20 +512,6 @@
         }
       }
     },
-    "Privacy & About" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy & About"
-          }
-        }
-      }
-    },
-    "Profile disconnected, but saved credential cleanup failed. Retry Disconnect Profile before quitting." : {
-
-    },
     "Quick switcher" : {
       "localizations" : {
         "en" : {
@@ -1134,9 +523,6 @@
       }
     },
     "Quick switcher (⌘K)" : {
-
-    },
-    "Quiet delivery" : {
 
     },
     "Quit NokoCord" : {
@@ -1155,9 +541,6 @@
     "Ready to review" : {
 
     },
-    "Reconnecting" : {
-
-    },
     "Refresh" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1165,27 +548,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Refresh"
-          }
-        }
-      }
-    },
-    "Refresh account" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refresh account"
-          }
-        }
-      }
-    },
-    "Refresh devices" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refresh devices"
           }
         }
       }
@@ -1223,19 +585,6 @@
     "Reloads Discord and may interrupt an active call" : {
 
     },
-    "Remote revocation failed. Remove NokoCord in Discord’s Authorized Apps settings. Local credentials and cached account data were removed unless a prior Keychain error was shown." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remote revocation failed. Remove NokoCord in Discord’s Authorized Apps settings. Local credentials and cached account data were removed unless a prior Keychain error was shown."
-          }
-        }
-      }
-    },
-    "Replies" : {
-
-    },
     "Reply to %@" : {
 
     },
@@ -1258,17 +607,6 @@
     "Returns to the previous Discord page" : {
 
     },
-    "Review access" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Review access"
-          }
-        }
-      }
-    },
     "Review code you trust before enabling it. Installation preserves the source and report, and leaves the Tan turned off." : {
 
     },
@@ -1287,66 +625,8 @@
     "Save Discord download" : {
 
     },
-    "Saved drafts could not be deleted. Try again." : {
-
-    },
-    "Saved drafts deleted. Your Discord session was not changed." : {
-
-    },
-    "Screen content is unavailable." : {
-
-    },
-    "Screen or window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Screen or window"
-          }
-        }
-      }
-    },
-    "Screen sharing unavailable" : {
-
-    },
-    "Search" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Search"
-          }
-        }
-      }
-    },
-    "Select or clear focused participant." : {
-
-    },
     "Send" : {
 
-    },
-    "Server overview" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Server overview"
-          }
-        }
-      }
-    },
-    "Servers" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Servers"
-          }
-        }
-      }
     },
     "Settings" : {
 
@@ -1357,13 +637,7 @@
     "Show" : {
 
     },
-    "Show all participants" : {
-
-    },
     "Show all Tans" : {
-
-    },
-    "Show names and message previews" : {
 
     },
     "Show Noko-Tans" : {
@@ -1378,121 +652,13 @@
     "Show translation, updates, and package identity information" : {
 
     },
-    "Sign in" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in"
-          }
-        }
-      }
-    },
-    "Sign in again" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in again"
-          }
-        }
-      }
-    },
-    "Sign out" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign out"
-          }
-        }
-      }
-    },
-    "Sign-in cancelled." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign-in cancelled."
-          }
-        }
-      }
-    },
-    "Signed out" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Signed out"
-          }
-        }
-      }
-    },
-    "Signed out of memory, but Keychain cleanup failed. Retry Sign Out before quitting." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Signed out of memory, but Keychain cleanup failed. Retry Sign Out before quitting."
-          }
-        }
-      }
-    },
     "Small touches, made for NokoCord." : {
-
-    },
-    "Social SDK does not document video or Go Live transport. Local capture alone would not send a Discord stream." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Social SDK does not document video or Go Live transport. Local capture alone would not send a Discord stream."
-          }
-        }
-      }
-    },
-    "Social SDK eligibility must be confirmed for NokoCord. Its terms restrict competing products. No SDK is bundled." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Social SDK eligibility must be confirmed for NokoCord. Its terms restrict competing products. No SDK is bundled."
-          }
-        }
-      }
-    },
-    "Some local data could not be cleared. Try again." : {
 
     },
     "Source" : {
 
     },
-    "speaking" : {
-
-    },
-    "Speaking" : {
-
-    },
-    "Standard OAuth can read your identity and basic server list. Configure your private authentication service in Settings." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Standard OAuth can read your identity and basic server list. Configure your private authentication service in Settings."
-          }
-        }
-      }
-    },
-    "Start local preview" : {
-
-    },
     "Start with something small." : {
-
-    },
-    "Starting…" : {
 
     },
     "Startup" : {
@@ -1501,22 +667,7 @@
     "Startup was explicitly adapted to run when the document is ready. Test the Tan’s behavior before relying on it." : {
 
     },
-    "Stop microphone" : {
-
-    },
-    "Stop preview" : {
-
-    },
-    "Stopped" : {
-
-    },
     "System" : {
-
-    },
-    "System permission" : {
-
-    },
-    "System WebKit" : {
 
     },
     "Tan could not be installed or updated" : {
@@ -1531,150 +682,10 @@
     "Temporary" : {
 
     },
-    "Test microphone" : {
-
-    },
-    "The account could not be loaded. Retry or sign in again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The account could not be loaded. Retry or sign in again."
-          }
-        }
-      }
-    },
-    "The call could not verify an approved encrypted transport." : {
-
-    },
-    "The connected call has not reported any participants." : {
-
-    },
     "The download failed. Retry from Discord when the connection is available." : {
 
     },
-    "The draft could not be saved. Your text is still available in this window." : {
-
-    },
-    "The local cache could not be cleared. Retry from Settings." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The local cache could not be cleared. Retry from Settings."
-          }
-        }
-      }
-    },
-    "The response exceeded the safe size limit." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The response exceeded the safe size limit."
-          }
-        }
-      }
-    },
-    "The saved draft could not be restored." : {
-
-    },
-    "The saved session could not be read. Sign out to clear it, then sign in again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The saved session could not be read. Sign out to clear it, then sign in again."
-          }
-        }
-      }
-    },
     "The saved translation report could not be read." : {
-
-    },
-    "The secure credential store is unavailable." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The secure credential store is unavailable."
-          }
-        }
-      }
-    },
-    "The service is unavailable. Try again later." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The service is unavailable. Try again later."
-          }
-        }
-      }
-    },
-    "The service returned an unexpected response." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The service returned an unexpected response."
-          }
-        }
-      }
-    },
-    "The sign-in callback could not be verified. Please retry." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The sign-in callback could not be verified. Please retry."
-          }
-        }
-      }
-    },
-    "These are the capabilities NokoCord can currently verify for this connection." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These are the capabilities NokoCord can currently verify for this connection."
-          }
-        }
-      }
-    },
-    "These checks use local macOS capture only. Nothing is sent to Discord or a call." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These checks use local macOS capture only. Nothing is sent to Discord or a call."
-          }
-        }
-      }
-    },
-    "This account has not granted the required access." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This account has not granted the required access."
-          }
-        }
-      }
-    },
-    "This connection can identify this server, but it does not grant channel history or message actions. Review Access to see what is supported." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This connection can identify this server, but it does not grant channel history or message actions. Review Access to see what is supported."
-          }
-        }
-      }
-    },
-    "This deletes NokoCord’s local caches and saved drafts. Your Discord session and downloaded files are kept." : {
 
     },
     "This ends active calls and playback, signs you out of Discord, and removes saved session data. Downloaded files are kept." : {
@@ -1696,9 +707,6 @@
 
     },
     "This will open %@ in your default browser." : {
-
-    },
-    "Thread activity" : {
 
     },
     "Translate" : {
@@ -1728,19 +736,6 @@
     "Unavailable" : {
 
     },
-    "Unavailable with standard OAuth" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unavailable with standard OAuth"
-          }
-        }
-      }
-    },
-    "Undeafen" : {
-
-    },
     "Uninstall Tan" : {
 
     },
@@ -1750,16 +745,7 @@
     "Uninstall…" : {
 
     },
-    "Unknown" : {
-
-    },
-    "Unmute" : {
-
-    },
     "Unsupported" : {
-
-    },
-    "Untitled window" : {
 
     },
     "Update" : {
@@ -1777,106 +763,14 @@
     "Update Noko-Tan" : {
 
     },
-    "Use the HTTPS origin of your approved authentication service. Secrets are kept in Keychain by the connection layer." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use the HTTPS origin of your approved authentication service. Secrets are kept in Keychain by the connection layer."
-          }
-        }
-      }
-    },
     "Use translucent controls and surfaces. Accessibility settings take priority." : {
-
-    },
-    "Verified call encryption is required." : {
 
     },
     "Version" : {
 
     },
-    "Video" : {
-
-    },
-    "Video and screen sharing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Video and screen sharing"
-          }
-        }
-      }
-    },
-    "Voice and DAVE" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Voice and DAVE"
-          }
-        }
-      }
-    },
-    "Waiting for authorization" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Waiting for authorization"
-          }
-        }
-      }
-    },
     "When names may be confusing, NokoCord shows “Two Tans have similar names.” Check each Tan’s package ID, author, and source before installing. Install Anyway keeps both Tans; it does not replace one based on its name." : {
 
-    },
-    "Write a message…" : {
-
-    },
-    "You can change notification permission in macOS System Settings → Notifications → NokoCord." : {
-
-    },
-    "You have a new friend request." : {
-
-    },
-    "You have a new mention." : {
-
-    },
-    "You have a new message." : {
-
-    },
-    "You have a new reply." : {
-
-    },
-    "You have an incoming call." : {
-
-    },
-    "You were mentioned" : {
-
-    },
-    "Your authorization expired or was revoked. Sign in again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your authorization expired or was revoked. Sign in again."
-          }
-        }
-      }
-    },
-    "Your space" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your space"
-          }
-        }
-      }
     },
     "Your Tans" : {
 

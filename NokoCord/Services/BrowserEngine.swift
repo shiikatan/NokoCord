@@ -21,7 +21,6 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     private(set) var progress = 0.0
     private(set) var canGoBack = false
     private(set) var notice: String?
-    let engineDescription = String(localized: "System WebKit")
     let downloads = BrowserDownloads()
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
@@ -56,8 +55,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         if let browserView { return browserView }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
-        // Master Plan v2: controlled local Tans only; no auth/token bridge.
-        // No enabled Tans means no injected scripts or handlers.
+        // No enabled local Tans means no injected scripts or handlers.
         tanRuntime?.prepare(configuration.userContentController)
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
