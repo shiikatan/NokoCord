@@ -269,10 +269,17 @@ public final class AppleMusicRPCService: NSObject {
         ) { [weak self] notification in
             Task { @MainActor [weak self] in
                 guard let self, self.isEnabled else { return }
-                if let track = self.detector.handlePlayerNotification(notification.userInfo), track.playerState.isPlaying {
+                let track = self.detector.handlePlayerNotification(notification.userInfo)
+                if let track, track.playerState.isPlaying {
                     self.cancelScheduledStop()
                     self.show(track)
                 } else {
+                    // Record the pause or stop before scheduling the clear. The
+                    // scheduled task trusts currentTrack, and leaving a stale
+                    // playing state there is exactly why a paused song kept its
+                    // status: the grace period is for a repeat, which arrives as
+                    // a new playing state, not for the track that just stopped.
+                    self.currentTrack = track
                     self.scheduleStop()
                 }
             }

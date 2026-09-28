@@ -501,10 +501,9 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             }
         }
         let json = payload.isEmpty ? "null" : Self.jsonLiteral(payload)
-        guard presence != nil else {
-            _ = try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: socketID))
-            return
-        }
+        // A clear is confirmed the same way a set is: the script reports
+        // "applied" when the activity is absent for this socket, so a dispatch
+        // Discord swallowed while loading cannot leave a stale status behind.
         for _ in 1...15 {
             guard !Task.isCancelled else { return }
             let outcome = (try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: socketID))) as? String
