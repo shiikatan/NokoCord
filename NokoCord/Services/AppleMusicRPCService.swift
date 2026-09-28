@@ -147,11 +147,16 @@ public final class AppleMusicRPCService: NSObject {
 
     /// A track that ends posts a stopped state just before the next play, and a
     /// repeat may not post anything else. Clearing straight away is what made a
-    /// looping song vanish, so the clear waits briefly for that next play.
-    private func scheduleStop() {
+    /// looping song vanish, so a stop waits for the next track to claim the
+    /// status. A pause is deliberate and nothing is coming, so it clears almost
+    /// at once instead.
+    private nonisolated static let stopGracePeriod: TimeInterval = 8
+    private nonisolated static let pauseGracePeriod: TimeInterval = 1
+
+    private func scheduleStop(after delay: TimeInterval = AppleMusicRPCService.stopGracePeriod) {
         guard stopTask == nil else { return }
         stopTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.stopTask = nil
             guard self.currentTrack?.playerState.isPlaying != true else { return }
@@ -245,7 +250,9 @@ public final class AppleMusicRPCService: NSObject {
                 return
             }
             show(track)
-        case "paused", "stopped", "not_running":
+        case "paused":
+            scheduleStop(after: Self.pauseGracePeriod)
+        case "stopped", "not_running":
             scheduleStop()
         case "denied", "unavailable":
             // "unavailable" is what the helper reports when the Apple Event to
@@ -280,7 +287,9 @@ public final class AppleMusicRPCService: NSObject {
                     // status: the grace period is for a repeat, which arrives as
                     // a new playing state, not for the track that just stopped.
                     self.currentTrack = track
-                    self.scheduleStop()
+                    self.scheduleStop(after: track?.playerState == .paused
+                                      ? Self.pauseGracePeriod
+                                      : Self.stopGracePeriod)
                 }
             }
         }
