@@ -8,6 +8,7 @@ struct WorkspaceToolbar: View {
     @Binding var showQuickSwitcher: Bool
     @Binding var showBookmarksDrawer: Bool
     @State private var showDownloadsPopover = false
+    @State private var showCallReadiness = false
     @State private var gamePresence = GamePresenceService.shared
     @State private var showGameRPPopover = false
     @State private var appleMusicRPC = AppleMusicRPCService.shared
@@ -60,6 +61,34 @@ struct WorkspaceToolbar: View {
                     .help("Forward (⌘])")
                     .accessibilityLabel("Forward")
                     .buttonStyle(.plain)
+                }
+
+                Divider()
+                    .frame(height: 14)
+                    .padding(.horizontal, 1)
+            }
+
+            // Keep diagnostics reachable before a call is active. Otherwise a
+            // failed join would hide the only surface explaining why it was
+            // not confirmed.
+            if !browser.isInCall,
+               browser.lifecycle.phase == .ready,
+               browser.discordCompatibility.isSupportedRoute {
+                Button {
+                    showCallReadiness.toggle()
+                } label: {
+                    Image(systemName: browser.callReadiness.state == .blocked ? "exclamationmark.shield" : "checkmark.shield")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(browser.callReadiness.state == .ready ? Color.green : Color.orange)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show call readiness")
+                .help("Show call readiness")
+                .popover(isPresented: $showCallReadiness, arrowEdge: .bottom) {
+                    CallReadinessView(readiness: browser.callReadiness) {
+                        browser.refreshCallReadiness()
+                    }
                 }
 
                 Divider()

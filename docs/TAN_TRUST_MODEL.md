@@ -10,10 +10,13 @@ capabilities, origin, and content hash. Approval is bound to the complete
 content identity, not the identifier alone. A changed JavaScript, stylesheet,
 target, capability list, or trust origin is a new approval decision.
 
-The trust record stores the approved hash, target, capabilities, origin,
-approval time, health state, failure count, last failure category, and the
-last-known-good package reference. Records contain no Discord content,
-credentials, tokens, or raw bridge payloads.
+The trust record stores the Tan identifier, approved content hash, approved
+capabilities, approval time, last-known-good version/hash, health state,
+failure count and a bounded quarantine reason. The package's target and trust
+origin are included in the content hash and package validation; a change to
+either therefore requires a new approval. Replacement metadata keeps the
+previous package hash/version available for interrupted-write recovery. Records
+contain no Discord content, credentials, tokens, or raw bridge payloads.
 
 ## Storage and replacement
 
@@ -45,11 +48,11 @@ capability design.
 
 ## Resource limits
 
-The runtime owns and tracks Tan timers, listeners, observers, mounted elements,
-bridge requests, package size, and translated-source archives. Disable, reload,
-route changes, quarantine, uninstall, and failed startup run cleanup even when
-Tan-provided cleanup throws. Quotas protect typing, scrolling, and long-lived
-Discord sessions from an accidental or hostile package.
+The runtime owns and tracks Tan timers, listeners, mounted elements and bridge
+requests; package and translated-source storage are size-bounded at import.
+Disable, reload, route changes, quarantine, uninstall, and failed startup run
+cleanup even when Tan-provided cleanup throws. Quotas protect typing, scrolling,
+and long-lived Discord sessions from an accidental or hostile package.
 
 ## Health states
 
@@ -58,11 +61,11 @@ The user-facing health surface distinguishes:
 - Awaiting approval — content identity changed or a new package is installed;
 - Enabled — the package is active on a supported route;
 - Disabled — the user turned it off or Safe Mode is active;
-- Degraded — one optional feature or selector is unavailable;
+- Failed or degraded — the package reported or encountered a bounded runtime
+  failure and needs review or retry;
 - Quarantined — repeated failures disabled the package;
 - Reload required — page-world changes need a new Discord document.
 
 Diagnostics are bounded and redacted. They may include package ID, lifecycle
 event, category, and time, but never page text, credentials, cookies, raw
 JavaScript errors, or bridge payloads.
-

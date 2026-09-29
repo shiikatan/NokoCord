@@ -178,6 +178,30 @@ final class TanRuntimeTests: XCTestCase {
         XCTAssertEqual(manager.enabledIDs, Set([original.id]))
     }
 
+    func testExitingSafeModeRequiresReloadBeforeTanReturns() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root, launchSafeMode: true)
+        let original = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.scroll-tools" }))
+        try manager.install(original)
+        manager.setEnabled(original.id, true)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+        try await loadFixture(view, runtime: runtime)
+
+        manager.setSafeMode(false)
+        XCTAssertTrue(manager.reloadRequired)
+        let currentCount = try await view.evaluateJavaScript("document.querySelectorAll('[data-noko-scroll-tools]').length") as? Int
+        XCTAssertEqual(currentCount, 0)
+
+        try await loadFixture(view, runtime: runtime)
+        let restoredCount = try await waitForCount(view, "document.querySelectorAll('[data-noko-scroll-tools]').length", expected: 1)
+        XCTAssertEqual(restoredCount, 1)
+        XCTAssertFalse(manager.reloadRequired)
+    }
+
     func testPageTanRunsAtDocumentStartAndDisablingRequiresReload() async throws {
         _ = NSApplication.shared
         let root = try temporaryDirectory()

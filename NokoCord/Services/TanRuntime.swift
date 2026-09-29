@@ -130,6 +130,7 @@ final class TanRuntime {
     private var generation = UUID()
     private var transitionTask: Task<Void, Never>?
     private var livePackages: [String: TanPackage] = [:]
+    private var safeModeNeedsReload = false
     fileprivate private(set) var runtimeNonce = UUID().uuidString
     fileprivate let allowedOrigin: String
     private(set) var compatibility = DiscordCompatibilitySnapshot.initial()
@@ -162,14 +163,20 @@ final class TanRuntime {
         controller?.removeAllUserScripts()
         controller = nil; view = nil; configured = []; livePackages = [:]
         worlds.removeAll(); activeHashes.removeAll()
+        safeModeNeedsReload = false
         compatibility = .initial(generation: generation)
         onCompatibilityChange?(compatibility)
     }
     func configurationChanged() {
         let old = configured
         let needsReload = (old + manager.active).contains { $0.manifest.target == .page || $0.manifest.requiresReload }
+        let exitingSafeMode = safeModeNeedsReload && !manager.safeMode
         configureScripts()
         view?.isInspectable = manager.developerMode
+        if exitingSafeMode {
+            manager.reloadRequired = true
+            return
+        }
         if needsReload, view?.url != nil { manager.reloadRequired = true }
         if manager.safeMode, view?.url != nil {
             // Page-world code is trusted and may not be fully reversible. A new
@@ -182,6 +189,7 @@ final class TanRuntime {
     }
     func pageDidLoad() {
         manager.reloadRequired = false
+        if !manager.safeMode { safeModeNeedsReload = false }
         updateCompatibility()
         // DOM Tans also work when Discord moves from /app to /channels during
         // startup. Registration replaces its own prior instance, never a view.
@@ -190,6 +198,10 @@ final class TanRuntime {
     func locationChanged() {
         updateCompatibility()
         guard let url = view?.url else { return }
+        if safeModeNeedsReload, !manager.safeMode {
+            manager.reloadRequired = true
+            return
+        }
         if !Self.accepts(url, origin: allowedOrigin) {
             applyLive(stopping: configured + Array(livePackages.values), starting: [])
         } else {
@@ -205,7 +217,10 @@ final class TanRuntime {
         configured = []
         activeHashes = [:]
         runtimeNonce = UUID().uuidString
-        guard !manager.safeMode else { return }
+        guard !manager.safeMode else {
+            safeModeNeedsReload = true
+            return
+        }
         configured = manager.active
         activeHashes = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0.contentHash) })
         for package in configured {
@@ -1380,6 +1395,7 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
                let server = body["serverName"] as? String,
                let content = body["content"] as? String,
                let msgUrl = body["messageURL"] as? String {
+                guard let messageURL = URL(string: msgUrl), BrowserPolicy.isDiscordOrigin(messageURL) else { return }
                 let avatar = body["authorAvatarURL"] as? String
                 let media = body["mediaURL"] as? String
                 let bookmark = NokoBookmark(
@@ -1390,7 +1406,7 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
                     serverName: server,
                     content: content,
                     mediaURL: media,
-                    messageURL: msgUrl
+                    messageURL: messageURL.absoluteString
                 )
                 guard BookmarkStore.shared.add(
                     messageId: msgId,
@@ -1400,7 +1416,7 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
                     serverName: server,
                     content: content,
                     mediaURL: media,
-                    messageURL: msgUrl
+                    messageURL: messageURL.absoluteString
                 ) else { return }
                 runtime.onSaveBookmark?(bookmark)
             }

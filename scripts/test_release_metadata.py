@@ -42,9 +42,9 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(metadata.bundle_id, "com.shiikatan.nokocord.chiaki")
         self.assertEqual(metadata.edition, "chiaki")
         self.assertEqual(metadata.edition_name, "Chiaki")
-        self.assertEqual(metadata.apple_version, "1.2.0")
-        self.assertEqual(metadata.public_version, "C1.2.0")
-        self.assertEqual(metadata.build_number, "5")
+        self.assertEqual(metadata.apple_version, "1.3.0")
+        self.assertEqual(metadata.public_version, "C1.3.0")
+        self.assertEqual(metadata.build_number, "6")
         self.assertEqual(metadata.deployment_target, "26.0")
 
     def test_parser_supports_a_future_release_fixture_without_changing_current_config(self):
@@ -117,7 +117,7 @@ class PackageReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             app = self._make_bundle(root)
-            output = root / "NokoCord-Chiaki-C1.2.0.zip"
+            output = root / "NokoCord-Chiaki-C1.3.0.zip"
 
             command = [
                 "sh",
@@ -129,7 +129,7 @@ class PackageReleaseTests(unittest.TestCase):
             ]
             subprocess.run(command, check=True, cwd=ROOT)
             first_bytes = output.read_bytes()
-            checksum = output.with_name("NokoCord-Chiaki-C1.2.0-SHA256SUMS.txt")
+            checksum = output.with_name("NokoCord-Chiaki-C1.3.0-SHA256SUMS.txt")
             self.assertTrue(checksum.is_file())
 
             with zipfile.ZipFile(output) as archive:
@@ -174,8 +174,8 @@ class PackageReleaseTests(unittest.TestCase):
             capture_output=True,
         )
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["public_version"], "C1.2.0")
-        self.assertEqual(payload["build_number"], "5")
+        self.assertEqual(payload["public_version"], "C1.3.0")
+        self.assertEqual(payload["build_number"], "6")
 
 
 if __name__ == "__main__":

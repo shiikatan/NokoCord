@@ -1,11 +1,62 @@
-# NokoCord — Chiaki Edition C1.2.0
+# NokoCord — Chiaki Edition C1.3.0
 
 Chiaki is the experimental, rapid NokoCord edition maintained by Millx. It
 keeps its own app container and Discord session, separate from Maomao.
 Experiments and releases may happen about 1–2 days apart when active; behavior
 can change or be unstable, and there is no support or update promise.
 
-## What is new in C1.2.0
+## What is new in C1.3.0
+
+C1.3.0 is a reliability and trust release for the one-WebView Discord
+workspace:
+
+- Safe Mode is a real zero-Noko boundary: it removes Noko scripts and message
+  handlers while preserving the Discord session data store. Route changes now
+  expose an explicit compatibility state and pause Noko page work on login,
+  settings, OAuth and other unsupported Discord surfaces.
+- Tan approvals are bound to the exact package hash, target and capabilities.
+  Runtime messages carry a per-document nonce and package identity; isolated
+  `appearance.read` remains the only native Tan capability. Timer, listener,
+  mounted-element and bridge quotas are enforced, and repeated failures move a
+  Tan into quarantine with recovery controls.
+- Tan Hub, Inspector and details now show approval, health, failure,
+  quarantine and reload-required states, including redacted diagnostics and
+  recovery actions.
+- Call status is evidence-based: the app combines WebKit capture with the
+  verified Discord origin, media permissions, media-device availability,
+  encoded-transform support and semantic Discord call controls. Capture alone
+  never claims that a Discord call is connected, and the HUD exposes the
+  readiness evidence.
+- Apple Music playback now uses generation- and timestamp-aware state
+  reduction, helper health states and bounded reconnect backoff. Exact
+  position updates remain unavailable on this ad-hoc hardened build until macOS
+  grants Automation access; the UI and docs keep that limitation explicit.
+- New capability-free bundled Tans: Focus Shield for screen sharing and Code
+  Workbench with scoped code-block language labels, line numbers, collapse and
+  user-gesture copy controls.
+- Release metadata is canonicalized, the native build and helper plists share
+  it, and the shipped app can be packaged as a deterministic ZIP with a
+  matching SHA-256 checksum.
+
+The CLI native build and signed artifact verifier pass on the release host.
+The full `scripts/verify.sh` gate remains host-dependent: this host's Swift
+resource build cannot launch its missing/non-executable `xcstringstool`, so the
+XCTest/Xcode portions are recorded as unavailable rather than represented as
+passing.
+
+## Known validation boundaries for C1.3.0
+
+Voice calls, sleep/wake, long idle sessions and the two-user live-call gate
+still require manual validation on a host with Discord access. C1.3.0 does
+not claim a native Discord call transport, raw-token transport or exact Apple
+Music position support.
+
+## Previous release: C1.2.0
+
+C1.2.0 kept the persistent Discord workspace safer and more predictable during
+everyday use.
+
+### What was new in C1.2.0
 
 This release focuses on making the persistent Discord workspace safer and more
 predictable during everyday use:
@@ -29,7 +80,7 @@ predictable during everyday use:
 - Accessibility labels, reduced-motion handling, corrected shortcut guidance
   and clearer recovery messages round out the main workspace flows.
 
-## Included from C1.1.6
+### Included from C1.1.6
 
 - **Fixed: NokoCord refused to open on macOS 26.** The binaries were built
   without a deployment target, so macOS saw an app that required 27.0 even
@@ -44,7 +95,7 @@ the listening activity, the browser identifies itself so Discord offers voice
 instead of refusing it, the music helper's lifetime is handled on separate
 queues, and it reports why it cannot read the player instead of going quiet.
 
-## Known limitation: Apple Music access
+### Known limitation: Apple Music access
 
 The helper reads Apple Music over Apple Events, and macOS currently declines
 that request for this build **without showing a permission dialog**. macOS
@@ -59,7 +110,7 @@ listening looks right, but a repeated track does not update it, seeking does not
 re-sync it, and a song already playing when NokoCord starts appears only at the
 next track change.
 
-## Requirements, downloads and permissions
+### Requirements, downloads and permissions
 
 Use the Chiaki DMG or ZIP from the GitHub release with the matching SHA-256
 checksum file. The app is named `NokoCord.app` and identifies itself as

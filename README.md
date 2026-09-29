@@ -8,7 +8,7 @@ modifications. NokoCord is not affiliated with or endorsed by Discord.
 
 - **Maomao** (`maomao` branch): stable edition, public version **M1.0.0**,
   maintained by Shiikatan.
-- **Chiaki** (`chiaki` branch): experimental edition, public version **C1.2.0**,
+- **Chiaki** (`chiaki` branch): experimental edition, public version **C1.3.0**,
   maintained by Millx.
 
 This is the **Chiaki** source branch. It began from the same curated source
@@ -22,23 +22,27 @@ separate.
 
 ## Build and verify
 
-Requires Xcode with the macOS 26.6 deployment SDK or newer. From an edition
-branch, run `sh scripts/verify.sh`. It runs Swift and broker tests, Debug and
-locally signed Release builds, and an exact Release app check. The translator's
-JavaScript fixture suite can be run with a compatible Node runtime using
-`node --test Tools/TanTranslator/translator.test.mjs`; normal app use does not
-require Node or Terminal.
+Requires the macOS 26.0 SDK or newer. From an edition branch, run
+`sh scripts/verify.sh` on a host with full Xcode and the Swift resource tools.
+It runs Swift and broker tests, Debug and locally signed Release builds, and an
+exact Release app check. The translator's JavaScript fixture suite can be run
+with a compatible Node runtime using `node --test
+Tools/TanTranslator/translator.test.mjs`; normal app use does not require Node
+or Terminal.
 
-Local signing is not Developer ID signing or notarization. See the edition's
-release notes for remaining hardware, media and signing limits.
+The shipping CLI build is arm64-only and locally signed; local signing is not
+Developer ID signing or notarization. See the edition's release notes for
+remaining hardware, media and signing limits.
 
 ## Architecture and trust
 
 Discord owns authentication, messages and media. NokoCord does not extract
 credentials or run a second user-token transport. Local Tans can inject JS/CSS
-under a typed lifecycle and narrow native bridge. Page-world Tans are trusted
-code, not a sandbox for hostile plugins. See [the Tan contract](docs/TANS.md)
-and [the translator workflow](Tools/TanTranslator/README.md).
+under a typed lifecycle and narrow native bridge. C1.3.0 adds route-safe
+compatibility shielding, hash-bound Tan approval and visible health/recovery
+states. Page-world Tans are trusted code, not a sandbox for hostile plugins.
+See [the Tan contract](docs/TANS.md), [the compatibility contract](docs/DISCORD_COMPATIBILITY.md),
+[the Tan trust model](docs/TAN_TRUST_MODEL.md), and [the translator workflow](Tools/TanTranslator/README.md).
 
 ## Source and notices
 

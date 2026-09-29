@@ -23,8 +23,11 @@ tests; that exception is not a production origin allowlist.
 ## Compatibility snapshot
 
 The runtime keeps a bounded snapshot for one document generation. It records
-the route, probe version, and state for navigation, messages, composer, media,
-calls, notifications, and activity. States are:
+the route, probe version, and feature states for navigation, messages,
+composer, media, calls, notifications, and activity. Supported routes begin
+with an `unknown` feature state; feature-specific diagnostics, such as the
+call-readiness probe, must supply evidence before a feature claims readiness.
+States are:
 
 - unknown: the surface has not been probed yet;
 - healthy: the required semantic anchors and browser prerequisites are present;
@@ -36,7 +39,10 @@ Probes must inspect only presence, type, and capability facts. They must not
 collect message text, account identifiers, cookies, tokens, or media content.
 
 Probe failures fail open: the affected Noko feature stops or reports a recovery
-action while Discord navigation and messaging remain available.
+action while Discord navigation and messaging remain available. C1.3.0's
+compatibility service provides the route boundary and snapshot contract; it does
+not claim that every Discord feature anchor has been proven on every future
+Discord build.
 
 ## Safe Mode
 
@@ -72,4 +78,3 @@ feature is degraded. Recovery actions are limited to returning to an eligible
 Discord route, reloading the current document, disabling the affected Tan, or
 starting Safe Mode. NokoCord must not silently reload an authenticated page to
 make an optional feature work.
-

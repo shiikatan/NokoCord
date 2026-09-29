@@ -78,6 +78,9 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         captureState: .none
     )
     var isInCall: Bool { callReadiness.isCallConfirmed }
+    private var hasActiveMediaCapture: Bool {
+        microphoneCaptureState != .none || cameraCaptureState != .none
+    }
     var isMicrophoneMuted: Bool { microphoneCaptureState == .muted }
     private(set) var notice: String?
     let engineDescription = String(localized: "System WebKit")
@@ -234,7 +237,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// A call keeps its media elements untouched: they carry the live voice stream.
     func hibernate() {
         purgeMemoryCache()
-        guard !isInCall else { return }
+        guard !hasActiveMediaCapture else { return }
         browserView?.evaluateJavaScript("try { window.__nokoHibernate?.(); } catch (_) {}", completionHandler: nil)
     }
 
@@ -246,6 +249,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// Loads a validated Discord URL directly into the active browser workspace.
     func openURL(_ url: URL) {
         guard BrowserPolicy.isDiscordOrigin(url), lifecycle.phase != .clearing else { return }
+        guard !hasActiveMediaCapture else {
+            notice = String(localized: "Disconnect the active Discord call before navigating.")
+            return
+        }
         beginPageGeneration()
         lifecycle.show()
         let view = prepareBrowser()
@@ -362,7 +369,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         }
     }
     func showHome() {
-        guard !isInCall else {
+        guard !hasActiveMediaCapture else {
             notice = String(localized: "Disconnect the active Discord call before returning home.")
             return
         }
@@ -371,6 +378,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func openGuild(_ id: String) {
         guard !id.isEmpty, id.utf8.count <= 20,
               id.utf8.allSatisfy({ (48...57).contains($0) }), lifecycle.phase != .clearing else { return }
+        guard !hasActiveMediaCapture else {
+            notice = String(localized: "Disconnect the active Discord call before navigating.")
+            return
+        }
         beginPageGeneration()
         lifecycle.show()
         let view = prepareBrowser()
@@ -379,6 +390,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     func reload() {
         guard lifecycle.phase != .clearing else { return }
+        guard !hasActiveMediaCapture else {
+            notice = String(localized: "Disconnect the active Discord call before reloading Discord.")
+            return
+        }
         beginPageGeneration()
         notice = nil
         lifecycle.loading()
@@ -485,7 +500,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
           .filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim().toLowerCase();
         const callSurface = controls.some((element) => {
           const label = text(element);
-          return /\\b(join voice|join video|start video|leave voice|leave call|disconnect from voice|hang up|end call|mute|unmute|deafen)\\b/.test(label);
+          return /\\b(join voice|join video|start video|leave voice|leave call|disconnect from voice|hang up|end call)\\b/.test(label);
         });
         const sender = typeof RTCRtpSender !== 'undefined' && RTCRtpSender.prototype;
         const encodedTransform = typeof RTCRtpScriptTransform === 'function' ||
