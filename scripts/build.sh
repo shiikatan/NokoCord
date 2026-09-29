@@ -2,6 +2,22 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+METADATA_CONFIG="Config/Edition.xcconfig"
+metadata() {
+    python3 scripts/release_metadata.py --config "$METADATA_CONFIG" --field "$1"
+}
+
+BUNDLE_ID=$(metadata bundle_id)
+APPLE_VERSION=$(metadata apple_version)
+BUILD_NUMBER=$(metadata build_number)
+DEPLOYMENT_TARGET=$(metadata deployment_target)
+EDITION_ID=$(metadata edition)
+EDITION_NAME=$(metadata edition_name)
+PUBLIC_VERSION=$(metadata public_version)
+MAINTAINER=$(metadata maintainer)
+WATCHER_BUNDLE_ID="${BUNDLE_ID%.*}.musicwatch"
+SWIFT_TARGET="arm64-apple-macos${DEPLOYMENT_TARGET}"
+
 # Detect Command Line Tools macOS SDK
 # On macOS 27 beta Command Line Tools, libSwiftUIMacros is not bundled;
 # using MacOSX26.sdk uses native SwiftUI property wrappers seamlessly.
@@ -25,12 +41,12 @@ rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${HELPERS_DIR}" "${RESOURCES_DIR}"
 
 echo "==> [1/6] Compiling TanTranslator helper..."
-swiftc -target arm64-apple-macos26.0 Tools/TanTranslator/Helper/main.swift -O -o "${HELPERS_DIR}/TanTranslator"
+swiftc -target "${SWIFT_TARGET}" Tools/TanTranslator/Helper/main.swift -O -o "${HELPERS_DIR}/TanTranslator"
 
 echo "==> [2/6] Compiling NokoCord native binary with swiftc..."
 CPU_CORES=$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 SWIFT_FILES=$(find NokoCord -name "*.swift")
-swiftc -target arm64-apple-macos26.0 -parse-as-library -j"${CPU_CORES}" ${SWIFT_FILES} -O -o "${MACOS_DIR}/NokoCord"
+swiftc -target "${SWIFT_TARGET}" -parse-as-library -j"${CPU_CORES}" ${SWIFT_FILES} -O -o "${MACOS_DIR}/NokoCord"
 
 echo "==> [3/6] Packaging resources and app icon..."
 cp NokoCord/Resources/TanTranslatorRuntime.js "${RESOURCES_DIR}/"
@@ -61,7 +77,7 @@ echo "==> [1b/6] Building NokoMusicWatch helper..."
 WATCH_DIR="${HELPERS_DIR}/NokoMusicWatch.app"
 WATCH_MACOS="${WATCH_DIR}/Contents/MacOS"
 mkdir -p "${WATCH_MACOS}" "${WATCH_DIR}/Contents/Resources"
-swiftc -target arm64-apple-macos26.0 Tools/NokoMusicWatch/main.swift -O -o "${WATCH_MACOS}/NokoMusicWatch"
+swiftc -target "${SWIFT_TARGET}" Tools/NokoMusicWatch/main.swift -O -o "${WATCH_MACOS}/NokoMusicWatch"
 cp "${RESOURCES_DIR}/AppIcon.icns" "${WATCH_DIR}/Contents/Resources/AppIcon.icns"
 cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -75,15 +91,15 @@ cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.shiikatan.nokocord.musicwatch</string>
+	<string>${WATCHER_BUNDLE_ID}</string>
 	<key>CFBundleName</key>
 	<string>NokoMusicWatch</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.0</string>
+	<string>${APPLE_VERSION}</string>
 	<key>CFBundleVersion</key>
-	<string>5</string>
+	<string>${BUILD_NUMBER}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>26.0</string>
+	<string>${DEPLOYMENT_TARGET}</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
@@ -105,25 +121,25 @@ cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
 	<key>CFBundleExecutable</key>
 	<string>NokoCord</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.shiikatan.nokocord.chiaki</string>
+	<string>${BUNDLE_ID}</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.0</string>
+	<string>${APPLE_VERSION}</string>
 	<key>CFBundleVersion</key>
-	<string>5</string>
+	<string>${BUILD_NUMBER}</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>NokoCord's Apple Music helper reads the player's current track and position so your Discord listening activity stays in sync. NokoCord itself never controls Music.</string>
 	<key>NokoEditionID</key>
-	<string>chiaki</string>
+	<string>${EDITION_ID}</string>
 	<key>NokoEditionName</key>
-	<string>Chiaki</string>
+	<string>${EDITION_NAME}</string>
 	<key>NokoPublicVersion</key>
-	<string>C1.2.0</string>
+	<string>${PUBLIC_VERSION}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>26.0</string>
+	<string>${DEPLOYMENT_TARGET}</string>
 	<key>NokoMaintainer</key>
-	<string>Millx</string>
+	<string>${MAINTAINER}</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -161,7 +177,7 @@ echo "==> [5/6] Code signing with hardened runtime and sandboxing..."
     "${APP_DIR}"
 
 echo "==> [6/6] Verifying release integrity..."
-python3 scripts/verify-release.py "${APP_DIR}" --edition chiaki
+python3 scripts/verify-release.py "${APP_DIR}" --edition "${EDITION_ID}" --metadata "${METADATA_CONFIG}"
 
 echo ""
 echo "🎉 Build succeeded! App bundle created at: ${APP_DIR}"

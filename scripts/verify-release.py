@@ -7,6 +7,8 @@ import re
 import subprocess
 import sys
 
+from release_metadata import load_metadata
+
 
 def run(*arguments, include_stderr=False):
     result = subprocess.run(arguments, capture_output=True, check=False)
@@ -25,19 +27,10 @@ EDITIONS = {
         "NokoPublicVersion": "M1.0.0",
         "NokoMaintainer": "Shiikatan",
     },
-    "chiaki": {
-        "CFBundleIdentifier": "com.shiikatan.nokocord.chiaki",
-        "CFBundleShortVersionString": "1.2.0",
-        "CFBundleVersion": "5",
-        "NokoEditionID": "chiaki",
-        "NokoEditionName": "Chiaki",
-        "NokoPublicVersion": "C1.2.0",
-        "NokoMaintainer": "Millx",
-    },
 }
 
 
-def verify(app, edition=None):
+def verify(app, edition=None, metadata_path=None):
     with (app / "Contents/Info.plist").open("rb") as source:
         info = plistlib.load(source)
     expected = {
@@ -46,7 +39,19 @@ def verify(app, edition=None):
         "CFBundleExecutable": "NokoCord",
         "CFBundlePackageType": "APPL",
     }
-    if edition:
+    metadata = None
+    if edition == "chiaki":
+        metadata = load_metadata(metadata_path) if metadata_path else load_metadata()
+        expected.update({
+            "CFBundleIdentifier": metadata.bundle_id,
+            "CFBundleShortVersionString": metadata.apple_version,
+            "CFBundleVersion": metadata.build_number,
+            "NokoEditionID": metadata.edition,
+            "NokoEditionName": metadata.edition_name,
+            "NokoPublicVersion": metadata.public_version,
+            "NokoMaintainer": metadata.maintainer,
+        })
+    elif edition:
         expected.update(EDITIONS[edition])
     else:
         for key in ("NokoEditionID", "NokoEditionName", "NokoPublicVersion", "NokoMaintainer"):
@@ -104,8 +109,19 @@ def verify(app, edition=None):
         if watcher_entitlements:
             raise ValueError("Unexpected watcher entitlements")
     watcher_plist = plistlib.loads((watcher / "Contents/Info.plist").read_bytes())
-    if watcher_plist.get("CFBundleIdentifier") != "com.shiikatan.nokocord.musicwatch":
+    expected_watcher_id = "com.shiikatan.nokocord.musicwatch"
+    if metadata:
+        expected_watcher_id = f"{metadata.bundle_id.rsplit('.', 1)[0]}.musicwatch"
+    if watcher_plist.get("CFBundleIdentifier") != expected_watcher_id:
         raise ValueError("Unexpected watcher identity")
+    if metadata:
+        for key, value in {
+            "CFBundleShortVersionString": metadata.apple_version,
+            "CFBundleVersion": metadata.build_number,
+            "LSMinimumSystemVersion": metadata.deployment_target,
+        }.items():
+            if watcher_plist.get(key) != value:
+                raise ValueError(f"Unexpected watcher {key}")
     if not isinstance(watcher_plist.get("NSAppleEventsUsageDescription"), str):
         raise ValueError("Missing watcher usage description")
     if watcher_plist.get("LSUIElement") is not True:
@@ -163,10 +179,11 @@ def verify(app, edition=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", type=pathlib.Path, help="Path to the signed Release NokoCord.app")
-    parser.add_argument("--edition", choices=sorted(EDITIONS), help="Require exact public edition identity")
+    parser.add_argument("--edition", choices=("chiaki", "maomao"), help="Require exact public edition identity")
+    parser.add_argument("--metadata", type=pathlib.Path, help="Canonical edition xcconfig (Chiaki only)")
     args = parser.parse_args()
     try:
-        verify(args.app.resolve(strict=True), args.edition)
+        verify(args.app.resolve(strict=True), args.edition, args.metadata)
     except (OSError, ValueError, plistlib.InvalidFileException) as error:
         print(f"Release artifact check failed: {error}", file=sys.stderr)
         return 1
