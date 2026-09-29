@@ -19,10 +19,26 @@ requires a named, reviewed capability. Tans must bind consent to their content
 hash and capability set, support atomic replacement and retain a recoverable
 previous version.
 
+C1.3.5 is the confidence-and-recovery follow-up. Compatibility probes must be
+feature-scoped, bounded, content-free and visible through a recovery-oriented
+Compatibility Center. Tan trust-changing actions must show identity changes,
+failure category/time and reversible recovery controls. Call and Apple Music
+state must be evidence-based, and Xcode/CLI builds must be checked for helper
+and resource parity. Do not remove hardened runtime or change sandbox posture
+as part of ordinary C1.3.5 work; that is a separate security decision with its
+own entitlement and manual gate.
+
 Every C1.3.0 workstream must update its tests and relevant documentation, and
 must check off `docs/C1.3.0_CHECKLIST.md`. Keep implementation commits
 disjoint and buildable where possible. The release design and acceptance gates
 live in `docs/superpowers/specs/2026-09-28-c1.3.0-design.md`.
+
+Every C1.3.5 workstream must update its tests and relevant documentation, and
+must check off `docs/C1.3.5_CHECKLIST.md`. Use the sub-project plans under
+`docs/superpowers/plans/2026-09-29-c1.3.5-*.md`. Shared files such as
+`TanRuntime.swift`, `BrowserEngine.swift`, release metadata and the final
+checklist are integration-owner files; do not edit them from parallel slices
+without an explicit handoff.
 
 Build the current branch with `sh scripts/verify.sh`. Preserve user sessions
 and private recovery material. Stage only reviewed build, test, license and
