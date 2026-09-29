@@ -26,6 +26,7 @@ struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .help("Home / Tan Hub (⌘⇧H)")
+            .accessibilityLabel("Home and Tan Hub")
 
             Divider()
                 .frame(height: 14)
@@ -44,6 +45,7 @@ struct WorkspaceToolbar: View {
                     }
                     .disabled(!browser.canGoBack)
                     .help("Back (⌘[)")
+                    .accessibilityLabel("Back")
                     .buttonStyle(.plain)
 
                     Button {
@@ -56,6 +58,7 @@ struct WorkspaceToolbar: View {
                     }
                     .disabled(!browser.canGoForward)
                     .help("Forward (⌘])")
+                    .accessibilityLabel("Forward")
                     .buttonStyle(.plain)
                 }
 
@@ -86,6 +89,7 @@ struct WorkspaceToolbar: View {
                 }
                 .buttonStyle(.plain)
                 .help(browser.isMicrophoneMuted ? "Unmute Microphone (⌘⇧M)" : "Mute Microphone (⌘⇧M)")
+                .accessibilityLabel(browser.isMicrophoneMuted ? "Unmute microphone" : "Mute microphone")
 
                 Divider()
                     .frame(height: 14)
@@ -199,6 +203,7 @@ struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .help("Quick Switcher (⌘K)")
+            .accessibilityLabel("Quick switcher")
 
             // MARK: - Saved Messages / Bookmarks (⌘⇧B)
             Button {
@@ -214,6 +219,7 @@ struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .help("Saved Messages (⌘⇧B)")
+            .accessibilityLabel("Saved messages")
 
             // MARK: - Downloads Popover Button
             Button {
@@ -236,6 +242,7 @@ struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .help("Downloads")
+            .accessibilityLabel("Downloads")
             .popover(isPresented: $showDownloadsPopover, arrowEdge: .bottom) {
                 DownloadsPopoverView()
                     .environment(browser)
@@ -287,6 +294,7 @@ struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .help("Tans Inspector (⌘T)")
+            .accessibilityLabel("Tans Inspector")
 
             // MARK: - Settings (⌘,)
             SettingsLink {
@@ -312,6 +320,7 @@ struct WorkspaceToolbar: View {
             .disabled(!browser.lifecycle.isVisible || browser.lifecycle.phase == .clearing)
             .buttonStyle(.plain)
             .help("Reload Discord (⌘R)")
+            .accessibilityLabel("Reload Discord")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -327,4 +336,3 @@ struct WorkspaceToolbar: View {
         browser.downloads.records.contains { $0.status == .downloading || $0.status == .choosing }
     }
 }
-

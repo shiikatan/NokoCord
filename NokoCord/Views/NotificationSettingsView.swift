@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UserNotifications
 
 struct NotificationSettingsView: View {
@@ -6,16 +7,28 @@ struct NotificationSettingsView: View {
     var body: some View {
         Form {
             Section("Notifications") {
-                Text("Notification delivery is unavailable with the current Discord connection. Preferences are saved for supported events when an authorized connection becomes available.")
+                Text("NokoCord can show Discord notifications on this Mac. Choose Allow below before Discord can deliver them.")
                     .foregroundStyle(.secondary)
                 LabeledContent("System permission", value: permissionTitle)
                 Button("Allow notifications…") { Task { await settings.requestAuthorization() } }
                     .disabled(settings.checkingPermission || settings.authorization != .notDetermined)
                 if settings.authorization == .denied {
-                    Text("You can change notification permission in macOS System Settings → Notifications → NokoCord.")
+                    Button("Open Notification Settings") {
+                        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+                        NSWorkspace.shared.open(url)
+                    }
+                    Text("NokoCord cannot re-open a denied prompt. Turn notifications on in macOS System Settings, then return here.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if let error = settings.errorMessage { Text(error).foregroundStyle(.red) }
+            }
+            Section("Discord web notifications") {
+                Toggle("Deliver notifications from Discord", isOn: Binding(
+                    get: { settings.preferences.webNotificationsEnabled },
+                    set: { settings.setWebNotifications($0) }
+                ))
+                Text("NokoCord never asks for notification permission automatically while you browse.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Event preferences") {
                 ForEach(NotificationEventType.allCases, id: \.self) { type in

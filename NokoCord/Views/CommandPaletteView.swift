@@ -26,7 +26,7 @@ struct CommandPaletteView: View {
     @State private var query = ""
     @State private var selectedIndex = 0
     @FocusState private var isFieldFocused: Bool
-    @AppStorage("showFloatingToolbar") private var showFloatingToolbar = false
+    @AppStorage(NokoAppDefaults.showFloatingToolbar) private var showFloatingToolbar = false
 
     var onOpenDownloads: (() -> Void)?
     var onOpenTutorial: (() -> Void)?
@@ -68,7 +68,7 @@ struct CommandPaletteView: View {
             subtitle: "Jump to Discord main channels",
             category: "Navigation",
             icon: "bubble.left.and.bubble.right.fill",
-            shortcut: "⌘1",
+            shortcut: "⌘⇧O",
             tint: .accentColor
         ) {
             browser.openDiscord()
@@ -137,7 +137,7 @@ struct CommandPaletteView: View {
         items.append(PaletteAction(
             id: "nav.zen_mode",
             title: browser.isZenMode ? "Exit Zen Mode (Show Sidebars)" : "Enter Zen Mode (Focus Chat)",
-            subtitle: browser.isZenMode ? "Restore Discord server and channel sidebars" : "Hide sidebars to cut layout & memory overhead by a meaningful slice of",
+            subtitle: browser.isZenMode ? "Restore Discord server and channel sidebars" : "Hide sidebars to keep the chat focused",
             category: "Navigation",
             icon: "sidebar.left",
             shortcut: "⌘\\",
@@ -370,6 +370,7 @@ struct CommandPaletteView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear command search")
                 }
 
                 Text("ESC")

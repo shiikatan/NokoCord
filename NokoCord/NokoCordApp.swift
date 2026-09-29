@@ -12,28 +12,33 @@ struct NokoCordApp: App {
     @NSApplicationDelegateAdaptor(NokoApplicationDelegate.self) private var applicationDelegate
     @State private var browser: ActiveBrowserEngine
     @State private var tans: TanManager
+    @State private var notificationSettings: NotificationSettings
     @State private var handledStartup = false
 
     init() {
+        NokoAppDefaults.register()
         NativeTextCheckingSuppressor.suppressAll()
 
         let manager = TanManager()
+        let notificationSettings = NotificationSettings()
         _tans = State(initialValue: manager)
         _browser = State(initialValue: ActiveBrowserEngine(tans: manager))
+        _notificationSettings = State(initialValue: notificationSettings)
     }
 
-    @AppStorage("showMenuBar") private var showMenuBar = true
+    @AppStorage(NokoAppDefaults.showMenuBar) private var showMenuBar = true
 
     var body: some Scene {
         Window("NokoCord", id: "main") {
             NokoRootView()
                 .environment(browser)
                 .environment(tans)
+                .environment(notificationSettings)
                 .frame(minWidth: 960, minHeight: 600)
                 .task {
                     guard !handledStartup else { return }
                     handledStartup = true
-                    if UserDefaults.standard.bool(forKey: "openDiscordOnLaunch"), !tans.safeMode {
+                    if UserDefaults.standard.bool(forKey: NokoAppDefaults.openDiscordOnLaunch), !tans.safeMode {
                         browser.openDiscord()
                     } else {
                         browser.showHome()
@@ -52,6 +57,7 @@ struct NokoCordApp: App {
             SettingsView()
                 .environment(browser)
                 .environment(tans)
+                .environment(notificationSettings)
         }
     }
 }
@@ -170,7 +176,7 @@ private struct NokoCordCommands: Commands {
         }
         CommandGroup(after: .toolbar) {
             Button("Open Discord") { openWindow(id: "main"); browser.openDiscord() }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             Button("Home") {
                 if let goHome { goHome() }
                 else { browser.showHome(); openWindow(id: "main") }
@@ -196,6 +202,7 @@ private struct NokoCordCommands: Commands {
             Button("Disconnect Voice Call") {
                 browser.disconnectCall()
             }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
             .disabled(!browser.isInCall)
             Divider()
             Button("Back") { browser.goBack() }

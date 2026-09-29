@@ -43,7 +43,7 @@ sh scripts/build.sh
    and `Localizable.xcstrings`.
 6. **[4/6] Info.plist**: generates both plists — the app's (edition identity
    `NokoCord Chiaki`, bundle id `com.shiikatan.nokocord.chiaki`, public version
-   `C1.1.5`, the `nokocord` URL scheme, camera/microphone/Apple Events usage
+   `C1.2.0`, the `nokocord` URL scheme, camera/microphone/Apple Events usage
    strings) and the helper's.
 7. **[5/6] Signing**: signs inside-out — the helper ad-hoc without the runtime,
    then the app ad-hoc with the hardened runtime and the sandbox entitlements

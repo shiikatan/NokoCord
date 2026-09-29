@@ -47,6 +47,7 @@ public final class BookmarkStore {
     public static let shared = BookmarkStore()
 
     public private(set) var bookmarks: [NokoBookmark] = []
+    public private(set) var error: String?
     private let fileURL: URL
 
     public init(fileURL: URL? = nil) {
@@ -61,6 +62,7 @@ public final class BookmarkStore {
         load()
     }
 
+    @discardableResult
     public func add(
         messageId: String,
         authorName: String,
@@ -70,11 +72,12 @@ public final class BookmarkStore {
         content: String,
         mediaURL: String? = nil,
         messageURL: String
-    ) {
+    ) -> Bool {
+        var updated = bookmarks
         // Prevent duplicate bookmarks for the exact same message
-        if let index = bookmarks.firstIndex(where: { $0.messageId == messageId }) {
-            bookmarks[index] = NokoBookmark(
-                id: bookmarks[index].id,
+        if let index = updated.firstIndex(where: { $0.messageId == messageId }) {
+            updated[index] = NokoBookmark(
+                id: updated[index].id,
                 messageId: messageId,
                 authorName: authorName,
                 authorAvatarURL: authorAvatarURL,
@@ -96,19 +99,46 @@ public final class BookmarkStore {
                 mediaURL: mediaURL,
                 messageURL: messageURL
             )
-            bookmarks.insert(newBookmark, at: 0)
+            updated.insert(newBookmark, at: 0)
         }
-        save()
+        guard persist(updated) else { return false }
+        bookmarks = updated
+        return true
     }
 
-    public func remove(id: String) {
-        bookmarks.removeAll(where: { $0.id == id })
-        save()
+    @discardableResult
+    public func remove(id: String) -> Bool {
+        guard bookmarks.contains(where: { $0.id == id }) else { return false }
+        var updated = bookmarks
+        updated.removeAll(where: { $0.id == id })
+        guard persist(updated) else { return false }
+        bookmarks = updated
+        return true
     }
 
-    public func remove(messageId: String) {
-        bookmarks.removeAll(where: { $0.messageId == messageId })
-        save()
+    @discardableResult
+    public func remove(messageId: String) -> Bool {
+        guard bookmarks.contains(where: { $0.messageId == messageId }) else { return false }
+        var updated = bookmarks
+        updated.removeAll(where: { $0.messageId == messageId })
+        guard persist(updated) else { return false }
+        bookmarks = updated
+        return true
+    }
+
+    @discardableResult
+    public func restore(_ bookmark: NokoBookmark) -> Bool {
+        var updated = bookmarks
+        if let index = updated.firstIndex(where: { $0.id == bookmark.id }) {
+            updated[index] = bookmark
+        } else if let index = updated.firstIndex(where: { $0.messageId == bookmark.messageId }) {
+            updated[index] = bookmark
+        } else {
+            updated.insert(bookmark, at: 0)
+        }
+        guard persist(updated) else { return false }
+        bookmarks = updated
+        return true
     }
 
     public func isBookmarked(messageId: String) -> Bool {
@@ -134,17 +164,21 @@ public final class BookmarkStore {
             bookmarks = try decoder.decode([NokoBookmark].self, from: data)
         } catch {
             bookmarks = []
+            self.error = String(localized: "Saved messages could not be loaded. New bookmarks will replace the damaged file.")
         }
     }
 
-    private func save() {
+    private func persist(_ updated: [NokoBookmark]) -> Bool {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(bookmarks)
+            let data = try encoder.encode(updated)
             try data.write(to: fileURL, options: .atomic)
+            error = nil
+            return true
         } catch {
-            // Non-critical persistence failure handled silently
+            self.error = String(localized: "Saved messages could not be saved. Check available storage and try again.")
+            return false
         }
     }
 }

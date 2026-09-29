@@ -31,6 +31,12 @@ final class NotificationSettings {
         save(updated)
     }
 
+    func setWebNotifications(_ enabled: Bool) {
+        var updated = preferences
+        updated.webNotificationsEnabled = enabled
+        save(updated)
+    }
+
     private func save(_ updated: NotificationPreferences) {
         do {
             try persistence.save(updated)

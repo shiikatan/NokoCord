@@ -11,7 +11,7 @@ struct TanHubView: View {
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    @AppStorage("hideNokoTans") private var hideNokoTans = false
+    @AppStorage(NokoAppDefaults.hideNokoTans) private var hideNokoTans = false
     @State private var enabledFilter = "All"
     @State private var pendingEnable: TanPackage?
     @State private var presentation: TanPresentation?
@@ -123,8 +123,8 @@ struct TanHubView: View {
                                     tanIcon(package)
                                     Text(package.manifest.name).font(.headline)
                                     Text(package.manifest.description).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                                    Button("Install", systemImage: "plus") {
-                                        do { try tans.install(package) } catch { importError = "This Tan could not be installed." }
+                                    Button("Install & Enable…", systemImage: "plus") {
+                                        pendingEnable = package
                                     }.buttonStyle(.bordered)
                                 }.padding(22).frame(maxWidth: .infinity, minHeight: 195, alignment: .topLeading)
                                     .background(.tint.opacity(0.06), in: .rect(cornerRadius: 18))
@@ -138,6 +138,9 @@ struct TanHubView: View {
                     Spacer()
                     Toggle("Developer Mode", isOn: Binding(get: { tans.developerMode }, set: { tans.setDeveloperMode($0) })).toggleStyle(.switch)
                 }
+                Text("Safe Mode pauses all Tans. Developer Mode permits local Tan replacement and exposes diagnostics.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if tans.developerMode {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -161,12 +164,21 @@ struct TanHubView: View {
             }.frame(maxWidth: 900, alignment: .leading).padding(36).frame(maxWidth: .infinity)
         }
         .confirmationDialog("Enable \(pendingEnable?.manifest.name ?? "Tan")?", isPresented: Binding(get: { pendingEnable != nil }, set: { if !$0 { pendingEnable = nil } }), titleVisibility: .visible) {
-            if let package = pendingEnable { Button("Enable Tan") { tans.setEnabled(package.id, true); pendingEnable = nil } }
+            if let package = pendingEnable {
+                Button("Install & Enable Tan") {
+                    if TanPackage.originals.contains(package) {
+                        tans.enableOriginal(package)
+                    } else {
+                        tans.setEnabled(package.id, true)
+                    }
+                    pendingEnable = nil
+                }
+            }
             Button("Cancel", role: .cancel) { pendingEnable = nil }
         } message: {
             Text((pendingEnable?.manifest.target == .css ? "This Tan changes the appearance of Discord. Enable only Tans you trust." : "This Tan runs code inside Discord and can interact with content in your session. Enable only code you trust.") + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : ""))
         }
-        .alert("Tan could not be updated", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
+        .alert("Tan action could not be completed", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
             Button("OK") { importError = nil; tans.dismissError() }
         } message: { Text(importError ?? tans.error ?? "Please try again.") }
         .sheet(item: $presentation, onDismiss: {

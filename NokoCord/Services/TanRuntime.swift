@@ -1117,7 +1117,7 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
                     mediaURL: media,
                     messageURL: msgUrl
                 )
-                BookmarkStore.shared.add(
+                guard BookmarkStore.shared.add(
                     messageId: msgId,
                     authorName: author,
                     authorAvatarURL: avatar,
@@ -1126,7 +1126,7 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
                     content: content,
                     mediaURL: media,
                     messageURL: msgUrl
-                )
+                ) else { return }
                 runtime.onSaveBookmark?(bookmark)
             }
         } else if action == "openMedia" {

@@ -325,7 +325,13 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             navigation = browserView?.load(URLRequest(url: BrowserPolicy.home))
         }
     }
-    func showHome() { lifecycle.hide() }
+    func showHome() {
+        guard !isInCall else {
+            notice = String(localized: "Disconnect the active Discord call before returning home.")
+            return
+        }
+        lifecycle.hide()
+    }
     func openGuild(_ id: String) {
         guard !id.isEmpty, id.utf8.count <= 20,
               id.utf8.allSatisfy({ (48...57).contains($0) }), lifecycle.phase != .clearing else { return }
@@ -371,13 +377,35 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             self.microphoneCaptureState = next
         }
     }
+
+    private static let disconnectCallScript = """
+    (() => {
+      const labels = /disconnect|leave call|hang up|disconnect from voice/i;
+      const candidates = Array.from(document.querySelectorAll('button,[role="button"]'));
+      const target = candidates.find((element) => {
+        const label = element.getAttribute('aria-label') || '';
+        const text = element.textContent || '';
+        return labels.test(label) || labels.test(text);
+      });
+      if (!target) return false;
+      target.click();
+      return true;
+    })();
+    """
+
     func disconnectCall() {
         guard let view = browserView else { return }
-        Task { @MainActor in
-            await view.setMicrophoneCaptureState(.none)
-            await view.setCameraCaptureState(.none)
-            self.microphoneCaptureState = .none
-            self.cameraCaptureState = .none
+        view.evaluateJavaScript(Self.disconnectCallScript) { [weak self] result, error in
+            Task { @MainActor [weak self] in
+                guard let self, error == nil, (result as? Bool) == true else {
+                    self?.notice = String(localized: "Discord did not expose a leave-call control. Open Discord's call controls to leave.")
+                    return
+                }
+                await view.setMicrophoneCaptureState(.none)
+                await view.setCameraCaptureState(.none)
+                self.microphoneCaptureState = .none
+                self.cameraCaptureState = .none
+            }
         }
     }
     private func updateUnreadCount(from title: String?) {

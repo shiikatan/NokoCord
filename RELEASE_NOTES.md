@@ -1,11 +1,35 @@
-# NokoCord — Chiaki Edition C1.1.6
+# NokoCord — Chiaki Edition C1.2.0
 
 Chiaki is the experimental, rapid NokoCord edition maintained by Millx. It
 keeps its own app container and Discord session, separate from Maomao.
 Experiments and releases may happen about 1–2 days apart when active; behavior
 can change or be unstable, and there is no support or update promise.
 
-## What is new in C1.1.6
+## What is new in C1.2.0
+
+This release focuses on making the persistent Discord workspace safer and more
+predictable during everyday use:
+
+- The command palette, Tans, bookmarks, tutorial, notices and download
+  controls now share one overlay host across Home and Discord, so keyboard
+  actions remain available when switching surfaces.
+- Active-call navigation is guarded: Home cannot hide a live call, and
+  disconnect uses Discord's own page control before local capture is stopped.
+- Settings now exposes notification preferences and local media diagnostics.
+  Notification authorization is explicit, and denied access links back to
+  macOS Settings for recovery.
+- Tans now confirm original-code installation and explain the trust boundary;
+  install failures, reload-needed states and successful enables are reported
+  distinctly.
+- Downloads and media lightbox actions now show progress and failures, avoid
+  overwriting same-named files, support keyboard access, and expose Finder and
+  completed-download controls.
+- Bookmarks now surface persistence failures, support undo/restore, confirm
+  destructive actions and avoid reporting success when a save did not finish.
+- Accessibility labels, reduced-motion handling, corrected shortcut guidance
+  and clearer recovery messages round out the main workspace flows.
+
+## Included from C1.1.6
 
 - **Fixed: NokoCord refused to open on macOS 26.** The binaries were built
   without a deployment target, so macOS saw an app that required 27.0 even
@@ -39,7 +63,7 @@ next track change.
 
 Use the Chiaki DMG or ZIP from the GitHub release with the matching SHA-256
 checksum file. The app is named `NokoCord.app` and identifies itself as
-Chiaki C1.1.6 in About. The bundle identifier is
+Chiaki C1.2.0 in About. The bundle identifier is
 `com.shiikatan.nokocord.chiaki`.
 
 **Requirements: macOS 26.0 or newer, on Apple Silicon.** This build contains an

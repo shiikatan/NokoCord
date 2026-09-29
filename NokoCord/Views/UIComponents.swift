@@ -24,7 +24,7 @@ struct NokoGlassCard: ViewModifier {
     var cornerRadius: CGFloat = 16
     var isHovered: Bool = false
     var isSelected: Bool = false
-    @AppStorage("useLiquidGlass") private var useLiquidGlass = true
+    @AppStorage(NokoAppDefaults.useLiquidGlass) private var useLiquidGlass = true
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var colorScheme

@@ -232,6 +232,19 @@ final class TanTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(package.id).tan.json").path))
     }
 
+    func testBundledOriginalInstallAndEnableIsOneExplicitAction() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+        let original = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.clear-focus" }))
+
+        manager.enableOriginal(original)
+
+        XCTAssertEqual(manager.installed.map(\.id), [original.id])
+        XCTAssertTrue(manager.enabledIDs.contains(original.id))
+        XCTAssertEqual(manager.active.map(\.id), [original.id])
+    }
+
     func testLaunchSafeModeDoesNotErasePersistedEnabledSet() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -13,7 +13,7 @@ struct TansInspectorView: View {
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    @AppStorage("hideNokoTans") private var hideNokoTans = false
+    @AppStorage(NokoAppDefaults.hideNokoTans) private var hideNokoTans = false
     @State private var filterSelection = "All"
     @State private var pendingEnable: TanPackage?
     @State private var presentation: TanPresentation?
@@ -64,9 +64,13 @@ struct TansInspectorView: View {
             titleVisibility: .visible
         ) {
             if let package = pendingEnable {
-                Button("Enable Tan") {
+                Button("Install & Enable Tan") {
                     withAnimation(.nokoFluidSpring) {
-                        tans.setEnabled(package.id, true)
+                        if TanPackage.originals.contains(package) {
+                            tans.enableOriginal(package)
+                        } else {
+                            tans.setEnabled(package.id, true)
+                        }
                         pendingEnable = nil
                     }
                 }
@@ -80,7 +84,7 @@ struct TansInspectorView: View {
                 + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : "")
             )
         }
-        .alert("Tan could not be updated", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
+        .alert("Tan action could not be completed", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
             Button("OK") { importError = nil; tans.dismissError() }
         } message: {
             Text(importError ?? tans.error ?? "Please try again.")
@@ -129,7 +133,7 @@ struct TansInspectorView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Tans")
                     .font(.headline.weight(.semibold))
-                Text("\(tans.active.count) Active · \(tans.installed.count) Total")
+                Text("\(tans.active.count) Enabled · \(tans.installed.count) Total\(tans.reloadRequired ? " · Reload needed" : "")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -418,14 +422,8 @@ struct TansInspectorView: View {
 
                             Spacer(minLength: 4)
 
-                            Button("Install") {
-                                withAnimation(.nokoFluidSpring) {
-                                    do {
-                                        try tans.install(package)
-                                    } catch {
-                                        importError = "This Tan could not be installed."
-                                    }
-                                }
+                            Button("Install & Enable…") {
+                                pendingEnable = package
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -451,6 +449,9 @@ struct TansInspectorView: View {
                     .toggleStyle(.switch)
                     .controlSize(.small)
             }
+            Text("Safe Mode pauses all Tans. Developer Mode permits local Tan replacement and exposes diagnostics.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
             if tans.developerMode {
                 VStack(alignment: .leading, spacing: 8) {

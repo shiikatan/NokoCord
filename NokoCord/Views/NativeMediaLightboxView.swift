@@ -17,6 +17,8 @@ struct NativeMediaLightboxView: View {
     @State private var isHoveringAction = false
     @State private var player: AVPlayer?
     @State private var isSaved = false
+    @State private var isSaving = false
+    @State private var saveError: String?
 
     var body: some View {
         ZStack {
@@ -35,6 +37,7 @@ struct NativeMediaLightboxView: View {
             .keyboardShortcut(.space, modifiers: [])
             .opacity(0)
             .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
 
             // Media Presentation Canvas
             Group {
@@ -153,6 +156,7 @@ struct NativeMediaLightboxView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close media viewer")
 
                     Spacer()
 
@@ -161,15 +165,23 @@ struct NativeMediaLightboxView: View {
                         Button {
                             saveMediaToDownloads()
                         } label: {
-                            Image(systemName: isSaved ? "checkmark" : "arrow.down.to.line")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(isSaved ? .green : .white.opacity(0.9))
-                                .padding(8)
-                                .background(Color.white.opacity(0.12), in: Circle())
+                            Group {
+                                if isSaving {
+                                    ProgressView().controlSize(.small).tint(.white)
+                                } else {
+                                    Image(systemName: isSaved ? "checkmark" : "arrow.down.to.line")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(isSaved ? .green : .white.opacity(0.9))
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.white.opacity(0.12), in: Circle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(isSaving)
                         .keyboardShortcut("s", modifiers: .command)
-                        .help("Save to Downloads (⌘S)")
+                        .accessibilityLabel(isSaved ? "Saved to Downloads" : "Save to Downloads")
+                        .help(isSaving ? "Saving…" : "Save to Downloads (⌘S)")
 
                         Button {
                             copyMediaToClipboard()
@@ -182,6 +194,7 @@ struct NativeMediaLightboxView: View {
                         }
                         .buttonStyle(.plain)
                         .keyboardShortcut("c", modifiers: .command)
+                        .accessibilityLabel("Copy media link")
                         .help("Copy link to clipboard (⌘C)")
 
                         Button {
@@ -194,6 +207,8 @@ struct NativeMediaLightboxView: View {
                                 .background(Color.white.opacity(0.12), in: Circle())
                         }
                         .buttonStyle(.plain)
+                        .keyboardShortcut("o", modifiers: .command)
+                        .accessibilityLabel("Open original media in browser")
                         .help("Open in default browser (⌘O)")
                     }
                 }
@@ -206,6 +221,14 @@ struct NativeMediaLightboxView: View {
         .onDisappear {
             stopAndReleasePlayer()
         }
+        .alert("Could not save media", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK") { saveError = nil }
+        } message: {
+            Text(saveError ?? "Try again when the file is available.")
+        }
     }
 
     private func stopAndReleasePlayer() {
@@ -215,30 +238,48 @@ struct NativeMediaLightboxView: View {
     }
 
     private func saveMediaToDownloads() {
-        guard BrowserPolicy.isDiscordMediaURL(mediaURL) else { return }
+        guard BrowserPolicy.isDiscordMediaURL(mediaURL), !isSaving else { return }
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-        let fileName = mediaURL.lastPathComponent.isEmpty ? (isVideo ? "video.mp4" : "image.png") : mediaURL.lastPathComponent
-        let destURL = downloads.appendingPathComponent(fileName)
+        let proposedName = mediaURL.lastPathComponent.isEmpty ? (isVideo ? "video.mp4" : "image.png") : mediaURL.lastPathComponent
+        let fileName = BrowserPolicy.filename(proposedName)
+        let destURL = uniqueDestination(in: downloads, fileName: fileName)
+        isSaving = true
+        saveError = nil
 
-        Task {
+        Task { @MainActor in
             do {
-                let (tempURL, _) = try await URLSession.shared.download(from: mediaURL)
-                if FileManager.default.fileExists(atPath: destURL.path) {
-                    try? FileManager.default.removeItem(at: destURL)
+                let (tempURL, response) = try await URLSession.shared.download(from: mediaURL)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode) else {
+                    throw MediaSaveError.invalidResponse
                 }
                 try FileManager.default.moveItem(at: tempURL, to: destURL)
-                await MainActor.run {
+                isSaving = false
+                withAnimation(.nokoSnappySpring) {
+                    isSaved = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     withAnimation(.nokoSnappySpring) {
-                        isSaved = true
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        withAnimation(.nokoSnappySpring) {
-                            isSaved = false
-                        }
+                        isSaved = false
                     }
                 }
-            } catch {}
+            } catch {
+                isSaving = false
+                saveError = String(localized: "The file could not be saved to Downloads. Check your connection or available storage and try again.")
+            }
         }
+    }
+
+    private func uniqueDestination(in directory: URL, fileName: String) -> URL {
+        let ext = URL(fileURLWithPath: fileName).pathExtension
+        let stem = ext.isEmpty ? fileName : String(fileName.dropLast(ext.count + 1))
+        for index in 0..<1000 {
+            let suffix = index == 0 ? "" : " \(index + 1)"
+            let candidateName = ext.isEmpty ? stem + suffix : stem + suffix + "." + ext
+            let candidate = directory.appendingPathComponent(candidateName)
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return directory.appendingPathComponent(stem + "-" + UUID().uuidString + (ext.isEmpty ? "" : "." + ext))
     }
 
     private func openMediaInBrowser() {
@@ -252,4 +293,8 @@ struct NativeMediaLightboxView: View {
         pasteboard.clearContents()
         pasteboard.setString(mediaURL.absoluteString, forType: .string)
     }
+}
+
+private enum MediaSaveError: Error {
+    case invalidResponse
 }

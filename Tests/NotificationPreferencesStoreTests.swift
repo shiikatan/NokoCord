@@ -26,11 +26,29 @@ final class NotificationPreferencesStoreTests: XCTestCase {
         expected.enabled[.mention] = false
         expected.enabled[.incomingCall] = false
         expected.showPreviews = true
+        expected.webNotificationsEnabled = false
 
         try store.save(expected)
 
         XCTAssertEqual(store.load(), expected)
         XCTAssertNotNil(defaults.data(forKey: NotificationPreferencesStore.storageKey))
+    }
+
+    func testPreferencesWrittenBeforeWebNotificationControlWasAddedRemainEnabled() throws {
+        let defaults = makeDefaults()
+        let store = NotificationPreferencesStore(defaults: defaults)
+        let legacy = NotificationPreferences()
+        var object = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(legacy)
+        ) as! [String: Any]
+        object.removeValue(forKey: "webNotificationsEnabled")
+        let envelope: [String: Any] = [
+            "version": NotificationPreferencesStore.currentVersion,
+            "preferences": object
+        ]
+        defaults.set(try JSONSerialization.data(withJSONObject: envelope), forKey: NotificationPreferencesStore.storageKey)
+
+        XCTAssertTrue(store.load().webNotificationsEnabled)
     }
 
     func testMalformedDataLoadsSafeDefaults() {

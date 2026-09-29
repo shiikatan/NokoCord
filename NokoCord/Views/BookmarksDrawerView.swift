@@ -11,6 +11,8 @@ struct BookmarksDrawerView: View {
     @State private var searchText = ""
     @State private var hoveredBookmarkId: String?
     @State private var copiedBookmarkId: String?
+    @State private var pendingDelete: NokoBookmark?
+    @State private var recentlyDeleted: NokoBookmark?
 
     private var filteredBookmarks: [NokoBookmark] {
         store.search(query: searchText)
@@ -58,10 +60,41 @@ struct BookmarksDrawerView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close Saved Messages")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
                 .padding(.bottom, 14)
+
+                if let error = store.error {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                }
+
+                if let recentlyDeleted {
+                    HStack(spacing: 8) {
+                        Text("Saved message deleted")
+                            .font(.caption)
+                        Spacer()
+                        Button("Undo") {
+                            if store.restore(recentlyDeleted) {
+                                self.recentlyDeleted = nil
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                }
 
                 // Search Bar
                 HStack(spacing: 8) {
@@ -82,6 +115,7 @@ struct BookmarksDrawerView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Clear saved message search")
                     }
                 }
                 .padding(.horizontal, 12)
@@ -134,9 +168,7 @@ struct BookmarksDrawerView: View {
                                         jumpToMessage(bookmark)
                                     },
                                     onDelete: {
-                                        withAnimation(.nokoSnappySpring) {
-                                            store.remove(id: bookmark.id)
-                                        }
+                                        pendingDelete = bookmark
                                     }
                                 )
                                 .onHover { hovering in
@@ -166,6 +198,27 @@ struct BookmarksDrawerView: View {
             .shadow(color: Color.black.opacity(0.4), radius: 30, x: -10, y: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .confirmationDialog("Delete this saved message?", isPresented: Binding(
+            get: { pendingDelete != nil },
+            set: { if !$0 { pendingDelete = nil } }
+        ), titleVisibility: .visible) {
+            if let pendingDelete {
+                Button("Delete", role: .destructive) {
+                    if store.remove(id: pendingDelete.id) {
+                        recentlyDeleted = pendingDelete
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                            if recentlyDeleted?.id == pendingDelete.id {
+                                recentlyDeleted = nil
+                            }
+                        }
+                    }
+                    self.pendingDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("This removes the local copy from Saved Messages. It does not delete anything in Discord.")
+        }
     }
 
     private func copyBookmark(_ bookmark: NokoBookmark) {
@@ -322,6 +375,8 @@ private struct BookmarkRowView: View {
                         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Delete saved message")
+                .help("Delete saved message")
             }
             .opacity(isHovered ? 1.0 : 0.4)
             .animation(.easeInOut(duration: 0.15), value: isHovered)

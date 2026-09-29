@@ -92,14 +92,14 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func deliverWebNotification(title: String, body: String) async {
+        guard policy.preferences.webNotificationsEnabled else { return }
+        let authorization = await center.authorizationStatus()
+        guard authorization == .authorized || authorization == .provisional else { return }
+
         let now = Date()
         webNotificationTimestamps = webNotificationTimestamps.filter { now.timeIntervalSince($0) < 5.0 }
         guard webNotificationTimestamps.count < 5 else { return }
         webNotificationTimestamps.append(now)
-
-        if await center.authorizationStatus() == .notDetermined {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
-        }
         let cleanTitle = String(title.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined().prefix(128))
         let cleanBody = String(body.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined().prefix(512))
         guard !cleanTitle.isEmpty else { return }

@@ -27,11 +27,11 @@ EDITIONS = {
     },
     "chiaki": {
         "CFBundleIdentifier": "com.shiikatan.nokocord.chiaki",
-        "CFBundleShortVersionString": "1.1.6",
-        "CFBundleVersion": "4",
+        "CFBundleShortVersionString": "1.2.0",
+        "CFBundleVersion": "5",
         "NokoEditionID": "chiaki",
         "NokoEditionName": "Chiaki",
-        "NokoPublicVersion": "C1.1.6",
+        "NokoPublicVersion": "C1.2.0",
         "NokoMaintainer": "Millx",
     },
 }

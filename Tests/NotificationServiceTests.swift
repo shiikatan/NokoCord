@@ -65,6 +65,19 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(settings.authorization, .authorized)
     }
 
+    func testWebDeliveryRequiresTheSavedWebNotificationPreference() async {
+        let center = FakeNotificationCenter()
+        let service = NotificationService(center: center)
+        var preferences = NotificationPreferences()
+        preferences.webNotificationsEnabled = false
+        service.updatePreferences(preferences)
+
+        await service.deliverWebNotification(title: "New message", body: "A preview")
+
+        XCTAssertEqual(center.addCalls, 0)
+        XCTAssertEqual(center.authorizationRequests, 0)
+    }
+
     private func event(_ id: String) -> NotificationEvent {
         NotificationEvent(accountID: "account", eventID: id, type: .mention, conversationID: "conversation")
     }

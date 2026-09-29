@@ -127,7 +127,7 @@ struct PrivacyPage: View {
 
 struct NokoSurface: ViewModifier {
     var cornerRadius: CGFloat = 16
-    @AppStorage("useLiquidGlass") private var useLiquidGlass = true
+    @AppStorage(NokoAppDefaults.useLiquidGlass) private var useLiquidGlass = true
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
@@ -141,7 +141,7 @@ struct NokoSurface: ViewModifier {
 }
 
 struct NokoPrimaryAction: ViewModifier {
-    @AppStorage("useLiquidGlass") private var useLiquidGlass = true
+    @AppStorage(NokoAppDefaults.useLiquidGlass) private var useLiquidGlass = true
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
@@ -153,66 +153,37 @@ struct NokoPrimaryAction: ViewModifier {
     }
 }
 
-struct NokoQuickSwitcher: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    @State private var selected: NokoDestination? = .home
-    @FocusState private var focused: Bool
-    let navigate: (NokoDestination) -> Void
-    private var matches: [NokoDestination] {
-        NokoDestination.allCases.filter { query.isEmpty || $0.title.localizedStandardContains(query) }
-    }
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Go to…", text: $query).textFieldStyle(.plain).focused($focused)
-                    .onSubmit { activate() }
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-            }.padding(16)
-            Divider()
-            if matches.isEmpty {
-                Text("No matching destinations").foregroundStyle(.secondary).padding()
-            }
-            ForEach(matches) { destination in
-                Button {
-                    dismiss(); navigate(destination)
-                } label: {
-                    HStack { Label(destination.title, systemImage: destination.symbol); Spacer(); if selected == destination { Image(systemName: "return") } }
-                        .padding(12).contentShape(Rectangle())
-                        .background(selected == destination ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 8))
-                }.buttonStyle(.plain)
-            }
-        }.padding(14).frame(width: 480)
-            .onAppear { focused = true }
-            .onChange(of: query) { _, _ in selected = matches.first }
-            .onKeyPress(.downArrow) { move(1); return .handled }
-            .onKeyPress(.upArrow) { move(-1); return .handled }
-    }
-    private func move(_ offset: Int) {
-        guard !matches.isEmpty else { selected = nil; return }
-        let index = matches.firstIndex(where: { $0 == selected }) ?? 0
-        selected = matches[min(max(index + offset, 0), matches.count - 1)]
-    }
-    private func activate() {
-        guard let destination = selected, matches.contains(destination) else { return }
-        dismiss(); navigate(destination)
-    }
-}
-
 struct KeyboardShortcutsView: View {
     var body: some View {
         VStack(spacing: 0) {
             NokoPageHeader(title: "Keyboard shortcuts", subtitle: "A few keys. Right where you want to be.", symbol: "command")
             ScrollView {
                 VStack(spacing: 0) {
-                    shortcut("Toggle Tans Inspector", keys: ["⌘", "T"], spoken: "Command T")
+                    shortcut("Open Discord", keys: ["⌘", "⇧", "O"], spoken: "Command Shift O")
                     Divider()
                     shortcut("Quick switcher", keys: ["⌘", "K"], spoken: "Command K")
+                    Divider()
+                    shortcut("Saved Messages", keys: ["⌘", "⇧", "B"], spoken: "Command Shift B")
+                    Divider()
+                    shortcut("Toggle Tans Inspector", keys: ["⌘", "T"], spoken: "Command T")
+                    Divider()
+                    shortcut("Home", keys: ["⌘", "⇧", "H"], spoken: "Command Shift H")
                     Divider()
                     shortcut("Settings", keys: ["⌘", ","], spoken: "Command comma")
                     Divider()
                     shortcut("Reload Discord", keys: ["⌘", "R"], spoken: "Command R")
+                    Divider()
+                    shortcut("Mute or unmute microphone", keys: ["⌘", "⇧", "M"], spoken: "Command Shift M")
+                    Divider()
+                    shortcut("Disconnect voice call", keys: ["⌘", "⇧", "D"], spoken: "Command Shift D")
+                    Divider()
+                    shortcut("Toggle Zen Mode", keys: ["⌘", "\\"], spoken: "Command backslash")
+                    Divider()
+                    shortcut("Back / Forward", keys: ["⌘", "[ / ]"], spoken: "Command bracket keys")
+                    Divider()
+                    shortcut("Zoom in / out / reset", keys: ["⌘", "+ / − / 0"], spoken: "Command plus, minus, or zero")
+                    Divider()
+                    shortcut("Tour & shortcuts", keys: ["⌘", "/"], spoken: "Command slash")
                 }.padding(.horizontal, 20)
                     .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 16))
                 Text("Reloading Discord interrupts active calls and playback.")
@@ -236,14 +207,15 @@ struct KeyboardShortcutsView: View {
 }
 
 struct SettingsView: View {
-    @AppStorage("useLiquidGlass") private var useLiquidGlass = true
-    @AppStorage("openDiscordOnLaunch") private var openDiscordOnLaunch = true
-    @AppStorage("showMenuBar") private var showMenuBar = false
-    @AppStorage("appearance") private var appearance = "system"
+    @AppStorage(NokoAppDefaults.useLiquidGlass) private var useLiquidGlass = true
+    @AppStorage(NokoAppDefaults.openDiscordOnLaunch) private var openDiscordOnLaunch = true
+    @AppStorage(NokoAppDefaults.showMenuBar) private var showMenuBar = true
+    @AppStorage(NokoAppDefaults.appearance) private var appearance = "system"
     @Environment(ActiveBrowserEngine.self) private var browser
     @State private var confirmLocalCleanup = false
     @State private var cleanupMessage: String?
     @State private var cleaning = false
+    @State private var showMediaDiagnostics = false
     var body: some View {
         TabView {
             Form {
@@ -284,12 +256,22 @@ struct SettingsView: View {
             Form {
                 AppleMusicSettingsSection()
             }.formStyle(.grouped).tabItem { Label("Music RPC", systemImage: "music.note") }
+            NotificationSettingsView()
+                .tabItem { Label("Notifications", systemImage: "bell") }
             Form {
                 DiscordSessionPrivacySection()
                 Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }
             Form {
-                Section("Diagnostics") { LabeledContent("Engine", value: browser.engineDescription) }
+                Section("Diagnostics") {
+                    LabeledContent("Engine", value: browser.engineDescription)
+                    Button("Open local media diagnostics…", systemImage: "waveform.and.mic") {
+                        showMediaDiagnostics = true
+                    }
+                    Text("Test camera, microphone, and one-time screen previews locally. Nothing is sent to Discord.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Section("Maintenance") {
                     Button("Clear app caches and saved drafts…", role: .destructive) { confirmLocalCleanup = true }
                         .disabled(cleaning)
@@ -298,6 +280,9 @@ struct SettingsView: View {
                 }
             }.formStyle(.grouped).tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
         }.frame(width: 640, height: 480).nokoCordAppearance()
+            .sheet(isPresented: $showMediaDiagnostics) {
+                MediaSettingsView()
+            }
             .confirmationDialog("Clear app caches and saved drafts?", isPresented: $confirmLocalCleanup, titleVisibility: .visible) {
                 Button("Clear local data", role: .destructive) {
                     cleaning = true
@@ -321,7 +306,7 @@ struct SettingsView: View {
 }
 
 private struct NokoCordAppearance: ViewModifier {
-    @AppStorage("appearance") private var appearance = "system"
+    @AppStorage(NokoAppDefaults.appearance) private var appearance = "system"
     func body(content: Content) -> some View {
         content.preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
     }

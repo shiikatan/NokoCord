@@ -5,7 +5,8 @@ import AppKit
 /// command palette, game rich presence, and shortcuts in an Apple Liquid Glass modal.
 struct WelcomeTutorialView: View {
     @Binding var isPresented: Bool
-    @AppStorage("hasSeenWelcomeTutorial") private var hasSeenWelcomeTutorial = false
+    @AppStorage(NokoAppDefaults.hasSeenWelcomeTutorial) private var hasSeenWelcomeTutorial = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var currentStep = 0
     @State private var isHoveringClose = false
     @State private var isHoveringNext = false
@@ -32,12 +33,14 @@ struct WelcomeTutorialView: View {
                             Capsule()
                                 .fill(currentStep == step ? Color.accentColor : Color.white.opacity(0.2))
                                 .frame(width: currentStep == step ? 22 : 6, height: 6)
-                                .animation(.nokoSnappySpring, value: currentStep)
+                                .animation(reduceMotion ? nil : .nokoSnappySpring, value: currentStep)
                                 .onTapGesture {
-                                    withAnimation(.nokoFluidSpring) {
+                                    withAnimation(reduceMotion ? nil : .nokoFluidSpring) {
                                         currentStep = step
                                     }
                                 }
+                                .accessibilityLabel("Tour step \(step + 1) of \(totalSteps)")
+                                .accessibilityAddTraits(.isButton)
                         }
                     }
 
@@ -52,6 +55,7 @@ struct WelcomeTutorialView: View {
                             .foregroundStyle(isHoveringClose ? .white : .secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Close tour")
                     .onHover { isHoveringClose = $0 }
                 }
                 .padding(.horizontal, 28)
@@ -63,31 +67,19 @@ struct WelcomeTutorialView: View {
                     switch currentStep {
                     case 0:
                         step0Welcome
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .trailing)),
-                                removal: .opacity.combined(with: .move(edge: .leading))
-                            ))
+                            .transition(stepTransition)
                     case 1:
                         step1CommandPalette
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .trailing)),
-                                removal: .opacity.combined(with: .move(edge: .leading))
-                            ))
+                            .transition(stepTransition)
                     case 2:
                         step2GamePresenceAudio
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .trailing)),
-                                removal: .opacity.combined(with: .move(edge: .leading))
-                            ))
+                            .transition(stepTransition)
                     default:
                         step3ShortcutsAndTips
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .trailing)),
-                                removal: .opacity.combined(with: .move(edge: .leading))
-                            ))
+                            .transition(stepTransition)
                     }
                 }
-                .animation(.nokoFluidSpring, value: currentStep)
+                .animation(reduceMotion ? nil : .nokoFluidSpring, value: currentStep)
                 .frame(height: 380)
 
                 Divider()
@@ -97,7 +89,7 @@ struct WelcomeTutorialView: View {
                 HStack {
                     if currentStep > 0 {
                         Button {
-                            withAnimation(.nokoFluidSpring) {
+                            withAnimation(reduceMotion ? nil : .nokoFluidSpring) {
                                 currentStep -= 1
                             }
                         } label: {
@@ -127,7 +119,7 @@ struct WelcomeTutorialView: View {
 
                     Button {
                         if currentStep < totalSteps - 1 {
-                            withAnimation(.nokoFluidSpring) {
+                            withAnimation(reduceMotion ? nil : .nokoFluidSpring) {
                                 currentStep += 1
                             }
                         } else {
@@ -183,7 +175,7 @@ struct WelcomeTutorialView: View {
             )
             .shadow(color: Color.black.opacity(0.55), radius: 36, y: 16)
         }
-        .transition(.asymmetric(
+        .transition(reduceMotion ? .identity : .asymmetric(
             insertion: .scale(scale: 0.94).combined(with: .opacity),
             removal: .scale(scale: 0.97).combined(with: .opacity)
         ))
@@ -191,9 +183,16 @@ struct WelcomeTutorialView: View {
 
     private func dismiss() {
         hasSeenWelcomeTutorial = true
-        withAnimation(.nokoFluidSpring) {
+        withAnimation(reduceMotion ? nil : .nokoFluidSpring) {
             isPresented = false
         }
+    }
+
+    private var stepTransition: AnyTransition {
+        reduceMotion ? .identity : .asymmetric(
+            insertion: .opacity.combined(with: .move(edge: .trailing)),
+            removal: .opacity.combined(with: .move(edge: .leading))
+        )
     }
 
     // MARK: - Step 0: Welcome & The Native Advantage

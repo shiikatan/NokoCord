@@ -8,6 +8,7 @@ struct BrowserDownloadRecord: Identifiable {
     var name = String(localized: "Download")
     var fraction = 0.0
     var status: Status = .choosing
+    var destination: URL?
 }
 
 @MainActor @Observable
@@ -57,6 +58,11 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
         error = nil
     }
     func dismissError() { error = nil }
+    func clearCompleted() {
+        records.removeAll { record in
+            [.complete, .cancelled, .failed].contains(record.status)
+        }
+    }
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         let key = ObjectIdentifier(download)
@@ -109,7 +115,11 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
         guard let transfer = transfers.removeValue(forKey: key) else { return }
         transfer.observation?.invalidate()
         if transfer.scoped { transfer.destination?.stopAccessingSecurityScopedResource() }
-        update(transfer.id) { $0.status = status; if status == .complete { $0.fraction = 1 } }
+        update(transfer.id) {
+            $0.status = status
+            $0.destination = transfer.destination
+            if status == .complete { $0.fraction = 1 }
+        }
     }
     private func update(_ id: UUID, _ change: (inout BrowserDownloadRecord) -> Void) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }

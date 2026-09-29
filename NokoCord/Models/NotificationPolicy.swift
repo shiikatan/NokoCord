@@ -8,6 +8,37 @@ enum NotificationEventType: String, CaseIterable, Codable, Sendable {
 struct NotificationPreferences: Equatable, Codable, Sendable {
     var enabled: [NotificationEventType: Bool] = Dictionary(uniqueKeysWithValues: NotificationEventType.allCases.map { ($0, true) })
     var showPreviews = false
+    var webNotificationsEnabled = true
+
+    init(
+        enabled: [NotificationEventType: Bool] = Dictionary(uniqueKeysWithValues: NotificationEventType.allCases.map { ($0, true) }),
+        showPreviews: Bool = false,
+        webNotificationsEnabled: Bool = true
+    ) {
+        self.enabled = enabled
+        self.showPreviews = showPreviews
+        self.webNotificationsEnabled = webNotificationsEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, showPreviews, webNotificationsEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decode([NotificationEventType: Bool].self, forKey: .enabled)
+        showPreviews = try container.decodeIfPresent(Bool.self, forKey: .showPreviews) ?? false
+        // Older v1 preference files predate this opt-in gate. Preserve their
+        // existing behavior while allowing new installs to turn it off.
+        webNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .webNotificationsEnabled) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(showPreviews, forKey: .showPreviews)
+        try container.encode(webNotificationsEnabled, forKey: .webNotificationsEnabled)
+    }
 }
 
 struct NotificationEvent: Equatable, Sendable {
