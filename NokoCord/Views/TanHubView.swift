@@ -14,6 +14,8 @@ struct TanHubView: View {
     @AppStorage(NokoAppDefaults.hideNokoTans) private var hideNokoTans = false
     @State private var enabledFilter = "All"
     @State private var pendingEnable: TanPackage?
+    @State private var pendingDisable: TanPackage?
+    @State private var pendingSafeMode: Bool?
     @State private var presentation: TanPresentation?
     @State private var importError: String?
     @State private var filePanel: NSOpenPanel?
@@ -53,7 +55,7 @@ struct TanHubView: View {
                         }
                         Spacer()
                         if tans.reloadRequired { Button("Reload Discord") { browser.reload() } }
-                        if tans.safeMode { Button("Resume Tans") { tans.setSafeMode(false) } }
+                        if tans.safeMode { Button("Resume Tans") { pendingSafeMode = false } }
                     }.padding(18).background(.orange.opacity(0.1), in: .rect(cornerRadius: 15))
                 }
                 VStack(alignment: .leading, spacing: 14) {
@@ -83,13 +85,16 @@ struct TanHubView: View {
                             .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 16))
                     } else {
                         LazyVStack(spacing: 8) { ForEach(installed) { package in
+                            let statusText = tans.enabledIDs.contains(package.id) ? "Enabled" : "Disabled"
+                            let sourceText = package.origin == "Noko Original" ? "Noko-Tan" : package.origin
+                            let availabilityText = "\(statusText) · \(sourceText)"
                             HStack(spacing: 16) {
                                 tanIcon(package)
                                 Button { presentation = .details(package) } label: {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(package.manifest.name).font(.headline)
                                         Text(package.manifest.description).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(2)
-                                        Text((tans.enabledIDs.contains(package.id) ? "Enabled" : "Disabled") + " · " + (package.origin == "Noko Original" ? "Noko-Tan" : package.origin)).font(.caption).foregroundStyle(.secondary)
+                                        Text(availabilityText).font(.caption).foregroundStyle(.secondary)
                                         TanHealthView(package: package, compact: true, onReload: browser.reload)
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                 }.buttonStyle(.plain)
@@ -97,7 +102,7 @@ struct TanHubView: View {
                                     Text("Update available").font(.caption).foregroundStyle(.tint)
                                 }
                                 Toggle(package.manifest.name, isOn: Binding(get: { tans.enabledIDs.contains(package.id) }, set: { enabled in
-                                    if enabled { pendingEnable = package } else { tans.setEnabled(package.id, false) }
+                                    if enabled { pendingEnable = package } else { pendingDisable = package }
                                 })).labelsHidden().toggleStyle(.switch).disabled(tans.safeMode)
                             }.padding(14).background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 12))
                                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(hoveredTanID == package.id ? Color.primary.opacity(contrast == .increased ? 0.6 : 0.18) : .clear))
@@ -135,7 +140,7 @@ struct TanHubView: View {
                 }
                 Divider()
                 HStack {
-                    Toggle("Safe Mode", isOn: Binding(get: { tans.safeMode }, set: { tans.setSafeMode($0) })).toggleStyle(.switch)
+                    Toggle("Safe Mode", isOn: Binding(get: { tans.safeMode }, set: { pendingSafeMode = $0 })).toggleStyle(.switch)
                     Spacer()
                     Toggle("Developer Mode", isOn: Binding(get: { tans.developerMode }, set: { tans.setDeveloperMode($0) })).toggleStyle(.switch)
                 }
@@ -179,6 +184,38 @@ struct TanHubView: View {
         } message: {
             Text((pendingEnable?.manifest.target == .css ? "This Tan changes the appearance of Discord. Enable only Tans you trust." : "This Tan runs code inside Discord and can interact with content in your session. Enable only code you trust.") + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : ""))
         }
+        .confirmationDialog(
+            "Disable \(pendingDisable?.manifest.name ?? "Tan")?",
+            isPresented: Binding(get: { pendingDisable != nil }, set: { if !$0 { pendingDisable = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let package = pendingDisable {
+                Button("Disable Tan", role: .destructive) {
+                    tans.setEnabled(package.id, false)
+                    pendingDisable = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDisable = nil }
+        } message: {
+            Text("This stops the Tan from modifying Discord. Its installed files and trust record remain available for later review.")
+        }
+        .confirmationDialog(
+            pendingSafeMode == true ? "Start Safe Mode?" : "Resume Tans?",
+            isPresented: Binding(get: { pendingSafeMode != nil }, set: { if !$0 { pendingSafeMode = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let enabled = pendingSafeMode {
+                Button(enabled ? "Start Safe Mode" : "Resume Tans", role: enabled ? .destructive : nil) {
+                    tans.setSafeMode(enabled)
+                    pendingSafeMode = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingSafeMode = nil }
+        } message: {
+            Text(pendingSafeMode == true
+                 ? "Safe Mode reloads Discord without Noko scripts or bridge handlers while retaining your Discord session data."
+                 : "Resuming Tans requires a reload before scripts and handlers return.")
+        }
         .alert("Tan action could not be completed", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
             Button("OK") { importError = nil; tans.dismissError() }
         } message: { Text(importError ?? tans.error ?? "Please try again.") }
@@ -199,9 +236,11 @@ struct TanHubView: View {
             filePanel?.cancel(nil); filePanel = nil
             presentation = nil
             pendingEnable = nil
+            pendingDisable = nil
+            pendingSafeMode = nil
             importError = nil
         }.frame(width: 0, height: 0))
-        .onDisappear { pendingReloadID = nil; filePanel?.cancel(nil); filePanel = nil; presentation = nil; pendingEnable = nil }
+        .onDisappear { pendingReloadID = nil; filePanel?.cancel(nil); filePanel = nil; presentation = nil; pendingEnable = nil; pendingDisable = nil; pendingSafeMode = nil }
     }
     private enum TanPresentation: Identifiable {
         case translator, details(TanPackage)

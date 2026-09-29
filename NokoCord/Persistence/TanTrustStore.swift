@@ -99,7 +99,9 @@ final class TanTrustStore: @unchecked Sendable {
     func record(_ package: TanPackage, at date: Date = Date()) throws -> TanTrustRecord {
         try package.validate()
         return try mutate { values, pending in
-            if let existing = values[package.id], existing.contentHash == package.contentHash {
+            if let existing = values[package.id], existing.contentHash == package.contentHash,
+               existing.target == package.manifest.target,
+               existing.trustOrigin == package.origin {
                 return existing
             }
             let existing = values[package.id]
@@ -108,7 +110,9 @@ final class TanTrustStore: @unchecked Sendable {
                 contentHash: package.contentHash,
                 lastKnownGoodVersion: existing?.lastKnownGoodVersion,
                 lastKnownGoodHash: existing?.lastKnownGoodHash,
-                health: .awaitingApproval
+                health: .awaitingApproval,
+                target: package.manifest.target,
+                trustOrigin: package.origin
             )
             values[package.id] = next
             pending.removeValue(forKey: package.id)
@@ -128,7 +132,10 @@ final class TanTrustStore: @unchecked Sendable {
                 lastKnownGoodVersion: package.manifest.version,
                 lastKnownGoodHash: package.contentHash,
                 health: .healthy,
-                failureCount: 0
+                failureCount: 0,
+                target: package.manifest.target,
+                trustOrigin: package.origin,
+                enabled: true
             )
             values[package.id] = next
             pending.removeValue(forKey: package.id)
@@ -137,10 +144,44 @@ final class TanTrustStore: @unchecked Sendable {
     }
 
     @discardableResult
+    func setEnabled(_ package: TanPackage, _ enabled: Bool, at date: Date = Date()) throws -> TanTrustRecord {
+        try package.validate()
+        return try mutate { values, _ in
+            guard let current = values[package.id],
+                  current.contentHash == package.contentHash,
+                  current.target == package.manifest.target,
+                  current.trustOrigin == package.origin,
+                  Set(current.approvedCapabilities) == Set(package.manifest.capabilities) else {
+                throw TanTrustStoreError.missingRecord(package.id)
+            }
+            let next = TanTrustRecord(
+                tanID: current.tanID,
+                contentHash: current.contentHash,
+                approvedCapabilities: current.approvedCapabilities,
+                approvedAt: current.approvedAt,
+                lastKnownGoodVersion: current.lastKnownGoodVersion,
+                lastKnownGoodHash: current.lastKnownGoodHash,
+                health: current.health,
+                failureCount: current.failureCount,
+                quarantineReason: current.quarantineReason,
+                target: package.manifest.target,
+                trustOrigin: package.origin,
+                enabled: enabled && current.isApproved,
+                lastFailureCategory: current.lastFailureCategory,
+                lastFailureAt: current.lastFailureAt
+            )
+            values[package.id] = next
+            return next
+        }
+    }
+
+    @discardableResult
     func invalidateIfHashChanged(_ package: TanPackage, at date: Date = Date()) throws -> TanTrustRecord {
         try package.validate()
         return try mutate { values, _ in
-            if let existing = values[package.id], existing.contentHash == package.contentHash {
+            if let existing = values[package.id], existing.contentHash == package.contentHash,
+               existing.target == package.manifest.target,
+               existing.trustOrigin == package.origin {
                 return existing
             }
             let existing = values[package.id]
@@ -149,7 +190,9 @@ final class TanTrustStore: @unchecked Sendable {
                 contentHash: package.contentHash,
                 lastKnownGoodVersion: existing?.lastKnownGoodVersion,
                 lastKnownGoodHash: existing?.lastKnownGoodHash,
-                health: .awaitingApproval
+                health: .awaitingApproval,
+                target: package.manifest.target,
+                trustOrigin: package.origin
             )
             values[package.id] = next
             return next
@@ -157,13 +200,31 @@ final class TanTrustStore: @unchecked Sendable {
     }
 
     @discardableResult
-    func recordFailure(_ package: TanPackage, reason: String? = nil, at date: Date = Date()) throws -> TanTrustRecord {
+    func recordFailure(
+        _ package: TanPackage,
+        category: TanFailureCategory? = nil,
+        reason: String? = nil,
+        at date: Date = Date()
+    ) throws -> TanTrustRecord {
         try package.validate()
         return try mutate { values, _ in
-            let current = values[package.id].flatMap { $0.contentHash == package.contentHash ? $0 : nil }
-                ?? TanTrustRecord(tanID: package.id, contentHash: package.contentHash)
+            let current = values[package.id].flatMap {
+                $0.contentHash == package.contentHash
+                    && $0.target == package.manifest.target
+                    && $0.trustOrigin == package.origin
+                    && Set($0.approvedCapabilities) == Set(package.manifest.capabilities)
+                    ? $0
+                    : nil
+            }
+                ?? TanTrustRecord(
+                    tanID: package.id,
+                    contentHash: package.contentHash,
+                    target: package.manifest.target,
+                    trustOrigin: package.origin
+                )
             let count = current.failureCount + 1
             let quarantine = count >= 3
+            let failureCategory = category ?? TanFailureCategory(sanitizing: reason)
             let next = TanTrustRecord(
                 tanID: package.id,
                 contentHash: package.contentHash,
@@ -173,7 +234,12 @@ final class TanTrustStore: @unchecked Sendable {
                 lastKnownGoodHash: current.lastKnownGoodHash,
                 health: quarantine ? .quarantined : .failed,
                 failureCount: count,
-                quarantineReason: quarantine ? sanitizedReason(reason) : nil
+                quarantineReason: quarantine ? failureCategory.displayName : nil,
+                target: package.manifest.target,
+                trustOrigin: package.origin,
+                enabled: false,
+                lastFailureCategory: failureCategory,
+                lastFailureAt: date
             )
             values[package.id] = next
             return next
@@ -184,6 +250,7 @@ final class TanTrustStore: @unchecked Sendable {
     func quarantine(_ tanID: String, reason: String, at date: Date = Date()) throws -> TanTrustRecord {
         try mutate { values, _ in
             guard let current = values[tanID] else { throw TanTrustStoreError.missingRecord(tanID) }
+            let category = TanFailureCategory(sanitizing: reason)
             let next = TanTrustRecord(
                 tanID: current.tanID,
                 contentHash: current.contentHash,
@@ -193,7 +260,12 @@ final class TanTrustStore: @unchecked Sendable {
                 lastKnownGoodHash: current.lastKnownGoodHash,
                 health: .quarantined,
                 failureCount: current.failureCount,
-                quarantineReason: sanitizedReason(reason) ?? "Tan was quarantined."
+                quarantineReason: category.displayName,
+                target: current.target,
+                trustOrigin: current.trustOrigin,
+                enabled: false,
+                lastFailureCategory: category,
+                lastFailureAt: date
             )
             values[tanID] = next
             return next
@@ -210,7 +282,9 @@ final class TanTrustStore: @unchecked Sendable {
                 contentHash: package.contentHash,
                 lastKnownGoodVersion: current?.lastKnownGoodVersion,
                 lastKnownGoodHash: current?.lastKnownGoodHash,
-                health: .awaitingApproval
+                health: .awaitingApproval,
+                target: package.manifest.target,
+                trustOrigin: package.origin
             )
             values[package.id] = next
             pending.removeValue(forKey: package.id)
@@ -254,7 +328,9 @@ final class TanTrustStore: @unchecked Sendable {
                 contentHash: replacement.contentHash,
                 lastKnownGoodVersion: previousRecord?.lastKnownGoodVersion ?? previous.manifest.version,
                 lastKnownGoodHash: previousRecord?.lastKnownGoodHash ?? previous.contentHash,
-                health: .awaitingApproval
+                health: .awaitingApproval,
+                target: replacement.manifest.target,
+                trustOrigin: replacement.origin
             )
             values[replacement.id] = next
             pending.removeValue(forKey: replacement.id)
@@ -275,6 +351,31 @@ final class TanTrustStore: @unchecked Sendable {
             )
             values[tanID] = restored
             pending.removeValue(forKey: tanID)
+            return restored
+        }
+    }
+
+    /// Records an explicitly restored package snapshot as disabled and
+    /// awaiting approval. The package itself is swapped by TanManager.
+    @discardableResult
+    func restoreSnapshot(_ package: TanPackage, at date: Date = Date()) throws -> TanTrustRecord {
+        try package.validate()
+        return try mutate { values, pending in
+            let current = values[package.id]
+            let restored = TanTrustRecord(
+                tanID: package.id,
+                contentHash: package.contentHash,
+                lastKnownGoodVersion: package.manifest.version,
+                lastKnownGoodHash: package.contentHash,
+                health: .awaitingApproval,
+                target: package.manifest.target,
+                trustOrigin: package.origin,
+                enabled: false,
+                lastFailureCategory: current?.lastFailureCategory,
+                lastFailureAt: current?.lastFailureAt
+            )
+            values[package.id] = restored
+            pending.removeValue(forKey: package.id)
             return restored
         }
     }
@@ -373,10 +474,15 @@ final class TanTrustStore: @unchecked Sendable {
                   Self.isHash(record.contentHash),
                   Set(record.approvedCapabilities).count == record.approvedCapabilities.count,
                   record.failureCount >= 0,
-                  record.quarantineReason?.count ?? 0 <= 512 else {
+                  record.quarantineReason?.count ?? 0 <= 256,
+                  record.trustOrigin?.count ?? 0 <= 200,
+                  record.lastFailureAt?.timeIntervalSince1970.isFinite ?? true else {
                 throw TanTrustStoreError.invalidRecord
             }
             if record.health == .quarantined && record.quarantineReason?.isEmpty != false {
+                throw TanTrustStoreError.invalidRecord
+            }
+            if record.enabled && (!record.isApproved || record.target == nil || record.trustOrigin == nil) {
                 throw TanTrustStoreError.invalidRecord
             }
         }
@@ -457,10 +563,4 @@ final class TanTrustStore: @unchecked Sendable {
         }
     }
 
-    private func sanitizedReason(_ reason: String?) -> String? {
-        guard let reason else { return nil }
-        let clean = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return nil }
-        return String(clean.prefix(512))
-    }
 }

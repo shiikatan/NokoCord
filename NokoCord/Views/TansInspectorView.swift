@@ -16,6 +16,8 @@ struct TansInspectorView: View {
     @AppStorage(NokoAppDefaults.hideNokoTans) private var hideNokoTans = false
     @State private var filterSelection = "All"
     @State private var pendingEnable: TanPackage?
+    @State private var pendingDisable: TanPackage?
+    @State private var pendingSafeMode: Bool?
     @State private var presentation: TanPresentation?
     @State private var importError: String?
     @State private var filePanel: NSOpenPanel?
@@ -90,6 +92,38 @@ struct TansInspectorView: View {
                 + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : "")
             )
         }
+        .confirmationDialog(
+            "Disable \(pendingDisable?.manifest.name ?? "Tan")?",
+            isPresented: Binding(get: { pendingDisable != nil }, set: { if !$0 { pendingDisable = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let package = pendingDisable {
+                Button("Disable Tan", role: .destructive) {
+                    tans.setEnabled(package.id, false)
+                    pendingDisable = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDisable = nil }
+        } message: {
+            Text("This stops the Tan from modifying Discord. Its installed files and trust record remain available for later review.")
+        }
+        .confirmationDialog(
+            pendingSafeMode == true ? "Start Safe Mode?" : "Resume Tans?",
+            isPresented: Binding(get: { pendingSafeMode != nil }, set: { if !$0 { pendingSafeMode = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let enabled = pendingSafeMode {
+                Button(enabled ? "Start Safe Mode" : "Resume Tans", role: enabled ? .destructive : nil) {
+                    tans.setSafeMode(enabled)
+                    pendingSafeMode = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingSafeMode = nil }
+        } message: {
+            Text(pendingSafeMode == true
+                 ? "Safe Mode reloads Discord without Noko scripts or bridge handlers while retaining your Discord session data."
+                 : "Resuming Tans requires a reload before scripts and handlers return.")
+        }
         .alert("Tan action could not be completed", isPresented: Binding(get: { importError != nil || tans.error != nil }, set: { if !$0 { importError = nil; tans.dismissError() } })) {
             Button("OK") { importError = nil; tans.dismissError() }
         } message: {
@@ -118,6 +152,8 @@ struct TansInspectorView: View {
                 filePanel = nil
                 presentation = nil
                 pendingEnable = nil
+                pendingDisable = nil
+                pendingSafeMode = nil
                 importError = nil
             }.frame(width: 0, height: 0)
         )
@@ -264,9 +300,7 @@ struct TansInspectorView: View {
                 .controlSize(.small)
             } else if tans.safeMode {
                 Button("Resume") {
-                    withAnimation(.nokoFluidSpring) {
-                        tans.setSafeMode(false)
-                    }
+                    pendingSafeMode = false
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -384,9 +418,7 @@ struct TansInspectorView: View {
                         if willEnable {
                             pendingEnable = package
                         } else {
-                            withAnimation(.nokoFluidSpring) {
-                                tans.setEnabled(package.id, false)
-                            }
+                            pendingDisable = package
                         }
                     }
                 )
@@ -467,7 +499,7 @@ struct TansInspectorView: View {
     private var developerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Toggle("Safe Mode", isOn: Binding(get: { tans.safeMode }, set: { tans.setSafeMode($0) }))
+                Toggle("Safe Mode", isOn: Binding(get: { tans.safeMode }, set: { pendingSafeMode = $0 }))
                     .toggleStyle(.switch)
                     .controlSize(.small)
                 Spacer()

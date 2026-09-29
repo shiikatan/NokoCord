@@ -11,6 +11,66 @@ struct TanHealthView: View {
     let onReload: () -> Void
 
     @State private var copiedDiagnostics = false
+    @State private var pendingConfirmation: ConfirmationAction?
+    @State private var showingTrustDiff = false
+
+    private enum ConfirmationAction: Identifiable {
+        case approve
+        case enable
+        case disable
+        case retry
+        case recover
+        case safeMode
+        case restore
+
+        var id: String { title }
+        var title: String {
+            switch self {
+            case .approve: return "Approve this Tan?"
+            case .enable: return "Enable this Tan?"
+            case .disable: return "Disable this Tan?"
+            case .retry: return "Retry this Tan?"
+            case .recover: return "Recover this Tan?"
+            case .safeMode: return "Start Safe Mode?"
+            case .restore: return "Restore the previous Tan version?"
+            }
+        }
+        var buttonTitle: String {
+            switch self {
+            case .approve: return "Approve & Enable"
+            case .enable: return "Enable Tan"
+            case .disable: return "Disable Tan"
+            case .retry: return "Retry Tan"
+            case .recover: return "Recover Tan"
+            case .safeMode: return "Start Safe Mode"
+            case .restore: return "Restore Previous Version"
+            }
+        }
+        var message: String {
+            switch self {
+            case .approve:
+                return "This records consent for the displayed code, target, capabilities, and trust origin. A later identity change requires approval again."
+            case .enable:
+                return "This runs the approved Tan inside Discord."
+            case .disable:
+                return "The Tan will stop modifying Discord after the next lifecycle update."
+            case .retry:
+                return "NokoCord will approve the current identity again and attempt to start it."
+            case .recover:
+                return "The quarantine will be cleared, but the Tan will remain disabled until you approve it again."
+            case .safeMode:
+                return "Safe Mode reloads Discord without Noko scripts or bridge handlers. Your Discord session data is retained."
+            case .restore:
+                return "The retained previous package snapshot will replace this version. It will remain disabled and require fresh approval."
+            }
+        }
+        var isDestructive: Bool {
+            switch self {
+            case .disable, .safeMode, .restore: return true
+            case .approve, .enable, .retry, .recover: return false
+            }
+        }
+    }
 
     init(package: TanPackage, compact: Bool = false, onReload: @escaping () -> Void = {}) {
         self.package = package
@@ -35,6 +95,35 @@ struct TanHealthView: View {
             }
         }
         .animation(.nokoFluidSpring, value: presentation.state)
+        .sheet(isPresented: $showingTrustDiff) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Review Tan trust").font(.title3.bold())
+                TanTrustDiffView(package: package, record: tans.trustRecord(for: package.id))
+                Button("Done") { showingTrustDiff = false }
+                    .keyboardShortcut(.defaultAction)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(24)
+            .frame(width: 460)
+        }
+        .confirmationDialog(
+            pendingConfirmation?.title ?? "Confirm Tan action",
+            isPresented: Binding(
+                get: { pendingConfirmation != nil },
+                set: { if !$0 { pendingConfirmation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let action = pendingConfirmation {
+                Button(action.buttonTitle, role: action.isDestructive ? .destructive : nil) {
+                    pendingConfirmation = nil
+                    performConfirmed(action)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingConfirmation = nil }
+        } message: {
+            Text(pendingConfirmation?.message ?? "")
+        }
     }
 
     private var compactBody: some View {
@@ -82,32 +171,55 @@ struct TanHealthView: View {
                 LabeledContent("Trust origin", value: package.origin == "Noko Original" ? "Noko-Tan" : package.origin)
                 if let record = tans.trustRecord(for: package.id) {
                     LabeledContent("Approved code", value: shortHash(record.contentHash))
-                    if let reason = record.quarantineReason {
-                        Text(reason)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    LabeledContent("Approval", value: record.enabled ? "Enabled" : (record.isApproved ? "Approved, disabled" : "Not approved"))
+                    if let category = record.lastFailureCategory {
+                        HStack(spacing: 4) {
+                            Text("Last issue")
+                            Spacer()
+                            Text(category.displayName)
+                            if let date = record.lastFailureAt {
+                                Text("·")
+                                Text(date, style: .relative)
+                            }
+                        }
+                    } else if let reason = record.quarantineReason {
+                        Text(reason).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if let lastFailure {
-                    HStack(spacing: 4) {
-                        Text("Last issue")
-                        Spacer()
-                        Text(lastFailure.event.rawValue)
-                        Text("·")
-                        Text(lastFailure.date, style: .relative)
-                    }
+                if package.manifest.target == .page {
+                    Label(
+                        "Page-world code runs beside Discord JavaScript and is not strongly sandboxed.",
+                        systemImage: "exclamationmark.shield"
+                    )
+                    .foregroundStyle(.orange)
+                } else {
+                    Label(
+                        "This Tan runs in an isolated page world under NokoCord’s declared contract.",
+                        systemImage: "info.circle"
+                    )
+                    .foregroundStyle(.secondary)
                 }
             }
             .font(.caption)
 
             HStack(spacing: 8) {
+                if TanTrustDiff.make(package: package, record: tans.trustRecord(for: package.id)).requiresApproval {
+                    Button("Review trust changes") { showingTrustDiff = true }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
                 if let action = presentation.action {
-                    Button(actionTitle(for: action)) { perform(action) }
+                    Button(actionTitle(for: action)) { requestConfirmation(for: action) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
                 if presentation.state == .failedDegraded || presentation.state == .quarantined {
-                    Button("Start Safe Mode") { tans.setSafeMode(true) }
+                    Button("Start Safe Mode") { pendingConfirmation = .safeMode }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                if tans.canRestorePrevious(package.id) {
+                    Button("Restore Previous Version") { pendingConfirmation = .restore }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
@@ -143,12 +255,6 @@ struct TanHealthView: View {
         }
     }
 
-    private var lastFailure: TanDiagnostic? {
-        tans.diagnostics.last {
-            $0.tanID == package.id && ($0.event == .failed || $0.event == .rejected)
-        }
-    }
-
     private func actionTitle(for action: TanHealthAction) -> String {
         switch action {
         case .approveAndEnable: "Approve & Enable"
@@ -160,16 +266,29 @@ struct TanHealthView: View {
         }
     }
 
-    private func perform(_ action: TanHealthAction) {
+    private func requestConfirmation(for action: TanHealthAction) {
         switch action {
-        case .approveAndEnable, .enable, .retry:
+        case .approveAndEnable: pendingConfirmation = .approve
+        case .enable: pendingConfirmation = .enable
+        case .disable: pendingConfirmation = .disable
+        case .retry: pendingConfirmation = .retry
+        case .recover: pendingConfirmation = .recover
+        case .reload: onReload()
+        }
+    }
+
+    private func performConfirmed(_ action: ConfirmationAction) {
+        switch action {
+        case .approve, .enable, .retry:
             tans.setEnabled(package.id, true)
         case .disable:
             tans.setEnabled(package.id, false)
         case .recover:
             tans.recoverQuarantined(package.id)
-        case .reload:
-            onReload()
+        case .safeMode:
+            tans.setSafeMode(true)
+        case .restore:
+            tans.restorePreviousVersion(package.id)
         }
     }
 

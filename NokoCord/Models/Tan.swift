@@ -64,7 +64,10 @@ struct TanPackage: Codable, Equatable, Identifiable {
     }
     func validate() throws {
         try manifest.validate()
-        guard origin.count <= 200, (javascript?.utf8.count ?? 0) + (css?.utf8.count ?? 0) <= 512 * 1024,
+        guard !origin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              origin.count <= 200,
+              !origin.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              (javascript?.utf8.count ?? 0) + (css?.utf8.count ?? 0) <= 512 * 1024,
               manifest.target == .css ? javascript == nil : javascript != nil,
               manifest.stylesheet == nil || css != nil else { throw TanError.invalid("Invalid or oversized Tan content") }
     }

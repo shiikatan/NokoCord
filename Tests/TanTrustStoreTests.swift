@@ -57,6 +57,18 @@ final class TanTrustStoreTests: XCTestCase {
         XCTAssertEqual(invalidated.lastKnownGoodVersion, original.manifest.version)
     }
 
+    func testEnabledStateCannotBeAppliedToAChangedPackageIdentity() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = package()
+        let changed = package(version: "1.0.1", css: ".changed {}")
+        let store = try TanTrustStore(fileURL: fileURL(in: root))
+
+        try store.approve(original, at: Date(timeIntervalSince1970: 100))
+        XCTAssertThrowsError(try store.setEnabled(changed, false))
+        XCTAssertTrue(try XCTUnwrap(store.record(for: original.id)).matches(original))
+    }
+
     func testMalformedPrimaryStorageRecoversFromPreviousValidSnapshot() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -141,7 +153,7 @@ final class TanTrustStoreTests: XCTestCase {
 
         let quarantined = try XCTUnwrap(store.record(for: original.id))
         XCTAssertEqual(quarantined.health, .quarantined)
-        XCTAssertEqual(quarantined.quarantineReason, "startup failure")
+        XCTAssertEqual(quarantined.quarantineReason, TanFailureCategory.startup.displayName)
         XCTAssertFalse(quarantined.matches(original))
 
         let restarted = try TanTrustStore(fileURL: fileURL(in: root))
