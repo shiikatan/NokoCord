@@ -17,9 +17,17 @@ Per `AGENTS.md`:
 
 ---
 
-## 2. Command-Line Build System (No Xcode Required)
+## 2. Build and release identity
 
-NokoCord does not require the full Xcode IDE to compile. The entire project builds directly from the command line using Apple's Command Line Tools and `swiftc`.
+The command-line build and Xcode project are two views of the same source. The
+release identity is canonical in `Config/Edition.xcconfig`; do not copy a
+version or build number into a script, helper plist, or release note. The
+release gate compares CLI and Xcode identities before packaging.
+
+The project may be built from the command line using Apple's Command Line Tools
+and `swiftc`, but a host missing XCTest, xcstringstool, or the full Xcode SDK
+cannot claim a complete verification pass. Record the exact missing component
+and continue only with independent checks.
 
 ### The Build Script (`scripts/build.sh`)
 Execute the full build pipeline:
@@ -41,20 +49,19 @@ sh scripts/build.sh
 5. **[3/6] Resources**: copies the branding mark, builds `AppIcon.icns` from
    `NokoCord/Assets.xcassets/AppIcon.appiconset`, and copies `Assets.xcassets`
    and `Localizable.xcstrings`.
-6. **[4/6] Info.plist**: generates both plists — the app's (edition identity
-   `NokoCord Chiaki`, bundle id `com.shiikatan.nokocord.chiaki`, public version
-   `C1.2.0`, the `nokocord` URL scheme, camera/microphone/Apple Events usage
-   strings) and the helper's.
+6. **[4/6] Info.plist**: generates both plists from the canonical edition
+   metadata — the app's edition identity, bundle ID, public version, URL scheme,
+   and usage strings, plus the helper's matching identity.
 7. **[5/6] Signing**: signs inside-out — the helper ad-hoc without the runtime,
    then the app ad-hoc with the hardened runtime and the sandbox entitlements
    from `Config/NokoCord.entitlements`.
 8. **[6/6] Verification**: runs `scripts/verify-release.py` on the finished
    bundle and refuses to ship if any check fails.
 
-The Xcode project builds the same app for development, but it does **not**
-build the Apple Music helper; only `scripts/build.sh` assembles the shipping
-bundle. `scripts/verify.sh` therefore verifies the artifact `build.sh`
-produces, not the Xcode one.
+The release checklist requires the Xcode Debug/Release and CLI paths to agree
+on app/helper identity and deployment target. The shipping bundle is assembled
+by `scripts/build.sh`; `scripts/verify.sh` verifies that bundle and the Xcode
+build outputs rather than treating either path as an unreviewed substitute.
 
 ---
 
@@ -133,7 +140,8 @@ python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
   * Enable Developer Mode in Settings or via Tans Inspector (`⌘T`).
   * Right-click anywhere in Discord to access Safari Web Inspector.
 * **Safe Mode Launch**:
-  Launch NokoCord with `--safe-mode` to completely bypass all Tans and custom user scripts while keeping authentication intact:
+  Launch NokoCord with `--safe-mode` to bypass all Tans, custom user scripts,
+  message handlers, and app bridge handlers while keeping authentication intact:
   ```bash
   open build/NokoCord.app --args --safe-mode
   ```

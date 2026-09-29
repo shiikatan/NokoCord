@@ -43,9 +43,10 @@ NokoTan.register({
 An optional `stop()` method also runs during cleanup. Async starts are unsupported
 in schema 1. CSS is removed automatically. JavaScript authors must clean up their
 own effects; arbitrary code cannot be automatically reversed. Page modifications
-and packages declaring `requiresReload` need a reload when changed. Safe Mode
-reloads the same view without any Tan scripts and retains the login data store.
-It is also available at launch with `--safe-mode`.
+and packages declaring `requiresReload` need a reload when changed. Safe Mode is
+a hard boundary: it reloads the same view with zero Noko user scripts, message
+handlers, app bridge handlers, or page hooks while retaining the login data
+store. It is also available at launch with `--safe-mode`.
 
 ## Trust and native boundary
 
@@ -53,16 +54,20 @@ All imported code requires trust. Isolated worlds separate JavaScript globals,
 not the shared DOM. Page-world Tans execute alongside Discord and are not a
 strong sandbox. This runtime does not make malicious code safe. Do not import
 code that reads credentials, automates account activity or exfiltrates content.
+Approval is bound to the complete content hash, target, capability list, and
+trust origin. Changed code must be approved again; it cannot inherit consent
+from the old identifier. See `TAN_TRUST_MODEL.md` for atomic replacement,
+quarantine, rollback, and health-state behavior.
 
-The only native capability is `appearance.read`, available only to isolated
-packages that declare it. `NokoTan.appearance()` returns a promise containing
-`{appearance: "dark" | "light"}`. Enabling a package grants its declared, supported
-capability; replacing its code disables it and requires another enable decision.
-There is no token, cookie, storage, filesystem, network, clipboard, message-send
-or account API. Requests validate the view, main frame, origin, package identity,
-active enable state and capability. Each handler accepts at most 20 requests/sec.
-Diagnostics store only bounded package identifiers and lifecycle enums, never
-raw JavaScript errors, page text or bridge payloads.
+The only supported third-party native capability is `appearance.read`, available
+only to isolated packages that declare it. `NokoTan.appearance()` returns a
+promise containing `{appearance: "dark" | "light"}`. Requests validate the
+document, main frame, origin, package identity, content hash, active approval,
+declared capability, payload and rate limit. Page-world Tans cannot invoke
+mutating native actions. There is no token, cookie, storage, filesystem,
+network, clipboard, message-send or account API. Diagnostics store only bounded
+package identifiers and lifecycle categories, never raw JavaScript errors, page
+text or bridge payloads.
 
 ## Developer workflow
 
@@ -87,10 +92,11 @@ require edition-specific validation.
 `start(api)` can use `api.listen(target, type, listener, options)`,
 `api.interval(callback, milliseconds)`, `api.timeout(callback, milliseconds)`,
 `api.mount(element, parent)` and `api.onCleanup(dispose)`. These register at most
-256 owned disposers per Tan. Disable and failed start run all disposers even when
-a custom cleanup throws, then drop lifecycle/DOM references. Calls return a
-function for early disposal. Timer helpers are optional; bundled Noko-Tans do not
-poll at idle. Resources created outside these helpers still need explicit cleanup.
+256 owned disposers per Tan and are subject to timer, observer, mount and bridge
+budgets. Disable and failed start run all disposers even when a custom cleanup
+throws, then drop lifecycle/DOM references. Calls return a function for early
+disposal. Timer helpers are optional; bundled Noko-Tans do not poll at idle.
+Resources created outside these helpers still need explicit cleanup.
 
 Native bridge messages use exactly `{type: "status", state: "started" | "stopped" |
 "failed"}` or `{type: "capability", capability: "appearance.read"}`. Extra fields,
