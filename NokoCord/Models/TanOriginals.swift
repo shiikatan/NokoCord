@@ -60,6 +60,36 @@ extension TanPackage {
             css: nil,
             origin: "Noko-Tan"
         ),
+        TanPackage(
+            manifest: TanManifest(
+                id: "noko.focus-shield",
+                name: "Focus Shield",
+                version: "1.0.0",
+                description: "Redact selected Discord surfaces while you stream or share your screen.",
+                authors: ["shiikatan"],
+                target: .isolated,
+                entry: "main.js",
+                stylesheet: "style.css"
+            ),
+            javascript: focusShieldJS,
+            css: focusShieldCSS,
+            origin: "Noko-Tan"
+        ),
+        TanPackage(
+            manifest: TanManifest(
+                id: "noko.code-workbench",
+                name: "Code Workbench",
+                version: "1.0.0",
+                description: "Make Discord code blocks easier to read, collapse, and copy.",
+                authors: ["shiikatan"],
+                target: .isolated,
+                entry: "main.js",
+                stylesheet: "style.css"
+            ),
+            javascript: codeWorkbenchJS,
+            css: codeWorkbenchCSS,
+            origin: "Noko-Tan"
+        ),
         appleMusicRPC,
     ]
 
@@ -81,6 +111,190 @@ extension TanPackage {
         css: nil,
         origin: "Noko-Tan"
     )
+
+    private static let focusShieldJS = ##"""
+NokoTan.register({
+  start(api) {
+    const root = document.documentElement;
+    const indicator = document.createElement('button');
+    indicator.type = 'button';
+    indicator.setAttribute('data-noko-focus-shield-indicator', '');
+    indicator.setAttribute('aria-live', 'polite');
+    indicator.setAttribute('aria-pressed', 'true');
+    const setEnabled = enabled => {
+      root.toggleAttribute('data-noko-focus-shield', enabled);
+      indicator.setAttribute('aria-pressed', String(enabled));
+      indicator.textContent = enabled ? 'Privacy shield on' : 'Privacy shield off';
+      indicator.title = enabled ? 'Turn off privacy shield' : 'Turn on privacy shield';
+    };
+    setEnabled(true);
+    api.listen(indicator, 'click', () => setEnabled(!root.hasAttribute('data-noko-focus-shield')));
+    api.mount(indicator);
+    api.onCleanup(() => {
+      root.removeAttribute('data-noko-focus-shield');
+      indicator.remove();
+    });
+  }
+});
+"""##
+
+    private static let focusShieldCSS = ##"""
+[data-noko-focus-shield-indicator] {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 2147483000;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: CanvasText;
+  background: Canvas;
+  font: 600 11px system-ui, sans-serif;
+  box-shadow: 0 4px 16px #0004;
+  cursor: pointer;
+}
+
+html[data-noko-focus-shield] :is(
+  nav[aria-label*="server" i],
+  nav[aria-label*="direct message" i],
+  [aria-label*="activity" i],
+  [class*="messageContent_"],
+  [class*="headerText_"],
+  [class*="username_"],
+  [class*="avatar_"]
+) {
+  filter: blur(8px) !important;
+  user-select: none !important;
+}
+
+html[data-noko-focus-shield] [data-noko-focus-shield-indicator] {
+  border-color: #e8b44a;
+  background: #3a2b0d;
+  color: #ffe6a8;
+}
+"""##
+
+    private static let codeWorkbenchJS = ##"""
+NokoTan.register({
+  start(api) {
+    const marked = new Set();
+    let cancelCopyReset = null;
+    const decorate = root => {
+      if (!root || typeof root.querySelectorAll !== 'function') return;
+      const blocks = [];
+      if (root.matches?.('pre > code')) blocks.push(root.parentElement);
+      root.querySelectorAll('pre > code').forEach(code => blocks.push(code.parentElement));
+      for (const pre of blocks.slice(0, 64)) {
+        if (!(pre instanceof HTMLElement) || marked.has(pre)) continue;
+        if (pre.closest('[contenteditable="true"], [role="textbox"], textarea, input')) continue;
+        const code = pre.querySelector(':scope > code');
+        if (!code) continue;
+        const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9) || 'code';
+        const copy = document.createElement('button');
+        const collapse = document.createElement('button');
+        copy.type = 'button'; collapse.type = 'button';
+        copy.setAttribute('data-noko-code-copy', '');
+        collapse.setAttribute('data-noko-code-collapse', '');
+        copy.textContent = 'Copy'; collapse.textContent = 'Collapse';
+        copy.setAttribute('aria-label', 'Copy code block');
+        collapse.setAttribute('aria-label', 'Collapse code block');
+        pre.setAttribute('data-noko-code-workbench', '');
+        pre.setAttribute('data-noko-code-language', language);
+        pre.append(copy, collapse);
+        marked.add(pre);
+      }
+    };
+    const copyCode = async button => {
+      const pre = button.closest('pre[data-noko-code-workbench]');
+      const code = pre?.querySelector(':scope > code');
+      if (!pre || !code || !navigator.clipboard?.writeText) return;
+      try {
+        await navigator.clipboard.writeText(code.textContent || '');
+        button.textContent = 'Copied';
+        cancelCopyReset?.();
+        cancelCopyReset = api.timeout(() => { if (button.isConnected) button.textContent = 'Copy'; }, 1200);
+      } catch { button.textContent = 'Copy failed'; }
+    };
+    const toggleCode = button => {
+      const pre = button.closest('pre[data-noko-code-workbench]');
+      const code = pre?.querySelector(':scope > code');
+      if (!pre || !code) return;
+      const collapsed = pre.toggleAttribute('data-noko-code-collapsed');
+      code.hidden = collapsed;
+      button.textContent = collapsed ? 'Expand' : 'Collapse';
+    };
+    api.listen(document, 'click', event => {
+      const target = event.target instanceof Element ? event.target : null;
+      const copy = target?.closest('[data-noko-code-copy]');
+      const collapse = target?.closest('[data-noko-code-collapse]');
+      if (copy) { event.preventDefault(); void copyCode(copy); }
+      else if (collapse) { event.preventDefault(); toggleCode(collapse); }
+    }, true);
+    const observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) for (const node of mutation.addedNodes) {
+        if (node.nodeType === 1) decorate(node);
+      }
+    });
+    const observeRoot = document.body || document.documentElement;
+    if (observeRoot) observer.observe(observeRoot, {childList: true, subtree: true});
+    decorate(document);
+    api.onCleanup(() => {
+      cancelCopyReset?.();
+      cancelCopyReset = null;
+      observer.disconnect();
+      for (const pre of marked) {
+        pre.removeAttribute('data-noko-code-workbench');
+        pre.removeAttribute('data-noko-code-language');
+        pre.removeAttribute('data-noko-code-collapsed');
+        pre.querySelector('[data-noko-code-copy]')?.remove();
+        pre.querySelector('[data-noko-code-collapse]')?.remove();
+      }
+      marked.clear();
+    });
+  }
+});
+"""##
+
+    private static let codeWorkbenchCSS = ##"""
+pre[data-noko-code-workbench] {
+  position: relative;
+  overflow: auto;
+  max-width: 100%;
+  padding: 30px 12px 12px !important;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+pre[data-noko-code-workbench]::before {
+  content: attr(data-noko-code-language);
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+  font: 600 10px system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+pre[data-noko-code-workbench] > [data-noko-code-copy],
+pre[data-noko-code-workbench] > [data-noko-code-collapse] {
+  position: absolute;
+  top: 5px;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 7px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font: 500 11px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+pre[data-noko-code-workbench] > [data-noko-code-copy] { right: 8px; }
+pre[data-noko-code-workbench] > [data-noko-code-collapse] { right: 58px; }
+pre[data-noko-code-workbench][data-noko-code-collapsed] { min-height: 32px; }
+"""##
 
     private static let clearFocusJS = ##"""
 NokoTan.register({
