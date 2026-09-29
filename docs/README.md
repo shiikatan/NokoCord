@@ -18,6 +18,7 @@ NokoCord is a privacy-first, native macOS client wrapper for Discord built with 
 | **[Discord Compatibility Contract](DISCORD_COMPATIBILITY.md)** | Route gating, Safe Mode's zero-script boundary, bounded probes, lifecycle generations, and recovery behavior. |
 | **[Tan Trust Model](TAN_TRUST_MODEL.md)** | Hash-bound approval, atomic replacement, quarantine, rollback, capabilities, and health states. |
 | **[Developer & Agent Runbook](DEVELOPER_GUIDE.md)** | CLI build pipeline (`scripts/build.sh`), release verification, debugging workflows, and critical technical pitfalls for AI agents. |
+| **[C1.3.5 Release Checklist](C1.3.5_CHECKLIST.md)** | Confidence, recovery, compatibility, call/music, accessibility, build-parity, and publication gates. |
 
 ---
 
