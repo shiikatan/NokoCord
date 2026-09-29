@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 // NokoMusicWatch is the small unsandboxed companion NokoCord launches to read
 // Apple Music's own playback state. Apple Events to Music require a consent
@@ -93,16 +94,53 @@ private let ownerBundleID: String = {
     return defaultOwnerBundleID
 }()
 
-private func isOwnerRunning() -> Bool {
-    !NSRunningApplication.runningApplications(withBundleIdentifier: ownerBundleID).isEmpty
+/// LaunchServices may activate an already-running helper, but a second copy
+/// can still be started directly. A non-blocking OS file lock makes ownership
+/// explicit and prevents duplicate pollers from broadcasting competing state.
+private final class SingleHelperLease {
+    private let descriptor: Int32
+
+    init?(ownerBundleID: String) {
+        let safeOwner = ownerBundleID.map { character in
+            character.isLetter || character.isNumber || character == "." || character == "-" ? character : "_"
+        }
+        let lockURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NokoMusicWatch-\(String(safeOwner)).lock")
+        let descriptor = lockURL.path.withCString { path in
+            Darwin.open(path, O_CREAT | O_RDWR | O_NOFOLLOW, mode_t(0o600))
+        }
+        guard descriptor >= 0 else {
+            if descriptor >= 0 { Darwin.close(descriptor) }
+            return nil
+        }
+        var lock = Darwin.flock(l_start: 0,
+                                l_len: 0,
+                                l_pid: 0,
+                                l_type: Int16(F_WRLCK),
+                                l_whence: Int16(SEEK_SET))
+        guard Darwin.fcntl(descriptor, F_SETLK, &lock) == 0 else {
+            Darwin.close(descriptor)
+            return nil
+        }
+        self.descriptor = descriptor
+    }
+
+    deinit {
+        var lock = Darwin.flock(l_start: 0,
+                                l_len: 0,
+                                l_pid: 0,
+                                l_type: Int16(F_UNLCK),
+                                l_whence: Int16(SEEK_SET))
+        _ = Darwin.fcntl(descriptor, F_SETLK, &lock)
+        Darwin.close(descriptor)
+    }
 }
 
-/// Evidence for the failure report: a sandboxed helper is handed a container
-/// home and an APP_SANDBOX_CONTAINER_ID, which is exactly what stops it sending
-/// Apple Events to Music.
-private var sandboxDescription: String {
-    let container = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"]
-    return "container=\(container ?? "none") home=\(NSHomeDirectory())"
+private let helperLease = SingleHelperLease(ownerBundleID: ownerBundleID)
+guard helperLease != nil else { exit(EXIT_SUCCESS) }
+
+private func isOwnerRunning() -> Bool {
+    !NSRunningApplication.runningApplications(withBundleIdentifier: ownerBundleID).isEmpty
 }
 
 private func post(_ body: [String: Any]) {
@@ -153,7 +191,10 @@ private func poll() {
               "album": playback.album,
               "duration": playback.duration,
               "position": playback.position,
-              "databaseID": playback.databaseID])
+              "databaseID": playback.databaseID,
+              // This helper reports a measured position, but an exact
+              // user-facing claim remains behind the signed-build gate.
+              "positionAccuracy": "estimated"])
     case .stopped:
         guard shouldBroadcast("stopped") else { return }
         post(["state": "stopped"])
@@ -168,7 +209,7 @@ private func poll() {
         // to know, otherwise the status just quietly stops updating.
         let key = "failed|\(code)"
         guard shouldBroadcast(key) else { return }
-        post(["state": "unavailable", "code": code, "sandbox": sandboxDescription])
+        post(["state": "unavailable", "code": code])
     }
 }
 

@@ -11,6 +11,7 @@ public enum AppleMusicPositionAccuracy: String, Equatable, Sendable {
 public enum AppleMusicHelperStatus: String, Equatable, Sendable {
     case notStarted
     case connected
+    case notRunning
     case missing
     case accessDenied
     case unsupported
@@ -20,6 +21,8 @@ public enum AppleMusicHelperStatus: String, Equatable, Sendable {
         switch self {
         case .notStarted, .connected:
             return nil
+        case .notRunning:
+            return "Apple Music is not running. Playback will appear when Music starts."
         case .missing:
             return "Apple Music helper is unavailable. NokoCord will retry automatically."
         case .accessDenied:
@@ -35,11 +38,15 @@ public enum AppleMusicHelperStatus: String, Equatable, Sendable {
 public struct AppleMusicPlaybackEvent: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case playing(track: AppleMusicTrack, accuracy: AppleMusicPositionAccuracy)
+        case seeked(track: AppleMusicTrack, accuracy: AppleMusicPositionAccuracy)
+        case repeated(track: AppleMusicTrack, accuracy: AppleMusicPositionAccuracy)
+        case nextTrack(track: AppleMusicTrack, accuracy: AppleMusicPositionAccuracy)
         case paused(track: AppleMusicTrack?, accuracy: AppleMusicPositionAccuracy)
         case stopped(track: AppleMusicTrack?, accuracy: AppleMusicPositionAccuracy)
         case notRunning
         case clear
         case helperDisconnected
+        case helperUnavailable
         case helperDenied
         case helperUnsupported
         case helperStale
@@ -56,9 +63,17 @@ public struct AppleMusicPlaybackEvent: Equatable, Sendable {
     }
 }
 
+public enum AppleMusicPlaybackState: String, Equatable, Sendable {
+    case idle
+    case playing
+    case paused
+    case stopped
+}
+
 public struct AppleMusicPlaybackSnapshot: Equatable, Sendable {
     public let currentTrack: AppleMusicTrack?
     public let helperStatus: AppleMusicHelperStatus
+    public let playbackState: AppleMusicPlaybackState
     public let positionAccuracy: AppleMusicPositionAccuracy
     public let lastEventAt: Date?
     public let generation: UInt64
@@ -66,12 +81,14 @@ public struct AppleMusicPlaybackSnapshot: Equatable, Sendable {
 
     public init(currentTrack: AppleMusicTrack? = nil,
                 helperStatus: AppleMusicHelperStatus = .notStarted,
+                playbackState: AppleMusicPlaybackState = .idle,
                 positionAccuracy: AppleMusicPositionAccuracy = .unavailable,
                 lastEventAt: Date? = nil,
                 generation: UInt64 = 0,
                 message: String? = nil) {
         self.currentTrack = currentTrack
         self.helperStatus = helperStatus
+        self.playbackState = playbackState
         self.positionAccuracy = positionAccuracy
         self.lastEventAt = lastEventAt
         self.generation = generation
@@ -99,36 +116,52 @@ public struct AppleMusicPlaybackReducer: Sendable {
         var next = snapshot
         next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
                                           helperStatus: next.helperStatus,
+                                          playbackState: next.playbackState,
                                           positionAccuracy: next.positionAccuracy,
                                           lastEventAt: event.timestamp,
                                           generation: event.generation,
                                           message: next.message)
 
         switch event.kind {
-        case .playing(let track, let accuracy):
+        case let .playing(track, accuracy),
+             let .seeked(track, accuracy),
+             let .repeated(track, accuracy),
+             let .nextTrack(track, accuracy):
             next = AppleMusicPlaybackSnapshot(currentTrack: track,
                                               helperStatus: .connected,
+                                              playbackState: .playing,
                                               positionAccuracy: accuracy,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation)
         case .paused(let track, let accuracy):
-            next = AppleMusicPlaybackSnapshot(currentTrack: track ?? next.currentTrack,
+            let pausedTrack = track?.withPlayerState(.paused) ?? next.currentTrack?.withPlayerState(.paused)
+            next = AppleMusicPlaybackSnapshot(currentTrack: pausedTrack,
                                               helperStatus: .connected,
+                                              playbackState: .paused,
                                               positionAccuracy: accuracy,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation)
         case .stopped(let track, let accuracy):
-            next = AppleMusicPlaybackSnapshot(currentTrack: track ?? next.currentTrack,
-                                              helperStatus: next.helperStatus,
+            let stoppedTrack = track?.withPlayerState(.stopped) ?? next.currentTrack?.withPlayerState(.stopped)
+            next = AppleMusicPlaybackSnapshot(currentTrack: stoppedTrack,
+                                              helperStatus: .connected,
+                                              playbackState: .stopped,
                                               positionAccuracy: accuracy,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation,
                                               message: next.helperStatus.userMessage)
         case .notRunning:
-            break
+            next = AppleMusicPlaybackSnapshot(currentTrack: nil,
+                                              helperStatus: .notRunning,
+                                              playbackState: .idle,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: AppleMusicHelperStatus.notRunning.userMessage)
         case .clear:
             next = AppleMusicPlaybackSnapshot(currentTrack: nil,
                                               helperStatus: next.helperStatus,
+                                              playbackState: .idle,
                                               positionAccuracy: .unavailable,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation,
@@ -136,6 +169,15 @@ public struct AppleMusicPlaybackReducer: Sendable {
         case .helperDisconnected:
             next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
                                               helperStatus: .missing,
+                                              playbackState: next.playbackState,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: AppleMusicHelperStatus.missing.userMessage)
+        case .helperUnavailable:
+            next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
+                                              helperStatus: .missing,
+                                              playbackState: next.playbackState,
                                               positionAccuracy: .unavailable,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation,
@@ -143,6 +185,7 @@ public struct AppleMusicPlaybackReducer: Sendable {
         case .helperDenied:
             next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
                                               helperStatus: .accessDenied,
+                                              playbackState: next.playbackState,
                                               positionAccuracy: .unavailable,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation,
@@ -150,6 +193,7 @@ public struct AppleMusicPlaybackReducer: Sendable {
         case .helperUnsupported:
             next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
                                               helperStatus: .unsupported,
+                                              playbackState: next.playbackState,
                                               positionAccuracy: .unavailable,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation,
@@ -157,6 +201,7 @@ public struct AppleMusicPlaybackReducer: Sendable {
         case .helperStale:
             next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
                                               helperStatus: .stale,
+                                              playbackState: next.playbackState,
                                               positionAccuracy: .unavailable,
                                               lastEventAt: event.timestamp,
                                               generation: event.generation,
@@ -204,6 +249,53 @@ public struct AppleMusicWatcherReconnectPolicy: Equatable, Sendable {
     }
 }
 
+/// Keeps the helper alive only while its owning NokoCord process exists. The
+/// helper's process timer and this model share the same grace-period rule so
+/// termination behavior remains bounded and testable without launching apps.
+public struct AppleMusicWatcherOwnerPolicy: Equatable, Sendable {
+    public let gracePeriod: TimeInterval
+    public private(set) var missingSince: Date?
+
+    public init(gracePeriod: TimeInterval = 30) {
+        self.gracePeriod = max(0, gracePeriod)
+    }
+
+    public mutating func shouldTerminate(ownerIsRunning: Bool, at date: Date) -> Bool {
+        guard !ownerIsRunning else {
+            missingSince = nil
+            return false
+        }
+        let firstMissing = missingSince ?? date
+        missingSince = firstMissing
+        return date.timeIntervalSince(firstMissing) >= gracePeriod
+    }
+}
+
+/// A process-local model of the single-helper lease. The real helper also
+/// takes an OS file lock; this model keeps ownership semantics covered by the
+/// same focused test suite as the reducer.
+public struct AppleMusicWatcherOwnership: Equatable, Sendable {
+    public private(set) var ownerID: String?
+
+    public init(ownerID: String? = nil) {
+        self.ownerID = ownerID
+    }
+
+    @discardableResult
+    public mutating func acquire(ownerID: String) -> Bool {
+        guard self.ownerID == nil else { return false }
+        self.ownerID = ownerID
+        return true
+    }
+
+    @discardableResult
+    public mutating func release(ownerID: String) -> Bool {
+        guard self.ownerID == ownerID else { return false }
+        self.ownerID = nil
+        return true
+    }
+}
+
 /// The notification payload emitted by NokoMusicWatch. Older helpers may omit
 /// sequence and timestamp, but an explicitly malformed timestamp is rejected.
 public struct AppleMusicWatcherPayload: Equatable, Sendable {
@@ -220,6 +312,7 @@ public struct AppleMusicWatcherPayload: Equatable, Sendable {
     public let state: State
     public let sequence: UInt64?
     public let timestamp: Date?
+    public let reportedPositionAccuracy: AppleMusicPositionAccuracy?
 
     public init?(userInfo: [AnyHashable: Any]) {
         guard let rawState = userInfo["state"] as? String,
@@ -247,6 +340,11 @@ public struct AppleMusicWatcherPayload: Equatable, Sendable {
             sequence = rawSequence
         } else {
             sequence = nil
+        }
+        if let rawAccuracy = userInfo["positionAccuracy"] as? String {
+            reportedPositionAccuracy = AppleMusicPositionAccuracy(rawValue: rawAccuracy)
+        } else {
+            reportedPositionAccuracy = nil
         }
         self.state = state
     }
@@ -337,13 +435,11 @@ public final class AppleMusicRPCService: NSObject {
     public func refresh() {
         guard isEnabled else { return }
         guard detector.isMusicAppRunning() else {
-            let snapshot = reduce(.notRunning, at: Date()) ?? reducer.snapshot
-            scheduleStop(for: snapshot.generation, after: Self.stopGracePeriod)
+            _ = reduce(.notRunning, at: Date())
             return
         }
         guard let track = detector.getCurrentTrack() else {
-            let snapshot = reduce(.notRunning, at: Date()) ?? reducer.snapshot
-            scheduleStop(for: snapshot.generation, after: Self.stopGracePeriod)
+            _ = reduce(.notRunning, at: Date())
             return
         }
         if track.playerState.isPlaying {
@@ -377,6 +473,7 @@ public final class AppleMusicRPCService: NSObject {
         reducer = AppleMusicPlaybackReducer()
         eventGeneration = 0
         watcherReconnect = AppleMusicWatcherReconnectPolicy()
+        watcherLastSeen = nil
         refreshLastFMStatus()
         observePlayerNotifications()
         observeMusicApplication()
@@ -399,13 +496,16 @@ public final class AppleMusicRPCService: NSObject {
     /// the activity's start and end timestamps, so no position ticker is needed.
     private func show(_ track: AppleMusicTrack,
                       accuracy: AppleMusicPositionAccuracy,
-                      at timestamp: Date = Date()) {
+                      at timestamp: Date = Date(),
+                      generation: UInt64? = nil,
+                      preserveWatcherPosition: Bool = true) {
         let previousTrack = currentTrack
         var updated = track
         if previousTrack?.id == track.id {
             updated.artworkURL = currentTrack?.artworkURL
             updated.artistImageURL = currentTrack?.artistImageURL
-            if accuracy == .estimated,
+            if preserveWatcherPosition,
+               accuracy == .estimated,
                let watcherLastSeen,
                Date().timeIntervalSince(watcherLastSeen) < 20 {
                 // Keep the watcher's position; the notification's elapsed time
@@ -414,7 +514,9 @@ public final class AppleMusicRPCService: NSObject {
             }
         }
 
-        guard let snapshot = reduce(.playing(track: updated, accuracy: accuracy), at: timestamp),
+        guard let snapshot = reduce(.playing(track: updated, accuracy: accuracy),
+                                    at: timestamp,
+                                    generation: generation),
               let adopted = snapshot.currentTrack else { return }
 
         cancelScheduledStop()
@@ -478,6 +580,7 @@ public final class AppleMusicRPCService: NSObject {
                         generation: UInt64? = nil) -> AppleMusicPlaybackSnapshot? {
         let eventGeneration: UInt64
         if let generation {
+            self.eventGeneration = max(self.eventGeneration, generation)
             eventGeneration = generation
         } else {
             self.eventGeneration &+= 1
@@ -576,8 +679,10 @@ public final class AppleMusicRPCService: NSObject {
         return true
     }
 
-    /// Adopts what the helper saw. Positions are exact, so this is also the
-    /// path that re-anchors the seek bar and catches a repeating track.
+    /// Adopts what the helper saw. The helper's measured position is useful for
+    /// re-anchoring seeks and repeats, but this unsigned distribution does not
+    /// claim exact position to the user until the signed-build manual gate has
+    /// passed.
     private func applyWatcherBroadcast(_ userInfo: [AnyHashable: Any]?) {
         guard let userInfo,
               let payload = AppleMusicWatcherPayload(userInfo: userInfo) else { return }
@@ -588,23 +693,35 @@ public final class AppleMusicRPCService: NSObject {
         switch payload.state {
         case .playing:
             guard let track = AppleMusicTrack(watcherBroadcast: userInfo) else { return }
-            show(track, accuracy: .exact, at: timestamp)
+            show(track,
+                 accuracy: .estimated,
+                 at: timestamp,
+                 generation: payload.sequence,
+                 preserveWatcherPosition: false)
         case .paused:
             let paused = currentTrack?.withPlayerState(.paused)
-            let snapshot = reduce(.paused(track: paused, accuracy: .exact), at: timestamp)
+            let snapshot = reduce(.paused(track: paused, accuracy: .estimated),
+                                  at: timestamp,
+                                  generation: payload.sequence)
             if let snapshot {
                 scheduleStop(for: snapshot.generation, after: Self.pauseGracePeriod)
             }
-        case .stopped, .notRunning:
+        case .stopped:
             let stopped = currentTrack?.withPlayerState(.stopped)
-            let snapshot = reduce(.stopped(track: stopped, accuracy: .exact), at: timestamp)
+            let snapshot = reduce(.stopped(track: stopped, accuracy: .estimated),
+                                  at: timestamp,
+                                  generation: payload.sequence)
             if let snapshot {
                 scheduleStop(for: snapshot.generation, after: Self.stopGracePeriod)
             }
-        case .denied, .unavailable:
-            _ = reduce(.helperDenied, at: timestamp)
+        case .notRunning:
+            _ = reduce(.notRunning, at: timestamp, generation: payload.sequence)
+        case .denied:
+            _ = reduce(.helperDenied, at: timestamp, generation: payload.sequence)
+        case .unavailable:
+            _ = reduce(.helperUnavailable, at: timestamp, generation: payload.sequence)
         case .unsupported:
-            _ = reduce(.helperUnsupported, at: timestamp)
+            _ = reduce(.helperUnsupported, at: timestamp, generation: payload.sequence)
         }
     }
 

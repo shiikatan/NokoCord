@@ -3,6 +3,8 @@ import SwiftUI
 struct CallReadinessView: View {
     let readiness: CallReadiness
     var onRetry: (() -> Void)? = nil
+    var teardownState: CallTeardownState? = nil
+    var onRequestLeave: (() -> Void)? = nil
 
     var body: some View {
         ScrollView {
@@ -14,6 +16,9 @@ struct CallReadinessView: View {
                     blockers
                 }
                 capture
+                if let teardownState {
+                    teardown(teardownState)
+                }
                 if let onRetry = onRetry {
                     Button("Check again", action: onRetry)
                         .buttonStyle(.borderedProminent)
@@ -93,6 +98,48 @@ struct CallReadinessView: View {
                  : "Capture alone does not confirm a Discord call.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func teardown(_ state: CallTeardownState) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Call lifecycle")
+                .font(.headline)
+            Label(teardownTitle(for: state.phase), systemImage: teardownIcon(for: state.phase))
+                .font(.callout.weight(.medium))
+            if let blocker = state.navigationBlocker {
+                Text(blocker.title)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Text("Navigation is safe to continue.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if state.phase == .active, let onRequestLeave {
+                Button("Request leave", action: onRequestLeave)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func teardownTitle(for phase: CallTeardownPhase) -> String {
+        switch phase {
+        case .idle: "No confirmed call"
+        case .active: "Call active"
+        case .leaveRequested: "Leave requested"
+        case .discordLeaveConfirmed: "Discord confirmed leave"
+        case .captureCleared: "Call ended safely"
+        }
+    }
+
+    private func teardownIcon(for phase: CallTeardownPhase) -> String {
+        switch phase {
+        case .idle: "phone"
+        case .active: "phone.fill"
+        case .leaveRequested, .discordLeaveConfirmed: "hourglass"
+        case .captureCleared: "checkmark.shield.fill"
         }
     }
 

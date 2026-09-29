@@ -6,6 +6,7 @@ struct CallView: View {
     var onMute: ((Bool) -> Void)? = nil
     var onDeafen: ((Bool) -> Void)? = nil
     var onDisconnect: (() -> Void)? = nil
+    var teardownState: CallTeardownState? = nil
     @State private var focusedParticipantID: String?
 
     private var isSessionActive: Bool {
@@ -15,6 +16,10 @@ struct CallView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let teardownState {
+                teardownBanner(teardownState)
+                Divider()
+            }
             Divider()
             content
             Divider()
@@ -108,14 +113,65 @@ struct CallView: View {
                 Text(String(localized: "No approved video transport is configured."))
             } label: { Label("Video", systemImage: "video.slash") }
             .menuStyle(.borderlessButton)
-            Button(role: .destructive) { onDisconnect?() } label: { Label("Disconnect", systemImage: "phone.down.fill") }
-                .disabled(!isSessionActive || onDisconnect == nil)
+            Button(role: .destructive) { onDisconnect?() } label: { Label(disconnectLabel, systemImage: "phone.down.fill") }
+                .disabled(!isSessionActive || onDisconnect == nil || !canRequestDisconnect)
         }
         .buttonStyle(.bordered)
     }
 
     private var statusLabel: String {
         switch state.status { case .unavailable: String(localized: "Unavailable"); case .idle: String(localized: "Idle"); case .connecting: String(localized: "Connecting"); case .connected: String(localized: "Connected"); case .reconnecting: String(localized: "Reconnecting"); case .failed: String(localized: "Failed") }
+    }
+
+    private var disconnectLabel: String {
+        switch teardownState?.phase {
+        case .leaveRequested, .discordLeaveConfirmed: "Leaving…"
+        default: "Disconnect"
+        }
+    }
+
+    private var canRequestDisconnect: Bool {
+        guard let teardownState else { return true }
+        return teardownState.phase == .active
+    }
+
+    private func teardownBanner(_ teardown: CallTeardownState) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: teardownIcon(for: teardown.phase))
+                .foregroundStyle(teardown.isNavigationSafe ? .green : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(teardownTitle(for: teardown.phase))
+                    .font(.caption.weight(.semibold))
+                if let blocker = teardown.navigationBlocker {
+                    Text(blocker.title)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func teardownTitle(for phase: CallTeardownPhase) -> String {
+        switch phase {
+        case .idle: "No confirmed call"
+        case .active: "Call active"
+        case .leaveRequested: "Leave requested"
+        case .discordLeaveConfirmed: "Discord confirmed leave"
+        case .captureCleared: "Call ended safely"
+        }
+    }
+
+    private func teardownIcon(for phase: CallTeardownPhase) -> String {
+        switch phase {
+        case .idle: "phone"
+        case .active: "phone.fill"
+        case .leaveRequested, .discordLeaveConfirmed: "hourglass"
+        case .captureCleared: "checkmark.shield.fill"
+        }
     }
 }
 

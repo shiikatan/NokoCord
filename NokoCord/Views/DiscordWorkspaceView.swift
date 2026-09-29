@@ -377,9 +377,12 @@ struct NativeVoiceHUD: View {
             .accessibilityLabel("Show call readiness")
             .help("Show call readiness")
             .popover(isPresented: $showReadiness, arrowEdge: .bottom) {
-                CallReadinessView(readiness: browser.callReadiness) {
-                    browser.refreshCallReadiness()
-                }
+                CallReadinessView(
+                    readiness: browser.callReadiness,
+                    onRetry: { browser.refreshCallReadiness() },
+                    teardownState: browser.callTeardown,
+                    onRequestLeave: { browser.disconnectCall() }
+                )
             }
 
             // End Call Button

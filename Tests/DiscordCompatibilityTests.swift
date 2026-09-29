@@ -250,4 +250,53 @@ final class DiscordCompatibilityTests: XCTestCase {
         XCTAssertTrue(drift.contains("message-legacy_fixture-hash"))
         XCTAssertFalse(drift.contains("role=\"article\""))
     }
+
+    func testProbePayloadDecoderAcceptsOnlyBoundedTypedFacts() throws {
+        let generation = UUID()
+        let capturedAt = Date(timeIntervalSince1970: 1_790_000_004)
+        let raw: [String: Any] = [
+            "probeVersion": DiscordCompatibilityService.probeVersion,
+            "generation": generation.uuidString,
+            "documentReady": true,
+            "features": [
+                "messages": [
+                    "anchors": ["messageList": "present", "messageRow": "present"],
+                    "capabilities": [:]
+                ]
+            ],
+            "matchedFallbackIDs": [],
+            "timedOut": false
+        ]
+
+        let facts = try XCTUnwrap(DiscordCompatibilityService.probeFacts(
+            from: raw,
+            generation: generation,
+            capturedAt: capturedAt
+        ))
+        XCTAssertEqual(facts.generation, generation)
+        XCTAssertEqual(facts.features[.messages]?.observation(for: .messageRow), .present)
+        XCTAssertEqual(facts.capturedAt, capturedAt)
+
+        let stale = DiscordCompatibilityService.probeFacts(
+            from: raw,
+            generation: UUID(),
+            capturedAt: capturedAt
+        )
+        XCTAssertNil(stale)
+    }
+
+    func testProbePayloadDecoderRejectsPageContentAndOversizedPayloads() {
+        let generation = UUID()
+        let oversized: [String: Any] = [
+            "probeVersion": DiscordCompatibilityService.probeVersion,
+            "generation": generation.uuidString,
+            "documentReady": true,
+            "features": [:],
+            "matchedFallbackIDs": [],
+            "timedOut": false,
+            "unexpected": String(repeating: "x", count: DiscordCompatibilityService.maxProbePayloadBytes)
+        ]
+        XCTAssertNil(DiscordCompatibilityService.probeFacts(from: oversized, generation: generation))
+        XCTAssertNil(DiscordCompatibilityService.probeFacts(from: "not-json", generation: generation))
+    }
 }

@@ -6,12 +6,14 @@ final class AppleMusicRPCServiceTests: XCTestCase {
     private let epoch = Date(timeIntervalSince1970: 1_000)
 
     private func track(name: String = "First Song",
+                       album: String = "Album",
+                       databaseID: Int? = nil,
                        state: AppleMusicTrack.PlayerState = .playing,
                        position: TimeInterval = 12) -> AppleMusicTrack {
-        AppleMusicTrack(databaseID: name == "First Song" ? 1 : 2,
+        AppleMusicTrack(databaseID: databaseID ?? (name == "First Song" ? 1 : 2),
                         name: name,
                         artist: "Artist",
-                        album: "Album",
+                        album: album,
                         duration: 240,
                         position: position,
                         playerState: state,
@@ -123,5 +125,112 @@ final class AppleMusicRPCServiceTests: XCTestCase {
         policy.recordReport(at: first.addingTimeInterval(40))
         XCTAssertEqual(policy.attemptCount, 0)
         XCTAssertTrue(policy.canAttempt(at: first.addingTimeInterval(40)))
+    }
+
+    func testReducerCoversPauseResumeStopSeekRepeatAndNextTrack() {
+        var reducer = AppleMusicPlaybackReducer()
+
+        let coldStart = reducer.reduce(.init(generation: 1,
+                                              timestamp: epoch,
+                                              kind: .playing(track: track(position: 4), accuracy: .estimated)))
+        XCTAssertEqual(coldStart.playbackState, .playing)
+
+        let paused = reducer.reduce(.init(generation: 2,
+                                          timestamp: epoch.addingTimeInterval(1),
+                                          kind: .paused(track: nil, accuracy: .estimated)))
+        XCTAssertEqual(paused.playbackState, .paused)
+        XCTAssertEqual(paused.currentTrack?.position, 4)
+
+        let resumed = reducer.reduce(.init(generation: 3,
+                                           timestamp: epoch.addingTimeInterval(2),
+                                           kind: .playing(track: track(position: 5), accuracy: .estimated)))
+        XCTAssertEqual(resumed.playbackState, .playing)
+        XCTAssertEqual(resumed.currentTrack?.position, 5)
+
+        let seeked = reducer.reduce(.init(generation: 4,
+                                          timestamp: epoch.addingTimeInterval(3),
+                                          kind: .seeked(track: track(position: 90), accuracy: .estimated)))
+        XCTAssertEqual(seeked.playbackState, .playing)
+        XCTAssertEqual(seeked.currentTrack?.position, 90)
+
+        let repeated = reducer.reduce(.init(generation: 5,
+                                            timestamp: epoch.addingTimeInterval(4),
+                                            kind: .repeated(track: track(position: 0), accuracy: .estimated)))
+        XCTAssertEqual(repeated.playbackState, .playing)
+        XCTAssertEqual(repeated.currentTrack?.position, 0)
+
+        let next = track(name: "Second Song", position: 0)
+        let nextTrack = reducer.reduce(.init(generation: 6,
+                                             timestamp: epoch.addingTimeInterval(5),
+                                             kind: .nextTrack(track: next, accuracy: .estimated)))
+        XCTAssertEqual(nextTrack.playbackState, .playing)
+        XCTAssertEqual(nextTrack.currentTrack?.id, next.id)
+
+        let stopped = reducer.reduce(.init(generation: 7,
+                                           timestamp: epoch.addingTimeInterval(6),
+                                           kind: .stopped(track: nil, accuracy: .unavailable)))
+        XCTAssertEqual(stopped.playbackState, .stopped)
+        XCTAssertEqual(stopped.currentTrack?.playerState, .stopped)
+    }
+
+    func testSameTitleDifferentAlbumIsARealIdentityChange() {
+        var reducer = AppleMusicPlaybackReducer()
+        let first = track(name: "Same Song", album: "First Album", databaseID: 10)
+        let second = track(name: "Same Song", album: "Second Album", databaseID: 11)
+
+        XCTAssertNotEqual(first.id, second.id)
+        _ = reducer.reduce(.init(generation: 1, timestamp: epoch, kind: .playing(track: first, accuracy: .estimated)))
+        let snapshot = reducer.reduce(.init(generation: 2,
+                                            timestamp: epoch.addingTimeInterval(1),
+                                            kind: .nextTrack(track: second, accuracy: .estimated)))
+
+        XCTAssertEqual(snapshot.currentTrack?.album, "Second Album")
+        XCTAssertEqual(snapshot.currentTrack?.databaseID, 11)
+    }
+
+    func testNotRunningClearsPlaybackWithoutClaimingPosition() {
+        var reducer = AppleMusicPlaybackReducer()
+        _ = reducer.reduce(.init(generation: 1,
+                                 timestamp: epoch,
+                                 kind: .playing(track: track(), accuracy: .estimated)))
+
+        let snapshot = reducer.reduce(.init(generation: 2,
+                                            timestamp: epoch.addingTimeInterval(1),
+                                            kind: .notRunning))
+
+        XCTAssertNil(snapshot.currentTrack)
+        XCTAssertEqual(snapshot.playbackState, .idle)
+        XCTAssertEqual(snapshot.helperStatus, .notRunning)
+        XCTAssertEqual(snapshot.positionAccuracy, .unavailable)
+    }
+
+    func testUnavailableHelperIsNotReportedAsAutomationDenied() {
+        var reducer = AppleMusicPlaybackReducer()
+        let snapshot = reducer.reduce(.init(generation: 1,
+                                             timestamp: epoch,
+                                             kind: .helperUnavailable))
+
+        XCTAssertEqual(snapshot.helperStatus, .missing)
+        XCTAssertFalse(snapshot.helperStatus == .accessDenied)
+    }
+
+    func testOwnerPolicyTerminatesOnlyAfterBoundedGracePeriod() {
+        var policy = AppleMusicWatcherOwnerPolicy(gracePeriod: 30)
+
+        XCTAssertFalse(policy.shouldTerminate(ownerIsRunning: true, at: epoch))
+        XCTAssertFalse(policy.shouldTerminate(ownerIsRunning: false, at: epoch))
+        XCTAssertFalse(policy.shouldTerminate(ownerIsRunning: false, at: epoch.addingTimeInterval(29.9)))
+        XCTAssertTrue(policy.shouldTerminate(ownerIsRunning: false, at: epoch.addingTimeInterval(30)))
+        XCTAssertFalse(policy.shouldTerminate(ownerIsRunning: true, at: epoch.addingTimeInterval(31)))
+    }
+
+    func testOnlyOneWatcherOwnerCanHoldTheLease() {
+        var ownership = AppleMusicWatcherOwnership()
+
+        XCTAssertTrue(ownership.acquire(ownerID: "com.shiikatan.nokocord.chiaki"))
+        XCTAssertFalse(ownership.acquire(ownerID: "another-instance"))
+        XCTAssertFalse(ownership.release(ownerID: "another-instance"))
+        XCTAssertTrue(ownership.release(ownerID: "com.shiikatan.nokocord.chiaki"))
+        XCTAssertTrue(ownership.acquire(ownerID: "another-instance"))
     }
 }

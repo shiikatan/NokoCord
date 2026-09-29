@@ -9,6 +9,7 @@ struct WorkspaceToolbar: View {
     @Binding var showBookmarksDrawer: Bool
     @State private var showDownloadsPopover = false
     @State private var showCallReadiness = false
+    @State private var showCompatibility = false
     @State private var gamePresence = GamePresenceService.shared
     @State private var showGameRPPopover = false
     @State private var appleMusicRPC = AppleMusicRPCService.shared
@@ -86,14 +87,37 @@ struct WorkspaceToolbar: View {
                 .accessibilityLabel("Show call readiness")
                 .help("Show call readiness")
                 .popover(isPresented: $showCallReadiness, arrowEdge: .bottom) {
-                    CallReadinessView(readiness: browser.callReadiness) {
-                        browser.refreshCallReadiness()
-                    }
+                    CallReadinessView(
+                        readiness: browser.callReadiness,
+                        onRetry: { browser.refreshCallReadiness() },
+                        teardownState: browser.callTeardown,
+                        onRequestLeave: { browser.disconnectCall() }
+                    )
                 }
 
                 Divider()
                     .frame(height: 14)
                     .padding(.horizontal, 1)
+            }
+
+            if browser.lifecycle.phase == .ready {
+                Button {
+                    showCompatibility.toggle()
+                } label: {
+                    Image(systemName: compatibilityIcon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(compatibilityColor)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show Discord compatibility")
+                .help("Show Discord compatibility")
+                .popover(isPresented: $showCompatibility, arrowEdge: .bottom) {
+                    CompatibilityCenterView(
+                        snapshot: browser.discordCompatibility,
+                        onRefresh: { browser.refreshDiscordCompatibility() }
+                    )
+                }
             }
 
             // MARK: - Voice Call Status Pill (when in call)
@@ -185,7 +209,10 @@ struct WorkspaceToolbar: View {
             }
 
             // MARK: - Apple Music Rich Presence Pill (when playing)
-            if let track = appleMusicRPC.currentTrack, track.playerState.isPlaying, appleMusicRPC.isEnabled {
+            if let track = appleMusicRPC.currentTrack,
+               track.playerState.isPlaying,
+               appleMusicRPC.isEnabled,
+               appleMusicRPC.helperStatus == .connected {
                 HStack(spacing: 5) {
                     Image(systemName: "waveform")
                         .font(.system(size: 10, weight: .bold))
@@ -363,5 +390,19 @@ struct WorkspaceToolbar: View {
 
     private var hasActiveDownloads: Bool {
         browser.downloads.records.contains { $0.status == .downloading || $0.status == .choosing }
+    }
+
+    private var compatibilityIcon: String {
+        if browser.discordCompatibility.features.values.contains(.unsupported) { return "shield.lefthalf.filled" }
+        if browser.discordCompatibility.features.values.contains(.degraded) { return "exclamationmark.shield" }
+        if browser.discordCompatibility.features.values.allSatisfy({ $0 == .healthy }) { return "checkmark.shield" }
+        return "questionmark.shield"
+    }
+
+    private var compatibilityColor: Color {
+        if browser.discordCompatibility.features.values.contains(.unsupported) { return .red }
+        if browser.discordCompatibility.features.values.contains(.degraded) { return .orange }
+        if browser.discordCompatibility.features.values.allSatisfy({ $0 == .healthy }) { return .green }
+        return .secondary
     }
 }

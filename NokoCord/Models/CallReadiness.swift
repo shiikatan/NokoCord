@@ -114,3 +114,103 @@ struct CallReadiness: Codable, Equatable, Sendable {
         state != .blocked && discordCallSurfaceReady && captureState.isCapturing
     }
 }
+
+/// The native side of a leave request is deliberately a postcondition state
+/// machine. A page click is only a request; navigation becomes safe after the
+/// page confirms that its Discord call surface left and WebKit reports that
+/// native capture is gone.
+enum CallTeardownPhase: String, Codable, Equatable, Sendable {
+    case idle
+    case active
+    case leaveRequested
+    case discordLeaveConfirmed
+    case captureCleared
+}
+
+enum CallNavigationBlocker: String, Codable, Equatable, Sendable {
+    case activeCall
+    case leavePending
+    case captureStillActive
+
+    var title: String {
+        switch self {
+        case .activeCall: "An active Discord call is still present"
+        case .leavePending: "Waiting for Discord to confirm that the call ended"
+        case .captureStillActive: "Waiting for native media capture to stop"
+        }
+    }
+}
+
+struct CallTeardownState: Equatable, Sendable {
+    let origin: String
+    private(set) var phase: CallTeardownPhase
+    private(set) var captureState: CallCaptureState
+
+    init(readiness: CallReadiness) {
+        origin = readiness.origin
+        captureState = readiness.captureState
+        phase = readiness.isCallConfirmed ? .active : .idle
+    }
+
+    var isCallConfirmed: Bool {
+        phase == .active || phase == .leaveRequested
+    }
+
+    var isNavigationSafe: Bool {
+        navigationBlocker == nil
+    }
+
+    var navigationBlocker: CallNavigationBlocker? {
+        switch phase {
+        case .idle:
+            return captureState.isCapturing ? .captureStillActive : nil
+        case .active:
+            return .activeCall
+        case .leaveRequested:
+            return .leavePending
+        case .discordLeaveConfirmed:
+            return .captureStillActive
+        case .captureCleared:
+            return captureState.isCapturing ? .captureStillActive : nil
+        }
+    }
+
+    mutating func requestLeave() {
+        guard phase == .active else { return }
+        phase = .leaveRequested
+    }
+
+    mutating func confirmDiscordLeave() {
+        guard phase == .leaveRequested else { return }
+        phase = captureState == .none ? .captureCleared : .discordLeaveConfirmed
+    }
+
+    mutating func updateCaptureState(_ state: CallCaptureState) {
+        captureState = state
+        guard state == .none else { return }
+        if phase == .discordLeaveConfirmed {
+            phase = .captureCleared
+        }
+    }
+
+    /// Reconciles a fresh, bounded readiness result with the teardown state.
+    /// Losing the verified Discord call surface is the page-side postcondition;
+    /// native capture must still clear before navigation is released.
+    mutating func update(readiness: CallReadiness) {
+        captureState = readiness.captureState
+
+        switch phase {
+        case .idle, .captureCleared:
+            if readiness.isCallConfirmed {
+                phase = .active
+            }
+        case .active, .leaveRequested:
+            guard !readiness.discordCallSurfaceReady else { return }
+            phase = captureState == .none ? .captureCleared : .discordLeaveConfirmed
+        case .discordLeaveConfirmed:
+            if captureState == .none {
+                phase = .captureCleared
+            }
+        }
+    }
+}

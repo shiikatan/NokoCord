@@ -8,12 +8,14 @@ final class NokoMusicWatchTests: XCTestCase {
         let payload = try XCTUnwrap(AppleMusicWatcherPayload(userInfo: [
             "state": "playing",
             "sequence": NSNumber(value: 7),
-            "eventTimestamp": timestamp.timeIntervalSince1970
+            "eventTimestamp": timestamp.timeIntervalSince1970,
+            "positionAccuracy": "estimated"
         ]))
 
         XCTAssertEqual(payload.state, .playing)
         XCTAssertEqual(payload.sequence, 7)
         XCTAssertEqual(payload.timestamp, timestamp)
+        XCTAssertEqual(payload.reportedPositionAccuracy, .estimated)
     }
 
     func testHelperPayloadRejectsUnknownStatesAndInvalidTimestamps() {
@@ -29,5 +31,14 @@ final class NokoMusicWatchTests: XCTestCase {
         XCTAssertEqual(denied.state, .denied)
         XCTAssertEqual(unavailable.state, .unavailable)
         XCTAssertEqual(unsupported.state, .unsupported)
+    }
+
+    func testUnavailableIsDistinctFromAutomationDenied() throws {
+        let denied = try XCTUnwrap(AppleMusicWatcherPayload(userInfo: ["state": "denied"]))
+        let unavailable = try XCTUnwrap(AppleMusicWatcherPayload(userInfo: ["state": "unavailable"]))
+
+        XCTAssertEqual(denied.state, .denied)
+        XCTAssertEqual(unavailable.state, .unavailable)
+        XCTAssertNotEqual(denied.state, unavailable.state)
     }
 }

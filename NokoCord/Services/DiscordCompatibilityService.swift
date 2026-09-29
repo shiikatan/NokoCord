@@ -259,6 +259,96 @@ struct DiscordCompatibilityService {
         """
     }
 
+    /// Decodes the small, content-free object returned by WebKit. JavaScript
+    /// values are treated as untrusted input: the payload is serialized once,
+    /// bounded before decoding, and its generation must match the document that
+    /// requested it. No page-owned strings are copied into the model.
+    static func probeFacts(from raw: Any?, generation: UUID, capturedAt: Date = Date()) -> DiscordProbeFacts? {
+        guard let raw, let data = probeData(from: raw), data.count <= maxProbePayloadBytes else {
+            return nil
+        }
+        guard let payload = try? JSONDecoder().decode(ProbePayload.self, from: data),
+              payload.generation == generation.uuidString else {
+            return nil
+        }
+        let features = payload.features.reduce(into: [DiscordFeature: DiscordFeatureProbeFacts]()) { result, entry in
+            guard let feature = DiscordFeature(rawValue: entry.key) else { return }
+            let anchors = entry.value.anchors.reduce(into: [DiscordProbeAnchor: DiscordProbeObservation]()) { values, item in
+                guard let anchor = DiscordProbeAnchor(rawValue: item.key),
+                      let observation = DiscordProbeObservation(rawValue: item.value) else { return }
+                values[anchor] = observation
+            }
+            let capabilities = entry.value.capabilities.reduce(into: [DiscordProbeCapability: DiscordProbeObservation]()) { values, item in
+                guard let capability = DiscordProbeCapability(rawValue: item.key),
+                      let observation = DiscordProbeObservation(rawValue: item.value) else { return }
+                values[capability] = observation
+            }
+            result[feature] = DiscordFeatureProbeFacts(anchors: anchors, capabilities: capabilities)
+        }
+
+        return DiscordProbeFacts(
+            generation: generation,
+            probeVersion: payload.probeVersion,
+            documentReady: payload.documentReady,
+            features: features,
+            matchedFallbackIDs: payload.matchedFallbackIDs,
+            timedOut: payload.timedOut,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func invalidProbeSnapshot(
+        for url: URL?,
+        origin: String,
+        generation: UUID,
+        at date: Date = Date()
+    ) -> DiscordCompatibilitySnapshot {
+        let routeSnapshot = snapshot(for: url, origin: origin, generation: generation)
+        guard routeSnapshot.isSupportedRoute else { return routeSnapshot }
+        return makeSnapshot(
+            generation: generation,
+            route: routeSnapshot.route,
+            lastProbeAt: date,
+            state: .unknown,
+            reason: .invalidProbe
+        )
+    }
+
+    private struct ProbePayload: Decodable {
+        let probeVersion: Int
+        let generation: String
+        let documentReady: Bool
+        let features: [String: RawFeatureProbeFacts]
+        let matchedFallbackIDs: [String]
+        let timedOut: Bool
+    }
+
+    private struct RawFeatureProbeFacts: Decodable {
+        let anchors: [String: String]
+        let capabilities: [String: String]
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            anchors = (try? container.decode([String: String].self, forKey: .anchors)) ?? [:]
+            capabilities = (try? container.decode([String: String].self, forKey: .capabilities)) ?? [:]
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case anchors, capabilities
+        }
+    }
+
+    private static func probeData(from raw: Any) -> Data? {
+        if let string = raw as? String {
+            return string.data(using: .utf8)
+        }
+        if let data = raw as? Data {
+            return data
+        }
+        guard JSONSerialization.isValidJSONObject(raw) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: raw, options: [])
+    }
+
     private static func reduce(feature: DiscordFeature, facts: DiscordProbeFacts) -> DiscordFeatureDiagnostic {
         guard let featureFacts = facts.features[feature] else {
             return diagnostic(state: .unknown, reason: .awaitingProbe, facts: nil, matchedFallbacks: [])

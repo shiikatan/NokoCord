@@ -77,7 +77,16 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         discordCallSurfaceReady: false,
         captureState: .none
     )
-    var isInCall: Bool { callReadiness.isCallConfirmed }
+    private(set) var callTeardown = CallTeardownState(readiness: CallReadinessService.evaluate(
+        origin: "",
+        mediaDevicesAvailable: false,
+        microphonePermission: .unknown,
+        cameraPermission: .unknown,
+        encodedTransformAvailable: false,
+        discordCallSurfaceReady: false,
+        captureState: .none
+    ))
+    var isInCall: Bool { callTeardown.isCallConfirmed }
     private var hasActiveMediaCapture: Bool {
         microphoneCaptureState != .none || cameraCaptureState != .none
     }
@@ -91,6 +100,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var memoryPurgeTimer: Timer?
     @ObservationIgnored private var channelPurgeTask: Task<Void, Never>?
     @ObservationIgnored private var callReadinessTask: Task<Void, Never>?
+    @ObservationIgnored private var compatibilityProbeTask: Task<Void, Never>?
     @ObservationIgnored private var pageGeneration = UUID()
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
@@ -177,6 +187,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     isolated deinit {
         channelPurgeTask?.cancel()
         callReadinessTask?.cancel()
+        compatibilityProbeTask?.cancel()
         gameDispatchTask?.cancel()
         musicDispatchTask?.cancel()
         memoryPurgeTimer?.invalidate()
@@ -202,9 +213,11 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         pageGeneration = UUID()
         channelPurgeTask?.cancel()
         callReadinessTask?.cancel()
+        compatibilityProbeTask?.cancel()
         gameDispatchTask?.cancel()
         musicDispatchTask?.cancel()
         resetCallReadiness()
+        updateCompatibilityRoute()
         return pageGeneration
     }
 
@@ -246,13 +259,16 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         browserView?.evaluateJavaScript("try { window.__nokoResume?.(); } catch (_) {}", completionHandler: nil)
     }
 
+    private func blockNavigationWhileCallIsEnding() -> Bool {
+        guard let blocker = callTeardown.navigationBlocker else { return false }
+        notice = String(localized: "Finish disconnecting the active Discord call before navigating.") + " " + blocker.title
+        return true
+    }
+
     /// Loads a validated Discord URL directly into the active browser workspace.
     func openURL(_ url: URL) {
         guard BrowserPolicy.isDiscordOrigin(url), lifecycle.phase != .clearing else { return }
-        guard !hasActiveMediaCapture else {
-            notice = String(localized: "Disconnect the active Discord call before navigating.")
-            return
-        }
+        guard !blockNavigationWhileCallIsEnding() else { return }
         beginPageGeneration()
         lifecycle.show()
         let view = prepareBrowser()
@@ -369,19 +385,13 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         }
     }
     func showHome() {
-        guard !hasActiveMediaCapture else {
-            notice = String(localized: "Disconnect the active Discord call before returning home.")
-            return
-        }
+        guard !blockNavigationWhileCallIsEnding() else { return }
         lifecycle.hide()
     }
     func openGuild(_ id: String) {
         guard !id.isEmpty, id.utf8.count <= 20,
               id.utf8.allSatisfy({ (48...57).contains($0) }), lifecycle.phase != .clearing else { return }
-        guard !hasActiveMediaCapture else {
-            notice = String(localized: "Disconnect the active Discord call before navigating.")
-            return
-        }
+        guard !blockNavigationWhileCallIsEnding() else { return }
         beginPageGeneration()
         lifecycle.show()
         let view = prepareBrowser()
@@ -390,10 +400,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     func reload() {
         guard lifecycle.phase != .clearing else { return }
-        guard !hasActiveMediaCapture else {
-            notice = String(localized: "Disconnect the active Discord call before reloading Discord.")
-            return
-        }
+        guard !blockNavigationWhileCallIsEnding() else { return }
         beginPageGeneration()
         notice = nil
         lifecycle.loading()
@@ -454,7 +461,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                   self.browserView === view else { return }
 
             let evidence = Self.callEvidence(from: raw)
-            self.callReadiness = CallReadinessService.evaluate(
+            let readiness = CallReadinessService.evaluate(
                 origin: origin,
                 mediaDevicesAvailable: evidence.mediaDevicesAvailable,
                 microphonePermission: microphonePermission,
@@ -463,6 +470,60 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 discordCallSurfaceReady: evidence.discordCallSurfaceReady,
                 captureState: captureState
             )
+            self.applyCallReadiness(readiness)
+        }
+    }
+
+    /// Runs the bounded, content-free compatibility probe for the current
+    /// document. A stale result is discarded by both the task generation check
+    /// and the model reducer before it can affect feature diagnostics.
+    func refreshDiscordCompatibility() {
+        guard let view = browserView else {
+            discordCompatibility = .initial(generation: pageGeneration)
+            return
+        }
+
+        compatibilityProbeTask?.cancel()
+        let generation = pageGeneration
+        let origin = Self.discordOrigin
+        let routeSnapshot = DiscordCompatibilityService.snapshot(
+            for: view.url,
+            origin: origin,
+            generation: generation
+        )
+        discordCompatibility = routeSnapshot
+        guard routeSnapshot.isSupportedRoute else { return }
+
+        compatibilityProbeTask = Task { @MainActor [weak self, weak view] in
+            guard let self, let view else { return }
+            let raw = try? await view.evaluateJavaScript(DiscordCompatibilityService.probeScript(for: generation))
+            guard !Task.isCancelled,
+                  self.isCurrentPageGeneration(generation),
+                  self.browserView === view else { return }
+
+            let now = Date()
+            guard let facts = DiscordCompatibilityService.probeFacts(
+                from: raw,
+                generation: generation,
+                capturedAt: now
+            ) else {
+                self.discordCompatibility = DiscordCompatibilityService.invalidProbeSnapshot(
+                    for: view.url,
+                    origin: origin,
+                    generation: generation,
+                    at: now
+                )
+                return
+            }
+            guard let snapshot = DiscordCompatibilityService.snapshot(
+                for: view.url,
+                origin: origin,
+                generation: generation,
+                facts: facts,
+                currentGeneration: self.pageGeneration,
+                now: now
+            ) else { return }
+            self.discordCompatibility = snapshot
         }
     }
 
@@ -475,7 +536,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
 
     private func resetCallReadiness() {
         callReadinessTask?.cancel()
-        callReadiness = CallReadinessService.evaluate(
+        let readiness = CallReadinessService.evaluate(
             origin: Self.callOrigin(for: browserView?.url),
             mediaDevicesAvailable: false,
             microphonePermission: Self.callPermission(for: .audio),
@@ -483,6 +544,21 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             encodedTransformAvailable: false,
             discordCallSurfaceReady: false,
             captureState: currentCallCaptureState
+        )
+        callReadiness = readiness
+        callTeardown = CallTeardownState(readiness: readiness)
+    }
+
+    private func applyCallReadiness(_ readiness: CallReadiness) {
+        callReadiness = readiness
+        callTeardown.update(readiness: readiness)
+    }
+
+    private func updateCompatibilityRoute() {
+        discordCompatibility = DiscordCompatibilityService.snapshot(
+            for: browserView?.url,
+            origin: Self.discordOrigin,
+            generation: pageGeneration
         )
     }
 
@@ -542,6 +618,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         return components.string ?? ""
     }
 
+    private static let discordOrigin = "https://discord.com"
+
     private static func callPermission(for mediaType: AVMediaType) -> CallPermissionState {
         switch AVCaptureDevice.authorizationStatus(for: mediaType) {
         case .authorized: .granted
@@ -587,6 +665,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                     return
                 }
                 guard let view, self.browserView === view else { return }
+                self.callTeardown.requestLeave()
                 // The page click is only a request. WebKit capture state is
                 // cleared by the actual media session; never manufacture a
                 // disconnected state before Discord confirms that transition.
@@ -644,6 +723,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         progress = 0
         microphoneCaptureState = .none
         cameraCaptureState = .none
+        resetCallReadiness()
+        discordCompatibility = .initial(generation: pageGeneration)
         GamePresenceService.shared.clearPresence()
         // Delete without enumerating or reading cookies, credentials or records.
         await dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
@@ -662,6 +743,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing, self.navigation === navigation else { return }
         lifecycle.ready()
         tanRuntime?.pageDidLoad()
+        refreshDiscordCompatibility()
+        refreshCallReadiness()
         syncGamePresenceToDiscord(GamePresenceService.shared.activePresence)
         syncAppleMusicPresenceToDiscord()
     }
@@ -695,7 +778,9 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard browserView != nil, lifecycle.phase == .ready else { return }
         let generation = pageGeneration
         let service = AppleMusicRPCService.shared
-        let suppressed = !service.isEnabled || GamePresenceService.shared.activePresence != nil
+        let suppressed = !service.isEnabled
+            || service.helperStatus != .connected
+            || GamePresenceService.shared.activePresence != nil
         let track = service.currentTrack
         let presence = suppressed || track?.playerState.isPlaying != true
             ? nil

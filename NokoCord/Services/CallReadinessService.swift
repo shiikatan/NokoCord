@@ -1,6 +1,26 @@
 import Foundation
 
 struct CallReadinessService: Sendable {
+    private static let scopedLeaveLabels: Set<String> = [
+        "leave voice",
+        "leave call",
+        "disconnect from voice",
+        "hang up",
+        "end call"
+    ]
+
+    /// Restricts automated leave requests to the active call surface. Generic
+    /// "Disconnect" controls and modal/dialog controls are intentionally not
+    /// accepted because they can target unrelated Discord sessions.
+    static func isScopedLeaveControl(label: String, isInsideDialog: Bool) -> Bool {
+        guard !isInsideDialog else { return false }
+        let normalized = label
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .lowercased()
+        return scopedLeaveLabels.contains(normalized)
+    }
+
     static func evaluate(
         origin: String,
         mediaDevicesAvailable: Bool,
