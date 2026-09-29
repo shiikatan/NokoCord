@@ -132,7 +132,14 @@ private struct NokoCordCommands: Commands {
 
 @MainActor
 private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
+    private var activityRuntime: NokoActivityRuntime?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if ProcessInfo.processInfo.arguments.contains("--nokocord-activity-smoke") {
+            let runtime = NokoActivityRuntime()
+            activityRuntime = runtime
+            runtime.startSmokeTest()
+        }
         // On a fresh install SwiftUI can create the single Window scene without
         // ordering it on screen. Present that existing window once at launch.
         DispatchQueue.main.async {
@@ -163,6 +170,13 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
         // Quit request or survive it as detached windows.
         for window in sender.windows where window.sheetParent == nil {
             dismissSheets(of: window)
+        }
+        if let activityRuntime {
+            Task {
+                await activityRuntime.stop()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
         }
         return .terminateNow
     }

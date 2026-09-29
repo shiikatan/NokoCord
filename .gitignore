@@ -23,5 +23,8 @@ private-backups/
 # Offline developer tooling dependencies
 node_modules/
 
+# Discord Social SDK 1.10.19337 is distributed locally and must not be committed.
+/Vendor/DiscordSocialSDK-1.10.19337/
+
 # Installed translation archives may contain private user-selected source.
 *.source.json
