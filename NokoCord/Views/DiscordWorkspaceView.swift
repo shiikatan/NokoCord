@@ -327,6 +327,7 @@ struct NokoRootView: View {
 /// Native Liquid Glass Floating Voice Call HUD (Sonoma/Sequoia dynamic capsule).
 struct NativeVoiceHUD: View {
     @Environment(ActiveBrowserEngine.self) private var browser
+    @State private var showReadiness = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -362,6 +363,24 @@ struct NativeVoiceHUD: View {
             .buttonStyle(.plain)
             .accessibilityLabel(browser.isMicrophoneMuted ? "Unmute microphone" : "Mute microphone")
             .help(browser.isMicrophoneMuted ? "Unmute Microphone (⌘⇧M)" : "Mute Microphone (⌘⇧M)")
+
+            Button {
+                showReadiness.toggle()
+            } label: {
+                Image(systemName: browser.callReadiness.state == .blocked ? "exclamationmark.shield" : "checkmark.shield")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(browser.callReadiness.state == .ready ? Color.green : Color.orange)
+                    .frame(width: 24, height: 24)
+                    .background(Color.primary.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show call readiness")
+            .help("Show call readiness")
+            .popover(isPresented: $showReadiness, arrowEdge: .bottom) {
+                CallReadinessView(readiness: browser.callReadiness) {
+                    browser.refreshCallReadiness()
+                }
+            }
 
             // End Call Button
             Button {

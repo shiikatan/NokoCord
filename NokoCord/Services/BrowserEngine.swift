@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Observation
 import WebKit
 
@@ -67,7 +68,16 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     private(set) var microphoneCaptureState: WKMediaCaptureState = .none
     private(set) var cameraCaptureState: WKMediaCaptureState = .none
     private(set) var discordCompatibility = DiscordCompatibilitySnapshot.initial()
-    var isInCall: Bool { microphoneCaptureState != .none || cameraCaptureState != .none }
+    private(set) var callReadiness = CallReadinessService.evaluate(
+        origin: "",
+        mediaDevicesAvailable: false,
+        microphonePermission: .unknown,
+        cameraPermission: .unknown,
+        encodedTransformAvailable: false,
+        discordCallSurfaceReady: false,
+        captureState: .none
+    )
+    var isInCall: Bool { callReadiness.isCallConfirmed }
     var isMicrophoneMuted: Bool { microphoneCaptureState == .muted }
     private(set) var notice: String?
     let engineDescription = String(localized: "System WebKit")
@@ -77,6 +87,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var appObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var memoryPurgeTimer: Timer?
     @ObservationIgnored private var channelPurgeTask: Task<Void, Never>?
+    @ObservationIgnored private var callReadinessTask: Task<Void, Never>?
     @ObservationIgnored private var pageGeneration = UUID()
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
@@ -162,6 +173,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     isolated deinit {
         channelPurgeTask?.cancel()
+        callReadinessTask?.cancel()
         gameDispatchTask?.cancel()
         musicDispatchTask?.cancel()
         memoryPurgeTimer?.invalidate()
@@ -186,8 +198,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func beginPageGeneration() -> UUID {
         pageGeneration = UUID()
         channelPurgeTask?.cancel()
+        callReadinessTask?.cancel()
         gameDispatchTask?.cancel()
         musicDispatchTask?.cancel()
+        resetCallReadiness()
         return pageGeneration
     }
 
@@ -324,12 +338,14 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 Task { @MainActor [weak self] in
                     guard let self, self.browserView === view else { return }
                     self.microphoneCaptureState = view.microphoneCaptureState
+                    self.refreshCallReadiness()
                 }
             },
             view.observe(\.cameraCaptureState, options: [.initial, .new]) { [weak self] view, _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.browserView === view else { return }
                     self.cameraCaptureState = view.cameraCaptureState
+                    self.refreshCallReadiness()
                 }
             }
         ]
@@ -400,14 +416,145 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         }
     }
 
+    /// Re-checks the page's call prerequisites without reading Discord state
+    /// through a native bridge. The probe only asks WebKit for capability
+    /// facts and semantic call controls, then combines those facts with the
+    /// system media permission state and WebKit capture state.
+    func refreshCallReadiness() {
+        guard let view = browserView else {
+            resetCallReadiness()
+            return
+        }
+        callReadinessTask?.cancel()
+        let generation = pageGeneration
+        let origin = Self.callOrigin(for: view.url)
+        let microphonePermission = Self.callPermission(for: .audio)
+        let cameraPermission = Self.callPermission(for: .video)
+        let captureState = currentCallCaptureState
+        callReadinessTask = Task { @MainActor [weak self, weak view] in
+            guard let self, let view else { return }
+            let raw = try? await view.evaluateJavaScript(Self.callReadinessProbeScript)
+            guard !Task.isCancelled,
+                  self.isCurrentPageGeneration(generation),
+                  self.browserView === view else { return }
+
+            let evidence = Self.callEvidence(from: raw)
+            self.callReadiness = CallReadinessService.evaluate(
+                origin: origin,
+                mediaDevicesAvailable: evidence.mediaDevicesAvailable,
+                microphonePermission: microphonePermission,
+                cameraPermission: cameraPermission,
+                encodedTransformAvailable: evidence.encodedTransformAvailable,
+                discordCallSurfaceReady: evidence.discordCallSurfaceReady,
+                captureState: captureState
+            )
+        }
+    }
+
+    private var currentCallCaptureState: CallCaptureState {
+        CallCaptureState(
+            microphone: Self.callCaptureState(for: microphoneCaptureState),
+            camera: Self.callCaptureState(for: cameraCaptureState)
+        )
+    }
+
+    private func resetCallReadiness() {
+        callReadinessTask?.cancel()
+        callReadiness = CallReadinessService.evaluate(
+            origin: Self.callOrigin(for: browserView?.url),
+            mediaDevicesAvailable: false,
+            microphonePermission: Self.callPermission(for: .audio),
+            cameraPermission: Self.callPermission(for: .video),
+            encodedTransformAvailable: false,
+            discordCallSurfaceReady: false,
+            captureState: currentCallCaptureState
+        )
+    }
+
+    private struct CallEvidence {
+        let mediaDevicesAvailable: Bool
+        let encodedTransformAvailable: Bool
+        let discordCallSurfaceReady: Bool
+    }
+
+    private static let callReadinessProbeScript = """
+    (() => {
+      try {
+        const controls = Array.from(document.querySelectorAll('button,[role="button"]'));
+        const text = (element) => [element.getAttribute('aria-label'), element.getAttribute('data-label'), element.textContent]
+          .filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+        const callSurface = controls.some((element) => {
+          const label = text(element);
+          return /\\b(join voice|join video|start video|leave voice|leave call|disconnect from voice|hang up|end call|mute|unmute|deafen)\\b/.test(label);
+        });
+        const sender = typeof RTCRtpSender !== 'undefined' && RTCRtpSender.prototype;
+        const encodedTransform = typeof RTCRtpScriptTransform === 'function' ||
+          (!!sender && typeof sender.createEncodedStreams === 'function');
+        return JSON.stringify({
+          mediaDevicesAvailable: !!navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function',
+          encodedTransformAvailable: encodedTransform,
+          discordCallSurfaceReady: callSurface
+        });
+      } catch (_) {
+        return JSON.stringify({ mediaDevicesAvailable: false, encodedTransformAvailable: false, discordCallSurfaceReady: false });
+      }
+    })();
+    """
+
+    private static func callEvidence(from raw: Any?) -> CallEvidence {
+        let dictionary: [String: Any]
+        if let json = raw as? String,
+           let data = json.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data),
+           let parsed = object as? [String: Any] {
+            dictionary = parsed
+        } else {
+            dictionary = [:]
+        }
+        return CallEvidence(
+            mediaDevicesAvailable: dictionary["mediaDevicesAvailable"] as? Bool == true,
+            encodedTransformAvailable: dictionary["encodedTransformAvailable"] as? Bool == true,
+            discordCallSurfaceReady: dictionary["discordCallSurfaceReady"] as? Bool == true
+        )
+    }
+
+    private static func callOrigin(for url: URL?) -> String {
+        guard let url, let scheme = url.scheme, let host = url.host else { return "" }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = url.port
+        return components.string ?? ""
+    }
+
+    private static func callPermission(for mediaType: AVMediaType) -> CallPermissionState {
+        switch AVCaptureDevice.authorizationStatus(for: mediaType) {
+        case .authorized: .granted
+        case .denied: .denied
+        case .restricted: .restricted
+        case .notDetermined: .notDetermined
+        @unknown default: .unknown
+        }
+    }
+
+    private static func callCaptureState(for state: WKMediaCaptureState) -> CallMediaCaptureState {
+        switch state {
+        case .active: .active
+        case .muted: .muted
+        case .none: .none
+        @unknown default: .none
+        }
+    }
+
     private static let disconnectCallScript = """
     (() => {
-      const labels = /disconnect|leave call|hang up|disconnect from voice/i;
-      const candidates = Array.from(document.querySelectorAll('button,[role="button"]'));
+      const labels = /^(leave voice|leave call|disconnect from voice|hang up|end call)$/i;
+      const candidates = Array.from(document.querySelectorAll('button,[role="button"]'))
+        .filter((element) => !element.closest('[role="dialog"], [aria-modal="true"]'));
       const target = candidates.find((element) => {
-        const label = element.getAttribute('aria-label') || '';
-        const text = element.textContent || '';
-        return labels.test(label) || labels.test(text);
+        const label = (element.getAttribute('aria-label') || element.getAttribute('data-label') || element.textContent || '')
+          .replace(/\\s+/g, ' ').trim();
+        return labels.test(label);
       });
       if (!target) return false;
       target.click();
@@ -417,16 +564,23 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
 
     func disconnectCall() {
         guard let view = browserView else { return }
-        view.evaluateJavaScript(Self.disconnectCallScript) { [weak self] result, error in
-            Task { @MainActor [weak self] in
-                guard let self, error == nil, (result as? Bool) == true else {
-                    self?.notice = String(localized: "Discord did not expose a leave-call control. Open Discord's call controls to leave.")
+        view.evaluateJavaScript(Self.disconnectCallScript) { [weak self, weak view] result, error in
+            Task { @MainActor [weak self, weak view] in
+                guard let self else { return }
+                guard error == nil, (result as? Bool) == true else {
+                    self.notice = String(localized: "Discord did not expose a leave-call control. Open Discord's call controls to leave.")
                     return
                 }
-                await view.setMicrophoneCaptureState(.none)
-                await view.setCameraCaptureState(.none)
-                self.microphoneCaptureState = .none
-                self.cameraCaptureState = .none
+                guard let view, self.browserView === view else { return }
+                // The page click is only a request. WebKit capture state is
+                // cleared by the actual media session; never manufacture a
+                // disconnected state before Discord confirms that transition.
+                self.callReadinessTask?.cancel()
+                self.callReadinessTask = Task { @MainActor [weak self, weak view] in
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard let self, let view, self.browserView === view else { return }
+                    self.refreshCallReadiness()
+                }
             }
         }
     }

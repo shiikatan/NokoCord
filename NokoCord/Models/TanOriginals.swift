@@ -185,11 +185,22 @@ NokoTan.register({
       if (root.matches?.('pre > code')) blocks.push(root.parentElement);
       root.querySelectorAll('pre > code').forEach(code => blocks.push(code.parentElement));
       for (const pre of blocks.slice(0, 64)) {
+        for (const existing of marked) if (!existing.isConnected) marked.delete(existing);
+        if (marked.size >= 256) break;
         if (!(pre instanceof HTMLElement) || marked.has(pre)) continue;
         if (pre.closest('[contenteditable="true"], [role="textbox"], textarea, input')) continue;
         const code = pre.querySelector(':scope > code');
         if (!code) continue;
         const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9) || 'code';
+        const lineNumbers = document.createElement('div');
+        lineNumbers.setAttribute('data-noko-code-gutter', '');
+        lineNumbers.setAttribute('aria-hidden', 'true');
+        const lineCount = Math.min(512, Math.max(1, (code.textContent || '').split('\n').length));
+        for (let line = 1; line <= lineCount; line++) {
+          const number = document.createElement('span');
+          number.textContent = String(line);
+          lineNumbers.append(number);
+        }
         const copy = document.createElement('button');
         const collapse = document.createElement('button');
         copy.type = 'button'; collapse.type = 'button';
@@ -200,7 +211,7 @@ NokoTan.register({
         collapse.setAttribute('aria-label', 'Collapse code block');
         pre.setAttribute('data-noko-code-workbench', '');
         pre.setAttribute('data-noko-code-language', language);
-        pre.append(copy, collapse);
+        pre.append(lineNumbers, copy, collapse);
         marked.add(pre);
       }
     };
@@ -246,6 +257,7 @@ NokoTan.register({
         pre.removeAttribute('data-noko-code-workbench');
         pre.removeAttribute('data-noko-code-language');
         pre.removeAttribute('data-noko-code-collapsed');
+        pre.querySelector('[data-noko-code-gutter]')?.remove();
         pre.querySelector('[data-noko-code-copy]')?.remove();
         pre.querySelector('[data-noko-code-collapse]')?.remove();
       }
@@ -260,12 +272,29 @@ pre[data-noko-code-workbench] {
   position: relative;
   overflow: auto;
   max-width: 100%;
-  padding: 30px 12px 12px !important;
+  padding: 30px 12px 12px 44px !important;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   border-radius: 10px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
 }
+
+pre[data-noko-code-workbench] > code { line-height: 1.4; }
+
+pre[data-noko-code-workbench] > [data-noko-code-gutter] {
+  position: absolute;
+  top: 30px;
+  left: 8px;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  user-select: none;
+  pointer-events: none;
+}
+
+pre[data-noko-code-workbench] > [data-noko-code-gutter] span { min-height: 1.4em; }
 
 pre[data-noko-code-workbench]::before {
   content: attr(data-noko-code-language);
@@ -293,6 +322,7 @@ pre[data-noko-code-workbench] > [data-noko-code-collapse] {
 
 pre[data-noko-code-workbench] > [data-noko-code-copy] { right: 8px; }
 pre[data-noko-code-workbench] > [data-noko-code-collapse] { right: 58px; }
+pre[data-noko-code-workbench][data-noko-code-collapsed] > [data-noko-code-gutter] { display: none; }
 pre[data-noko-code-workbench][data-noko-code-collapsed] { min-height: 32px; }
 """##
 

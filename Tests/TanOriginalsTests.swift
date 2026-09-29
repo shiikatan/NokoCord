@@ -19,6 +19,8 @@ final class TanOriginalsTests: XCTestCase {
 
         XCTAssertTrue(focus.javascript?.contains("data-noko-focus-shield") == true)
         XCTAssertTrue(workbench.javascript?.contains("data-noko-code-workbench") == true)
+        XCTAssertTrue(workbench.javascript?.contains("data-noko-code-gutter") == true)
+        XCTAssertTrue(workbench.css?.contains("data-noko-code-gutter") == true)
     }
 
     func testC130OriginalsHaveStableContentIdentity() throws {

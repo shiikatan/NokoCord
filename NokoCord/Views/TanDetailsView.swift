@@ -6,11 +6,18 @@ struct TanDetailsView: View {
     @Environment(\.dismiss) private var dismiss
     let package: TanPackage
     let reload: (String) -> Void
+    let reloadPage: () -> Void
     @State private var confirming = false
     @State private var removing = false
     @State private var error: String?
     @State private var translationReport: TanTranslationReport?
     @State private var reportUnavailable = false
+
+    init(package: TanPackage, reload: @escaping (String) -> Void, reloadPage: @escaping () -> Void = {}) {
+        self.package = package
+        self.reload = reload
+        self.reloadPage = reloadPage
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -26,6 +33,7 @@ struct TanDetailsView: View {
                 }
             } else {
                 Text(package.manifest.description).foregroundStyle(.secondary)
+                TanHealthView(package: package, onReload: reloadPage)
                 LabeledContent("Version", value: package.manifest.version)
                 LabeledContent("By", value: package.manifest.authors.joined(separator: ", "))
                 LabeledContent("Source", value: package.origin == "Noko Original" ? "Noko-Tan" : package.origin)

@@ -90,6 +90,7 @@ struct TanHubView: View {
                                         Text(package.manifest.name).font(.headline)
                                         Text(package.manifest.description).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(2)
                                         Text((tans.enabledIDs.contains(package.id) ? "Enabled" : "Disabled") + " · " + (package.origin == "Noko Original" ? "Noko-Tan" : package.origin)).font(.caption).foregroundStyle(.secondary)
+                                        TanHealthView(package: package, compact: true, onReload: browser.reload)
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                 }.buttonStyle(.plain)
                                 if tans.availableOriginalUpdate(package) != nil {
@@ -187,10 +188,10 @@ struct TanHubView: View {
             switch route {
             case .translator: TanTranslatorView()
             case .details(let package):
-                TanDetailsView(package: package) { id in
+                TanDetailsView(package: package, reload: { id in
                     pendingReloadID = id
                     presentation = nil
-                }
+                }, reloadPage: browser.reload)
             }
         }
         .background(WindowLifetimeObserver(reference: windowReference) {

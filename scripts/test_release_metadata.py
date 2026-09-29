@@ -95,6 +95,14 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(project.count('MACOSX_DEPLOYMENT_TARGET = "$(NOKO_DEPLOYMENT_TARGET)";'), 4)
         self.assertEqual(project.count('MARKETING_VERSION = "$(NOKO_APPLE_VERSION)";'), 4)
 
+    def test_native_build_expands_canonical_metadata_into_plists(self):
+        build = (ROOT / "scripts" / "build.sh").read_text()
+
+        self.assertIn("cat << WATCH_PLIST_EOF", build)
+        self.assertIn("cat << PLIST_EOF", build)
+        self.assertNotIn("cat << 'WATCH_PLIST_EOF'", build)
+        self.assertNotIn("cat << 'PLIST_EOF'", build)
+
 
 class PackageReleaseTests(unittest.TestCase):
     def _make_bundle(self, root):

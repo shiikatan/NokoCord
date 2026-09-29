@@ -102,10 +102,10 @@ struct TansInspectorView: View {
             case .translator:
                 TanTranslatorView()
             case .details(let package):
-                TanDetailsView(package: package) { id in
+                TanDetailsView(package: package, reload: { id in
                     pendingReloadID = id
                     presentation = nil
-                }
+                }, reloadPage: browser.reload)
             }
         }
         .sheet(isPresented: $showThemeEditor) {
@@ -369,6 +369,7 @@ struct TansInspectorView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
+                    TanHealthView(package: package, compact: true, onReload: browser.reload)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

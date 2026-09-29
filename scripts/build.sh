@@ -79,7 +79,7 @@ WATCH_MACOS="${WATCH_DIR}/Contents/MacOS"
 mkdir -p "${WATCH_MACOS}" "${WATCH_DIR}/Contents/Resources"
 swiftc -target "${SWIFT_TARGET}" Tools/NokoMusicWatch/main.swift -O -o "${WATCH_MACOS}/NokoMusicWatch"
 cp "${RESOURCES_DIR}/AppIcon.icns" "${WATCH_DIR}/Contents/Resources/AppIcon.icns"
-cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
+cat << WATCH_PLIST_EOF > "${WATCH_DIR}/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -109,7 +109,7 @@ cat << 'WATCH_PLIST_EOF' > "${WATCH_DIR}/Contents/Info.plist"
 WATCH_PLIST_EOF
 
 echo "==> [4/6] Generating Info.plist..."
-cat << 'PLIST_EOF' > "${CONTENTS_DIR}/Info.plist"
+cat << PLIST_EOF > "${CONTENTS_DIR}/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

@@ -2,8 +2,123 @@ import AppKit
 import WebKit
 import CryptoKit
 
+enum TanBridgeDecision: Equatable {
+    case appearanceRead
+    case status(TanDiagnostic.Event)
+    case rejected
+}
+
+enum TanAppBridgeAction: String, Equatable {
+    case toggleQuickSwitcher
+    case toggleBookmarks
+    case toggleTans
+    case toggleZenMode
+    case channelChanged
+    case saveBookmark
+    case openMedia
+    case notification
+}
+
+enum TanAppBridgeDecision: Equatable {
+    case allowed(TanAppBridgeAction)
+    case rejected
+}
+
+enum TanHealthDisplayState: String, CaseIterable, Equatable {
+    case awaitingApproval
+    case enabledHealthy
+    case disabled
+    case failedDegraded
+    case quarantined
+    case reloadRequired
+}
+
+enum TanHealthAction: String, Equatable {
+    case approveAndEnable
+    case enable
+    case disable
+    case retry
+    case recover
+    case reload
+}
+
+struct TanHealthPresentation: Equatable {
+    let state: TanHealthDisplayState
+    let title: String
+    let message: String
+    let action: TanHealthAction?
+
+    static func make(record: TanTrustRecord?, isEnabled: Bool, reloadRequired: Bool) -> TanHealthPresentation {
+        if record?.health == .quarantined {
+            return forState(.quarantined)
+        }
+        if record?.health == .failed {
+            return forState(.failedDegraded)
+        }
+        if record == nil || record?.health == .awaitingApproval || record?.approvedAt == nil {
+            return forState(.awaitingApproval)
+        }
+        if reloadRequired, isEnabled {
+            return forState(.reloadRequired)
+        }
+        return forState(isEnabled ? .enabledHealthy : .disabled)
+    }
+
+    static func forState(_ state: TanHealthDisplayState) -> TanHealthPresentation {
+        switch state {
+        case .awaitingApproval:
+            return TanHealthPresentation(
+                state: state,
+                title: "Awaiting approval",
+                message: "Review this Tan before it runs in Discord.",
+                action: .approveAndEnable
+            )
+        case .enabledHealthy:
+            return TanHealthPresentation(
+                state: state,
+                title: "Healthy",
+                message: "This Tan is enabled and its approved code is running.",
+                action: .disable
+            )
+        case .disabled:
+            return TanHealthPresentation(
+                state: state,
+                title: "Disabled",
+                message: "This Tan is installed but will not modify Discord.",
+                action: .enable
+            )
+        case .failedDegraded:
+            return TanHealthPresentation(
+                state: state,
+                title: "Failed or degraded",
+                message: "NokoCord stopped this Tan after a runtime problem. Discord remains available.",
+                action: .retry
+            )
+        case .quarantined:
+            return TanHealthPresentation(
+                state: state,
+                title: "Quarantined",
+                message: "This Tan is disabled after repeated failures. Recover it only if you trust the package.",
+                action: .recover
+            )
+        case .reloadRequired:
+            return TanHealthPresentation(
+                state: state,
+                title: "Reload required",
+                message: "Reload Discord to apply this Tan change safely.",
+                action: .reload
+            )
+        }
+    }
+}
+
 @MainActor
 final class TanRuntime {
+    static let appBridgeContentWorldName = "NokoCord.App"
+    static let maxTanResources = 256
+    static let maxTanBridgePayloadBytes = 8 * 1024
+    static let maxAppBridgePayloadBytes = 16 * 1024
+
     let manager: TanManager
     private weak var view: WKWebView?
     private var controller: WKUserContentController?
@@ -15,6 +130,7 @@ final class TanRuntime {
     private var generation = UUID()
     private var transitionTask: Task<Void, Never>?
     private var livePackages: [String: TanPackage] = [:]
+    fileprivate private(set) var runtimeNonce = UUID().uuidString
     fileprivate let allowedOrigin: String
     private(set) var compatibility = DiscordCompatibilitySnapshot.initial()
     private var appHandler: NokoAppMessageHandler?
@@ -88,6 +204,7 @@ final class TanRuntime {
         clearHandlers(); controller.removeAllUserScripts()
         configured = []
         activeHashes = [:]
+        runtimeNonce = UUID().uuidString
         guard !manager.safeMode else { return }
         configured = manager.active
         activeHashes = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0.contentHash) })
@@ -96,20 +213,20 @@ final class TanRuntime {
             let handler = TanMessageHandler(runtime: self, package: package)
             controller.addScriptMessageHandler(handler, contentWorld: world, name: Self.handlerName(package))
             handlers.append(handler)
-            controller.addUserScript(WKUserScript(source: Self.source(package, allowedOrigin: allowedOrigin), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world))
+            controller.addUserScript(WKUserScript(source: Self.source(package, allowedOrigin: allowedOrigin, runtimeNonce: runtimeNonce), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world))
         }
         if allowedOrigin == "https://discord.com" {
             let app = NokoAppMessageHandler(runtime: self)
-            controller.add(app, name: "nokoCordApp")
+            controller.add(app, contentWorld: Self.appBridgeWorld, name: "nokoCordApp")
             appHandler = app
-            controller.addUserScript(WKUserScript(source: Self.discordInjectedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            controller.addUserScript(WKUserScript(source: Self.discordInjectedScript(nonce: runtimeNonce), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: Self.appBridgeWorld))
         }
     }
     private func clearHandlers() {
         for package in configured { controller?.removeScriptMessageHandler(forName: Self.handlerName(package), contentWorld: world(package)) }
         handlers.removeAll()
         if allowedOrigin == "https://discord.com" {
-            controller?.removeScriptMessageHandler(forName: "nokoCordApp")
+            controller?.removeScriptMessageHandler(forName: "nokoCordApp", contentWorld: Self.appBridgeWorld)
             appHandler = nil
         }
     }
@@ -136,7 +253,7 @@ final class TanRuntime {
                 guard self.generation == current, !self.manager.safeMode,
                       let url = view.url, Self.accepts(url, origin: self.allowedOrigin) else { return }
                 self.livePackages[package.id] = package
-                do { try await self.evaluate(Self.source(package, allowedOrigin: self.allowedOrigin), view: view, world: self.world(package)) }
+                do { try await self.evaluate(Self.source(package, allowedOrigin: self.allowedOrigin, runtimeNonce: self.runtimeNonce), view: view, world: self.world(package)) }
                 catch { self.manager.record(package.id, event: .failed) }
             }
             guard self.generation == current else { return }
@@ -161,14 +278,18 @@ final class TanRuntime {
               message.frameInfo.securityOrigin.host == url.host,
               (message.frameInfo.securityOrigin.port == 0 ? 443 : message.frameInfo.securityOrigin.port) == (url.port ?? 443),
               !manager.safeMode, manager.enabledIDs.contains(package.id), activeHashes[package.id] == fingerprint,
-              let body = message.body as? [String: Any],
-              let request = TanBridgeRequest.parse(body) else { reply(nil, "Request rejected"); return }
-        if request.type == "status", let state = request.state, let event = TanDiagnostic.Event(rawValue: state), event != .rejected {
-            manager.record(package.id, event: event); reply(["ok": true], nil)
-        } else if request.permits(package.manifest) {
+              let body = message.body as? [String: Any] else { reply(nil, "Request rejected"); return }
+        switch Self.validateTanBridgeRequest(body, package: package, runtimeNonce: runtimeNonce) {
+        case .status(let event):
+            manager.record(package.id, event: event)
+            reply(["ok": true], nil)
+        case .appearanceRead:
             let name = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
             reply(["appearance": name == .darkAqua ? "dark" : "light"], nil)
-        } else { manager.record(package.id, event: .rejected); reply(nil, "Capability not granted") }
+        case .rejected:
+            manager.record(package.id, event: .rejected)
+            reply(nil, "Request rejected")
+        }
     }
     static func accepts(_ url: URL, origin: String) -> Bool {
         DiscordCompatibilityService.accepts(url, origin: origin)
@@ -178,6 +299,124 @@ final class TanRuntime {
         compatibility = DiscordCompatibilityService.snapshot(for: view?.url, origin: allowedOrigin, generation: generation)
         onCompatibilityChange?(compatibility)
     }
+    private static var appBridgeWorld: WKContentWorld { .world(name: appBridgeContentWorldName) }
+
+    static func validateTanBridgeRequest(
+        _ body: [String: Any],
+        package: TanPackage,
+        runtimeNonce: String
+    ) -> TanBridgeDecision {
+        guard body.count <= 8,
+              boundedBridgePayload(body, maximumBytes: maxTanBridgePayloadBytes),
+              boundedBridgeString(body["type"], maximumBytes: 32),
+              body["tanID"] as? String == package.id,
+              body["contentHash"] as? String == package.contentHash,
+              body["runtimeNonce"] as? String == runtimeNonce,
+              boundedBridgeString(body["runtimeNonce"], maximumBytes: 128),
+              boundedBridgeString(body["tanID"], maximumBytes: 128),
+              boundedBridgeString(body["contentHash"], maximumBytes: 128) else {
+            return .rejected
+        }
+
+        let identityKeys: Set<String> = ["type", "tanID", "contentHash", "runtimeNonce"]
+        guard let type = body["type"] as? String else { return .rejected }
+        switch type {
+        case "status":
+            guard Set(body.keys) == identityKeys.union(["state"]),
+                  let rawState = body["state"] as? String,
+                  boundedBridgeString(rawState, maximumBytes: 32),
+                  let event = TanDiagnostic.Event(rawValue: rawState),
+                  event != .rejected else { return .rejected }
+            return .status(event)
+        case "capability":
+            guard Set(body.keys) == identityKeys.union(["capability"]),
+                  package.manifest.target == .isolated,
+                  package.manifest.capabilities.contains(.appearanceRead),
+                  body["capability"] as? String == TanCapability.appearanceRead.rawValue else {
+                return .rejected
+            }
+            return .appearanceRead
+        default:
+            return .rejected
+        }
+    }
+
+    static func validateAppBridgeRequest(_ body: [String: Any], runtimeNonce: String) -> TanAppBridgeDecision {
+        guard body.count <= 10,
+              boundedBridgePayload(body, maximumBytes: maxAppBridgePayloadBytes),
+              body["runtimeNonce"] as? String == runtimeNonce,
+              boundedBridgeString(body["runtimeNonce"], maximumBytes: 128),
+              let rawAction = body["action"] as? String,
+              let action = TanAppBridgeAction(rawValue: rawAction),
+              boundedBridgeString(rawAction, maximumBytes: 64) else {
+            return .rejected
+        }
+
+        let baseKeys: Set<String> = ["action", "runtimeNonce"]
+        switch action {
+        case .toggleQuickSwitcher, .toggleBookmarks, .toggleTans, .toggleZenMode, .channelChanged:
+            return Set(body.keys) == baseKeys ? .allowed(action) : .rejected
+        case .notification:
+            guard Set(body.keys) == baseKeys.union(["title", "body"]),
+                  let title = body["title"] as? String,
+                  let message = body["body"] as? String,
+                  boundedBridgeString(title, maximumBytes: 128),
+                  boundedBridgeString(message, maximumBytes: 512, allowEmpty: true),
+                  !title.isEmpty else { return .rejected }
+            return .allowed(action)
+        case .openMedia:
+            guard Set(body.keys) == baseKeys.union(["url", "isVideo"]),
+                  let url = body["url"] as? String,
+                  !url.isEmpty,
+                  boundedBridgeString(url, maximumBytes: 2_048),
+                  body["isVideo"] as? Bool != nil else { return .rejected }
+            return .allowed(action)
+        case .saveBookmark:
+            let requiredKeys = baseKeys.union(["messageId", "authorName", "channelName", "serverName", "content", "messageURL"])
+            let optionalKeys = Set(["authorAvatarURL", "mediaURL"])
+            guard Set(body.keys).isSubset(of: requiredKeys.union(optionalKeys)),
+                  Set(body.keys).isSuperset(of: requiredKeys),
+                  boundedBridgeString(body["messageId"], maximumBytes: 128),
+                  boundedBridgeString(body["authorName"], maximumBytes: 256),
+                  boundedBridgeString(body["channelName"], maximumBytes: 256),
+                  boundedBridgeString(body["serverName"], maximumBytes: 256, allowEmpty: true),
+                  boundedBridgeString(body["content"], maximumBytes: 8_192, allowEmpty: true),
+                  boundedBridgeString(body["messageURL"], maximumBytes: 2_048),
+                  boundedOptionalBridgeString(body["authorAvatarURL"], maximumBytes: 2_048),
+                  boundedOptionalBridgeString(body["mediaURL"], maximumBytes: 2_048) else { return .rejected }
+            return .allowed(action)
+        }
+    }
+
+    private static func boundedBridgeString(_ value: Any?, maximumBytes: Int, allowEmpty: Bool = false) -> Bool {
+        guard let value = value as? String else { return false }
+        return (allowEmpty || !value.isEmpty) && value.utf8.count <= maximumBytes
+    }
+
+    private static func boundedBridgePayload(_ body: [String: Any], maximumBytes: Int) -> Bool {
+        var bytes = 0
+        for (key, value) in body {
+            bytes += key.utf8.count
+            switch value {
+            case let value as String:
+                bytes += value.utf8.count
+            case let value as Bool:
+                bytes += value ? 4 : 5
+            case is NSNull:
+                bytes += 4
+            default:
+                return false
+            }
+            if bytes > maximumBytes { return false }
+        }
+        return true
+    }
+
+    private static func boundedOptionalBridgeString(_ value: Any?, maximumBytes: Int) -> Bool {
+        if value is NSNull || value == nil { return true }
+        return boundedBridgeString(value, maximumBytes: maximumBytes, allowEmpty: true)
+    }
+
     private func world(_ package: TanPackage) -> WKContentWorld {
         if package.manifest.target == .page { return .page }
         if let world = worlds[package.id] { return world }
@@ -188,7 +427,7 @@ final class TanRuntime {
     static func handlerName(_ package: TanPackage) -> String { "nokoTan_" + SHA256.hash(data: Data(package.id.utf8)).map { String(format: "%02x", $0) }.joined() }
     static func key(_ package: TanPackage) -> String { "__nokoTan_" + package.id }
     static func quote(_ string: String) -> String { String(data: try! JSONEncoder().encode(string), encoding: .utf8)! }
-    static func source(_ package: TanPackage, allowedOrigin: String) -> String {
+    static func source(_ package: TanPackage, allowedOrigin: String, runtimeNonce: String = "runtime-fixture") -> String {
         let nativeAllowed = package.manifest.target == .isolated && package.manifest.capabilities.contains(.appearanceRead)
         return #"""
         (() => {
@@ -200,11 +439,17 @@ final class TanRuntime {
           const key = \#(quote(key(package)));
           globalThis[key]?.stop();
           let definition = null, cleanup = null, style = null, stopped = false;
-          const send = body => window.webkit.messageHandlers[\#(quote(handlerName(package)))].postMessage(body);
+          const identity = Object.freeze({
+            tanID: \#(quote(package.id)),
+            contentHash: \#(quote(package.contentHash)),
+            runtimeNonce: \#(quote(runtimeNonce))
+          });
+          const send = body => window.webkit.messageHandlers[\#(quote(handlerName(package)))].postMessage({ ...body, ...identity });
           const report = state => { try { send({type:'status', state}).catch(() => {}); } catch {} };
           const disposers = new Set();
+          let timerCount = 0, listenerCount = 0, mountCount = 0;
           const own = dispose => {
-            if (stopped || disposers.size >= 256) { dispose(); throw new Error('Resource limit reached'); }
+            if (stopped || disposers.size >= \#(String(maxTanResources))) { dispose(); throw new Error('Resource limit reached'); }
             disposers.add(dispose);
             return () => { if (disposers.delete(dispose)) dispose(); };
           };
@@ -217,6 +462,7 @@ final class TanRuntime {
               try { definition?.stop?.(); } catch { failed = true; }
               for (const dispose of disposers) { try { dispose(); } catch { failed = true; } }
               disposers.clear(); style?.remove();
+              timerCount = 0; listenerCount = 0; mountCount = 0;
               cleanup = null; definition = null; style = null;
               if (globalThis[key] === state) delete globalThis[key];
               if (failed) report('failed');
@@ -228,20 +474,30 @@ final class TanRuntime {
             register(value) { if (definition || !value || typeof value.start !== 'function') throw new Error('Invalid lifecycle'); definition = value; },
             onCleanup(dispose) { if (typeof dispose !== 'function') throw new Error('Invalid cleanup'); return own(dispose); },
             listen(target, type, listener, options) {
+              if (listenerCount >= 128) throw new Error('Resource limit reached');
               target.addEventListener(type, listener, options);
+              listenerCount++;
               const capture = typeof options === 'boolean' ? options : !!options?.capture;
-              return own(() => target.removeEventListener(type, listener, capture));
+              return own(() => { target.removeEventListener(type, listener, capture); listenerCount = Math.max(0, listenerCount - 1); });
             },
             interval(callback, milliseconds) {
+              if (timerCount >= 64) throw new Error('Resource limit reached');
               const timer = setInterval(() => { if (!stopped) callback(); }, Math.max(16, milliseconds));
-              return own(() => clearInterval(timer));
+              timerCount++;
+              return own(() => { clearInterval(timer); timerCount = Math.max(0, timerCount - 1); });
             },
             timeout(callback, milliseconds) {
+              if (timerCount >= 64) throw new Error('Resource limit reached');
               let cancel;
               const timer = setTimeout(() => { cancel(); if (!stopped) callback(); }, Math.max(0, milliseconds));
-              cancel = own(() => clearTimeout(timer)); return cancel;
+              timerCount++;
+              cancel = own(() => { clearTimeout(timer); timerCount = Math.max(0, timerCount - 1); }); return cancel;
             },
-            mount(element, parent = document.body) { parent.append(element); return own(() => element.remove()); },
+            mount(element, parent = document.body) {
+              if (mountCount >= 64) throw new Error('Resource limit reached');
+              parent.append(element); mountCount++;
+              return own(() => { element.remove(); mountCount = Math.max(0, mountCount - 1); });
+            },
             appearance: () => \#(nativeAllowed ? "send({type:'capability',capability:'appearance.read'})" : "Promise.reject(new Error('Capability not granted'))")
           });
           function start() {
@@ -265,13 +521,21 @@ final class TanRuntime {
         //# sourceURL=nokotan://\#(package.id)/main.js
         """#
     }
-    static let discordInjectedScript: String = #"""
+    static var discordInjectedScript: String { discordInjectedScript(nonce: "runtime-fixture") }
+    static func discordInjectedScript(nonce: String) -> String { #"""
     (() => {
       'use strict';
       if (location.origin !== 'https://discord.com') return;
       if (!(location.pathname === '/app' || location.pathname === '/channels' || location.pathname.startsWith('/channels/'))) return;
       if (window.__nokoCordAppInjected) return;
       window.__nokoCordAppInjected = true;
+      const __nokoCordRuntimeNonce = \#(quote(nonce));
+      const postApp = (body) => {
+        try {
+          const handler = window.webkit?.messageHandlers?.nokoCordApp;
+          if (handler) handler.postMessage({ ...body, runtimeNonce: __nokoCordRuntimeNonce });
+        } catch (_) {}
+      };
 
       // 0a. Block Discord Science Telemetry & Analytics Tracking
       try {
@@ -598,30 +862,22 @@ final class TanRuntime {
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleQuickSwitcher' });
-            } catch (_) {}
+            postApp({ action: 'toggleQuickSwitcher' });
           } else if (key === 'b' && e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleBookmarks' });
-            } catch (_) {}
+            postApp({ action: 'toggleBookmarks' });
           } else if (key === 't' && !e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleTans' });
-            } catch (_) {}
+            postApp({ action: 'toggleTans' });
           } else if (key === '\\' && !e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'toggleZenMode' });
-            } catch (_) {}
+            postApp({ action: 'toggleZenMode' });
           }
         }
       };
@@ -638,13 +894,11 @@ final class TanRuntime {
             this.body = options.body || '';
             this.icon = options.icon || '';
             this.tag = options.tag || '';
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
-                action: 'notification',
-                title: String(title).slice(0, 128),
-                body: String(options.body || '').slice(0, 512)
-              });
-            } catch (_) {}
+            postApp({
+              action: 'notification',
+              title: String(title).slice(0, 128),
+              body: String(options.body || '').slice(0, 512)
+            });
           }
           static get permission() { return 'granted'; }
           static requestPermission(cb) {
@@ -786,9 +1040,7 @@ final class TanRuntime {
 
         const onChannelNavigated = () => {
           evictOffscreenMedia();
-          try {
-            window.webkit?.messageHandlers?.nokoCordApp?.postMessage({ action: 'channelChanged' });
-          } catch (_) {}
+          postApp({ action: 'channelChanged' });
         };
 
         // Hook History API for instant channel navigation detection
@@ -911,13 +1163,11 @@ final class TanRuntime {
           }
           e.preventDefault();
           e.stopPropagation();
-          try {
-            window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
-              action: 'openMedia',
-              url: mediaUrl,
-              isVideo: isVideo
-            });
-          } catch (_) {}
+          postApp({
+            action: 'openMedia',
+            url: mediaUrl,
+            isVideo: isVideo
+          });
         }
       }, true);
 
@@ -995,7 +1245,7 @@ final class TanRuntime {
 
           const messageURL = location.origin + location.pathname + '/' + msgId;
 
-          window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
+          postApp({
             action: 'saveBookmark',
             messageId: msgId,
             authorName: authorName,
@@ -1075,13 +1325,11 @@ final class TanRuntime {
           if (!isTyping && currentHoveredMedia) {
             e.preventDefault();
             e.stopPropagation();
-            try {
-              window.webkit?.messageHandlers?.nokoCordApp?.postMessage({
-                action: 'openMedia',
-                url: currentHoveredMedia.url,
-                isVideo: currentHoveredMedia.isVideo
-              });
-            } catch (_) {}
+            postApp({
+              action: 'openMedia',
+              url: currentHoveredMedia.url,
+              isVideo: currentHoveredMedia.isVideo
+            });
             return;
           }
         }
@@ -1097,7 +1345,7 @@ final class TanRuntime {
         }
       }, true);
     })();
-    """#
+    """# }
 }
 
 @MainActor
@@ -1109,19 +1357,23 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
               message.frameInfo.isMainFrame,
               let url = message.frameInfo.request.url,
               TanRuntime.accepts(url, origin: runtime.allowedOrigin),
+              message.frameInfo.securityOrigin.protocol == url.scheme,
+              message.frameInfo.securityOrigin.host == url.host,
+              (message.frameInfo.securityOrigin.port == 0 ? 443 : message.frameInfo.securityOrigin.port) == (url.port ?? 443),
               let body = message.body as? [String: Any],
-              let action = body["action"] as? String else { return }
-        if action == "toggleTans" {
+              case .allowed(let action) = TanRuntime.validateAppBridgeRequest(body, runtimeNonce: runtime.runtimeNonce) else { return }
+        switch action {
+        case .toggleTans:
             runtime.onToggleTans?()
-        } else if action == "toggleQuickSwitcher" {
+        case .toggleQuickSwitcher:
             runtime.onToggleQuickSwitcher?()
-        } else if action == "toggleBookmarks" {
+        case .toggleBookmarks:
             runtime.onToggleBookmarks?()
-        } else if action == "toggleZenMode" {
+        case .toggleZenMode:
             runtime.onToggleZenMode?()
-        } else if action == "channelChanged" {
+        case .channelChanged:
             runtime.onChannelChanged?()
-        } else if action == "saveBookmark" {
+        case .saveBookmark:
             if let msgId = body["messageId"] as? String,
                let author = body["authorName"] as? String,
                let channel = body["channelName"] as? String,
@@ -1152,14 +1404,14 @@ private final class NokoAppMessageHandler: NSObject, WKScriptMessageHandler {
                 ) else { return }
                 runtime.onSaveBookmark?(bookmark)
             }
-        } else if action == "openMedia" {
+        case .openMedia:
             if let urlStr = body["url"] as? String,
                let url = URL(string: urlStr),
                BrowserPolicy.isDiscordMediaURL(url) {
                 let isVideo = body["isVideo"] as? Bool ?? false
                 runtime.onOpenMedia?(url, isVideo)
             }
-        } else if action == "notification" {
+        case .notification:
             if let title = body["title"] as? String {
                 let notifBody = body["body"] as? String ?? ""
                 let cleanTitle = title.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined()
