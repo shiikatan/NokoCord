@@ -8,7 +8,7 @@ modifications. NokoCord is not affiliated with or endorsed by Discord.
 
 - **Maomao** (`maomao` branch): stable edition, public version **M1.0.0**,
   maintained by Shiikatan.
-- **Chiaki** (`chiaki` branch): experimental edition, public version **C1.3.0**,
+- **Chiaki** (`chiaki` branch): experimental edition, public version **C1.3.5**,
   maintained by Millx.
 
 This is the **Chiaki** source branch. It began from the same curated source
@@ -40,7 +40,9 @@ Discord owns authentication, messages and media. NokoCord does not extract
 credentials or run a second user-token transport. Local Tans can inject JS/CSS
 under a typed lifecycle and narrow native bridge. C1.3.0 adds route-safe
 compatibility shielding, hash-bound Tan approval and visible health/recovery
-states. Page-world Tans are trusted code, not a sandbox for hostile plugins.
+states. C1.3.5 adds feature-scoped compatibility diagnostics, reversible Tan
+recovery, evidence-based call/music lifecycle handling, and Xcode/CLI helper
+parity. Page-world Tans are trusted code, not a sandbox for hostile plugins.
 See [the Tan contract](docs/TANS.md), [the compatibility contract](docs/DISCORD_COMPATIBILITY.md),
 [the Tan trust model](docs/TAN_TRUST_MODEL.md), and [the translator workflow](Tools/TanTranslator/README.md).
 

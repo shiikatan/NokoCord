@@ -10,12 +10,16 @@
 		046C5B2B30608FCD00F6B9E0 /* NokoCord.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NokoCord.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A01234567890123456789002 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A01234567890123456789004 /* TanTranslator */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = TanTranslator; sourceTree = BUILT_PRODUCTS_DIR; };
+		A01234567890123456789011 /* NokoMusicWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NokoMusicWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A01234567890123456789012 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A0123456789012345678900F /* Edition.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Edition.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXBuildFile section */
 		A01234567890123456789003 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01234567890123456789002 /* main.swift */; };
 		A0123456789012345678900B /* TanTranslator in Embed Tan Translator Helper */ = {isa = PBXBuildFile; fileRef = A01234567890123456789004 /* TanTranslator */; settings = {ATTRIBUTES = (CodeSignOnCopy,);}; };
+		A01234567890123456789014 /* main.swift in NokoMusicWatch Sources */ = {isa = PBXBuildFile; fileRef = A01234567890123456789012 /* main.swift */; };
+		A01234567890123456789018 /* NokoMusicWatch.app in Embed NokoMusicWatch Helper */ = {isa = PBXBuildFile; fileRef = A01234567890123456789011 /* NokoMusicWatch.app */; settings = {ATTRIBUTES = (CodeSignOnCopy,);}; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -41,6 +45,7 @@
 				A01234567890123456789010 /* Config */,
 				046C5B2D30608FCD00F6B9E0 /* NokoCord */,
 				A0123456789012345678900E /* Tan Translator Helper */,
+				A01234567890123456789013 /* Noko Music Watch Helper */,
 				046C5B2C30608FCD00F6B9E0 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -50,6 +55,7 @@
 			children = (
 				046C5B2B30608FCD00F6B9E0 /* NokoCord.app */,
 				A01234567890123456789004 /* TanTranslator */,
+				A01234567890123456789011 /* NokoMusicWatch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -60,6 +66,14 @@
 				A01234567890123456789002 /* main.swift */,
 			);
 			path = Tools/TanTranslator/Helper;
+			sourceTree = "<group>";
+		};
+		A01234567890123456789013 /* Noko Music Watch Helper */ = {
+			isa = PBXGroup;
+			children = (
+				A01234567890123456789012 /* main.swift */,
+			);
+			path = Tools/NokoMusicWatch;
 			sourceTree = "<group>";
 		};
 		A01234567890123456789010 /* Config */ = {
@@ -86,6 +100,20 @@
 			productReference = A01234567890123456789004 /* TanTranslator */;
 			productType = "com.apple.product-type.tool";
 		};
+		A01234567890123456789015 /* NokoMusicWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0123456789012345678901C /* Build configuration list for PBXNativeTarget "NokoMusicWatch" */;
+			buildPhases = (
+				A01234567890123456789016 /* Sources */,
+				A01234567890123456789017 /* Resources */,
+			);
+			buildRules = (
+			);
+			name = NokoMusicWatch;
+			productName = NokoMusicWatch;
+			productReference = A01234567890123456789011 /* NokoMusicWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		046C5B2A30608FCD00F6B9E0 /* NokoCord */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 046C5B3630608FCE00F6B9E0 /* Build configuration list for PBXNativeTarget "NokoCord" */;
@@ -94,9 +122,11 @@
 				046C5B2830608FCD00F6B9E0 /* Frameworks */,
 				046C5B2930608FCD00F6B9E0 /* Resources */,
 				A0123456789012345678900A /* Embed Tan Translator Helper */,
+				A01234567890123456789019 /* Embed NokoMusicWatch Helper */,
 			);
 			dependencies = (
 				A0123456789012345678900D /* TanTranslator */,
+				A0123456789012345678901A /* NokoMusicWatch */,
 			);
 			buildRules = (
 			);
@@ -124,6 +154,9 @@
 					A01234567890123456789006 = {
 						CreatedOnToolsVersion = 27.0;
 					};
+					A01234567890123456789015 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 				};
 			};
 			buildConfigurationList = 046C5B2630608FCD00F6B9E0 /* Build configuration list for PBXProject "NokoCord" */;
@@ -142,6 +175,7 @@
 			targets = (
 				046C5B2A30608FCD00F6B9E0 /* NokoCord */,
 				A01234567890123456789006 /* TanTranslator */,
+				A01234567890123456789015 /* NokoMusicWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -166,6 +200,17 @@
 			name = "Embed Tan Translator Helper";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A01234567890123456789019 /* Embed NokoMusicWatch Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "Contents/Helpers";
+			dstSubfolderSpec = 1;
+			files = (
+				A01234567890123456789018 /* NokoMusicWatch.app in Embed NokoMusicWatch Helper */,
+			);
+			name = "Embed NokoMusicWatch Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
@@ -176,6 +221,13 @@
 			remoteGlobalIDString = A01234567890123456789006;
 			remoteInfo = TanTranslator;
 		};
+		A0123456789012345678901B /* NokoMusicWatch Proxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 046C5B2330608FCD00F6B9E0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A01234567890123456789015;
+			remoteInfo = NokoMusicWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
@@ -183,6 +235,11 @@
 			isa = PBXTargetDependency;
 			target = A01234567890123456789006 /* TanTranslator */;
 			targetProxy = A0123456789012345678900C /* Proxy */;
+		};
+		A0123456789012345678901A /* NokoMusicWatch */ = {
+			isa = PBXTargetDependency;
+			target = A01234567890123456789015 /* NokoMusicWatch */;
+			targetProxy = A0123456789012345678901B /* NokoMusicWatch Proxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -195,12 +252,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A01234567890123456789016 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A01234567890123456789014 /* main.swift in NokoMusicWatch Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		046C5B2730608FCD00F6B9E0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
 			);
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A01234567890123456789017 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		046C5B3430608FCE00F6B9E0 /* Debug configuration for PBXProject "NokoCord" */ = {
@@ -476,6 +551,71 @@
 			};
 			name = Release;
 		};
+		A0123456789012345678901D /* Debug configuration for PBXNativeTarget "NokoMusicWatch" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A0123456789012345678900F /* Edition.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = "$(NOKO_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = NokoMusicWatch;
+				INFOPLIST_KEY_LSMinimumSystemVersion = "$(NOKO_DEPLOYMENT_TARGET)";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Read Apple Music playback state so NokoCord can show listening activity.";
+				MACOSX_DEPLOYMENT_TARGET = "$(NOKO_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = "$(NOKO_APPLE_VERSION)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NOKO_BUNDLE_ID).musicwatch";
+				PRODUCT_NAME = NokoMusicWatch;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				WRAPPER_EXTENSION = app;
+			};
+			name = Debug;
+		};
+		A0123456789012345678901E /* Release configuration for PBXNativeTarget "NokoMusicWatch" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A0123456789012345678900F /* Edition.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = "$(NOKO_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = NokoMusicWatch;
+				INFOPLIST_KEY_LSMinimumSystemVersion = "$(NOKO_DEPLOYMENT_TARGET)";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Read Apple Music playback state so NokoCord can show listening activity.";
+				MACOSX_DEPLOYMENT_TARGET = "$(NOKO_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = "$(NOKO_APPLE_VERSION)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NOKO_BUNDLE_ID).musicwatch";
+				PRODUCT_NAME = NokoMusicWatch;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = "non-global";
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 5.0;
+				WRAPPER_EXTENSION = app;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -500,6 +640,14 @@
 			buildConfigurations = (
 				046C5B3730608FCE00F6B9E0 /* Debug configuration for PBXNativeTarget "NokoCord" */,
 				046C5B3830608FCE00F6B9E0 /* Release configuration for PBXNativeTarget "NokoCord" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		A0123456789012345678901C /* Build configuration list for PBXNativeTarget "NokoMusicWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A0123456789012345678901D /* Debug configuration for PBXNativeTarget "NokoMusicWatch" */,
+				A0123456789012345678901E /* Release configuration for PBXNativeTarget "NokoMusicWatch" */,
 			);
 			defaultConfigurationName = Release;
 		};

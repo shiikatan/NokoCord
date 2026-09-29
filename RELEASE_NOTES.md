@@ -1,11 +1,51 @@
-# NokoCord — Chiaki Edition C1.3.0
+# NokoCord — Chiaki Edition C1.3.5
 
 Chiaki is the experimental, rapid NokoCord edition maintained by Millx. It
 keeps its own app container and Discord session, separate from Maomao.
 Experiments and releases may happen about 1–2 days apart when active; behavior
 can change or be unstable, and there is no support or update promise.
 
-## What is new in C1.3.0
+## What is new in C1.3.5
+
+C1.3.5 is the confidence-and-recovery follow-up for the one-WebView Discord
+workspace:
+
+- Compatibility Center and probe v2 report feature-scoped, bounded DOM and
+  browser-capability facts with sanitized reasons. Unsupported routes remain
+  ordinary Discord pages, and named hashed fallbacks are visible as reduced
+  compatibility rather than hidden selector guesses.
+- Tan trust records now retain target, trust origin, enabled state, failure
+  category/time, hash-bound approval and a recoverable previous package. Tan
+  Hub, Inspector and details expose trust diffs, page-world warnings, quotas,
+  quarantine, restore, Safe Mode and redacted diagnostic actions.
+- Call teardown is postcondition-based: a page leave request is not treated as
+  complete until Discord's call surface has gone away and native capture is
+  cleared. Navigation remains guarded while either side is pending.
+- Apple Music now has monotonic playback reduction, explicit helper health,
+  bounded reconnect backoff, single-helper ownership and bounded owner
+  lifetime. Helper positions remain labelled estimated until a signed-build
+  manual gate proves exact-position support.
+- Focus Shield and Code Workbench add capability-free presentation and code
+  reading improvements with visible controls, keyboard and VoiceOver labels,
+  reduced-motion handling, bounded mutation work and cleanup fixtures.
+- SwiftPM, Xcode and the CLI build now share canonical metadata and resources;
+  Xcode declares and embeds the Apple Music helper, and CI runs the full
+  Xcode/XCTest plus deterministic package/checksum/extraction gates.
+
+The shipping-style CLI build, signed artifact verifier, metadata/parity tests,
+broker tests, translator tests, helper type check and Tan fixture tests pass on
+the implementation host. Full SwiftPM/XCTest and Xcode verification remain
+blocked on that host because it has Command Line Tools but no full Xcode.
+
+## Known validation boundaries for C1.3.5
+
+The two-user live-call gate, Apple Music Automation permission and helper
+quit/relaunch behavior, sleep/wake, VoiceOver pass, and the sixty-minute
+performance sample still require manual validation on a full macOS/Xcode host
+with Discord and Apple Music access. C1.3.5 does not claim a native Discord call
+transport, raw-token transport, or exact Apple Music position support.
+
+## Previous release: C1.3.0
 
 C1.3.0 is a reliability and trust release for the one-WebView Discord
 workspace:

@@ -53,25 +53,10 @@ import zipfile
 
 ROOT = pathlib.Path.cwd()
 sys.path.insert(0, str(ROOT / "scripts"))
-from release_metadata import load_metadata
+from release_metadata import RELEASE_PACKAGE_FILES, load_metadata
 
 
-ALLOWLIST = {
-    "Contents/Info.plist",
-    "Contents/MacOS/NokoCord",
-    "Contents/Helpers/TanTranslator",
-    "Contents/Helpers/NokoMusicWatch.app/Contents/Info.plist",
-    "Contents/Helpers/NokoMusicWatch.app/Contents/MacOS/NokoMusicWatch",
-    "Contents/Helpers/NokoMusicWatch.app/Contents/Resources/AppIcon.icns",
-    "Contents/Helpers/NokoMusicWatch.app/Contents/_CodeSignature/CodeResources",
-    "Contents/_CodeSignature/CodeResources",
-    "Contents/Resources/AppIcon.icns",
-    "Contents/Resources/NokoCord-LICENSE.txt",
-    "Contents/Resources/NokoMark.png",
-    "Contents/Resources/TanTranslatorRuntime.js",
-    "Contents/Resources/TypeScript-LICENSE.txt",
-    "Contents/Resources/TypeScript-ThirdPartyNotices.txt",
-}
+ALLOWLIST = set(RELEASE_PACKAGE_FILES)
 
 
 def fail(message):

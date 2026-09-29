@@ -50,6 +50,7 @@ swiftc -target "${SWIFT_TARGET}" -parse-as-library -j"${CPU_CORES}" ${SWIFT_FILE
 
 echo "==> [3/6] Packaging resources and app icon..."
 cp NokoCord/Resources/TanTranslatorRuntime.js "${RESOURCES_DIR}/"
+cp NokoCord/Resources/Localizable.xcstrings "${RESOURCES_DIR}/"
 cp NokoCord/Resources/TypeScript-LICENSE.txt "${RESOURCES_DIR}/"
 cp NokoCord/Resources/TypeScript-ThirdPartyNotices.txt "${RESOURCES_DIR}/"
 cp LICENSE "${RESOURCES_DIR}/NokoCord-LICENSE.txt"

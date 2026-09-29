@@ -1,0 +1,138 @@
+name: Chiaki verification
+
+on:
+  push:
+    branches:
+      - chiaki
+  pull_request:
+    branches:
+      - chiaki
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Full Xcode and CLI verification
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out Chiaki without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Select the newest installed full Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          selected=""
+          if [ -d "/Applications/Xcode.app" ]; then
+            selected="/Applications/Xcode.app"
+          else
+            for candidate in /Applications/Xcode*.app; do
+              [ -d "$candidate" ] || continue
+              selected="$candidate"
+            done
+          fi
+          if [ -z "$selected" ]; then
+            echo "Full Xcode is required; no Xcode.app was found on the runner." >&2
+            exit 1
+          fi
+          developer_dir="$selected/Contents/Developer"
+          if [ ! -d "$developer_dir" ]; then
+            echo "The selected Xcode has no Contents/Developer directory." >&2
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+
+      - name: Validate the selected Xcode resource toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --find xcstringstool
+
+      - name: Run focused build-contract tests
+        run: |
+          python3 scripts/test_release_metadata.py
+          python3 scripts/test_build_parity.py
+
+      - name: Run SwiftPM and XCTest
+        run: swift test --scratch-path "$RUNNER_TEMP/NokoCord-tests"
+
+      - name: Run broker and translator tests
+        run: |
+          python3 -m unittest discover -s Broker -v
+          node --test Tools/TanTranslator/translator.test.mjs
+
+      - name: List Xcode targets and build Debug
+        run: |
+          xcodebuild -project NokoCord.xcodeproj -list
+          xcodebuild -project NokoCord.xcodeproj \
+            -scheme NokoCord \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/NokoCord-xcode-debug" \
+            CODE_SIGN_IDENTITY=- build
+
+      - name: Build Xcode Release and verify helper embedding
+        run: |
+          xcodebuild -project NokoCord.xcodeproj \
+            -scheme NokoCord \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/NokoCord-xcode-release" \
+            CODE_SIGN_IDENTITY=- build
+          test -d "$RUNNER_TEMP/NokoCord-xcode-debug/Build/Products/Debug/NokoCord.app/Contents/Helpers/NokoMusicWatch.app"
+          test -d "$RUNNER_TEMP/NokoCord-xcode-release/Build/Products/Release/NokoCord.app/Contents/Helpers/NokoMusicWatch.app"
+
+      - name: Build and verify the deterministic CLI artifact
+        run: |
+          sh scripts/build.sh
+          python3 scripts/verify-release.py build/NokoCord.app --edition chiaki --metadata Config/Edition.xcconfig
+
+      - name: Package, checksum, and safely extract the release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          edition_name=$(python3 scripts/release_metadata.py --field edition_name)
+          public_version=$(python3 scripts/release_metadata.py --field public_version)
+          archive="$RUNNER_TEMP/NokoCord-${edition_name}-${public_version}.zip"
+          sh scripts/package-release.sh --app build/NokoCord.app --output "$archive"
+          checksum="${archive%.zip}-SHA256SUMS.txt"
+          python3 - "$archive" "$checksum" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import tempfile
+          import zipfile
+
+          archive = pathlib.Path(sys.argv[1])
+          checksum = pathlib.Path(sys.argv[2])
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if checksum.read_text() != f"{digest}  {archive.name}\n":
+              raise SystemExit("archive checksum mismatch")
+          with zipfile.ZipFile(archive) as source:
+              names = source.namelist()
+              if any(name.startswith("__MACOSX/") for name in names):
+                  raise SystemExit("archive contains macOS metadata")
+              with tempfile.TemporaryDirectory(prefix="nokocord-ci-") as directory:
+                  destination = pathlib.Path(directory).resolve()
+                  for name in names:
+                      target = (destination / name).resolve()
+                      if destination not in target.parents:
+                          raise SystemExit("archive contains path traversal")
+                  source.extractall(destination)
+                  if not (destination / "NokoCord.app/Contents/Info.plist").is_file():
+                      raise SystemExit("extracted app is incomplete")
+          print("Archive checksum and extraction checks passed")
+          PY
+
+      - name: Run the consolidated local verification gate
+        run: sh scripts/verify.sh
+
+      - name: Check whitespace errors
+        run: git diff --check

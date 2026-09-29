@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 
-from release_metadata import load_metadata
+from release_metadata import RELEASE_PACKAGE_FILES, load_metadata
 
 
 def run(*arguments, include_stderr=False):
@@ -31,6 +31,22 @@ EDITIONS = {
 
 
 def verify(app, edition=None, metadata_path=None):
+    actual_files = set()
+    for path in app.rglob("*"):
+        if path.is_symlink():
+            raise ValueError(f"Symlink is not allowed in the release bundle: {path.relative_to(app)}")
+        if path.is_file():
+            actual_files.add(path.relative_to(app).as_posix())
+    if actual_files != RELEASE_PACKAGE_FILES:
+        missing = sorted(RELEASE_PACKAGE_FILES - actual_files)
+        unexpected = sorted(actual_files - RELEASE_PACKAGE_FILES)
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unexpected:
+            details.append("unexpected=" + ",".join(unexpected))
+        raise ValueError("Release bundle does not match the reviewed manifest (" + "; ".join(details) + ")")
+
     with (app / "Contents/Info.plist").open("rb") as source:
         info = plistlib.load(source)
     expected = {

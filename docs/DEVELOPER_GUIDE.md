@@ -29,6 +29,36 @@ and `swiftc`, but a host missing XCTest, xcstringstool, or the full Xcode SDK
 cannot claim a complete verification pass. Record the exact missing component
 and continue only with independent checks.
 
+`Package.swift` reads `NOKO_DEPLOYMENT_TARGET` from the canonical
+`Config/Edition.xcconfig`; do not duplicate that value in a manifest or test
+fixture. The Xcode project uses the same configuration for NokoCord,
+TanTranslator, and the unsandboxed `NokoMusicWatch` helper. The latter is an
+application target embedded at `Contents/Helpers/NokoMusicWatch.app` with no
+App Sandbox or hardened runtime, matching the reviewed CLI helper shape. The
+main NokoCord target remains sandboxed and hardened.
+
+### Swift resource-tool prerequisite
+
+`sh scripts/verify.sh` checks for Apple's real `xcstringstool` before invoking
+SwiftPM. This is part of full Xcode, not the standalone Command Line Tools.
+When the check fails, install Xcode and select its developer directory, for
+example:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sh scripts/verify.sh
+```
+
+For a path-specific diagnostic without starting a build:
+
+```bash
+sh scripts/verify.sh --check-resource-tool /path/to/xcstringstool
+```
+
+Do not create a stub, wrapper, or fake compiler to make this gate pass. A
+resource-tool failure is a host prerequisite failure, not a successful test
+run.
+
 ### The Build Script (`scripts/build.sh`)
 Execute the full build pipeline:
 ```bash
@@ -59,9 +89,12 @@ sh scripts/build.sh
    bundle and refuses to ship if any check fails.
 
 The release checklist requires the Xcode Debug/Release and CLI paths to agree
-on app/helper identity and deployment target. The shipping bundle is assembled
-by `scripts/build.sh`; `scripts/verify.sh` verifies that bundle and the Xcode
-build outputs rather than treating either path as an unreviewed substitute.
+on app/helper identity, deployment target, helper embedding, and resource
+manifest. The shipping bundle is assembled by `scripts/build.sh`; the release
+verifier and deterministic packager consume the same reviewed file manifest.
+`scripts/verify.sh` verifies the Xcode project, SwiftPM resources, CLI bundle,
+archive checksum, and safe extraction rather than treating either build path as
+an unreviewed substitute.
 
 ---
 
@@ -72,6 +105,11 @@ Before any change is committed or tested, verify the release artifact:
 ```bash
 python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
 ```
+
+The local artifact is ad-hoc signed for development. That proves bundle
+integrity and reviewed entitlements only; it is not Developer ID signing,
+notarization, or a live Discord/call gate. Generated bundles, ZIPs, checksums,
+derived data, and private user state stay outside version control.
 
 ### Verification Checks
 * **Signature Integrity**: the app verifies as ad-hoc signed with the hardened
@@ -125,6 +163,26 @@ python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
 ---
 
 ## 5. Testing & Debugging Workflow
+
+### Full verification and CI
+
+The `chiaki-verify` workflow runs on a macOS GitHub runner with a selected full
+Xcode toolchain. It does not read repository secrets, user sessions, local
+recovery material, or developer-machine state. It runs the focused parity and
+metadata tests, SwiftPM/XCTest, broker and translator tests, Xcode Debug and
+Release builds, the CLI artifact verifier, deterministic packaging, checksum
+validation, and extraction checks.
+
+On a local Command Line Tools-only host, run the focused checks directly when
+the resource compiler is unavailable:
+
+```bash
+python3 scripts/test_release_metadata.py
+python3 scripts/test_build_parity.py
+```
+
+Record the full `sh scripts/verify.sh` result honestly; do not call the gate
+green when `xcstringstool` or Xcode is unavailable.
 
 * **Running the App Locally**:
   ```bash

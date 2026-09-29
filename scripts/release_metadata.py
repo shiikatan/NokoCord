@@ -29,6 +29,27 @@ _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*$")
 _EDITION = re.compile(r"^[a-z][a-z0-9-]*$")
 _DEPLOYMENT_TARGET = re.compile(r"^\d+\.\d+$")
 
+# The CLI build, release verifier, and deterministic packager must agree on
+# the exact shipped file set. Keep this beside the canonical metadata parser so
+# a release identity and its byte-level manifest have one reviewed owner.
+RELEASE_PACKAGE_FILES = frozenset({
+    "Contents/Info.plist",
+    "Contents/MacOS/NokoCord",
+    "Contents/Helpers/TanTranslator",
+    "Contents/Helpers/NokoMusicWatch.app/Contents/Info.plist",
+    "Contents/Helpers/NokoMusicWatch.app/Contents/MacOS/NokoMusicWatch",
+    "Contents/Helpers/NokoMusicWatch.app/Contents/Resources/AppIcon.icns",
+    "Contents/Helpers/NokoMusicWatch.app/Contents/_CodeSignature/CodeResources",
+    "Contents/_CodeSignature/CodeResources",
+    "Contents/Resources/AppIcon.icns",
+    "Contents/Resources/Localizable.xcstrings",
+    "Contents/Resources/NokoCord-LICENSE.txt",
+    "Contents/Resources/NokoMark.png",
+    "Contents/Resources/TanTranslatorRuntime.js",
+    "Contents/Resources/TypeScript-LICENSE.txt",
+    "Contents/Resources/TypeScript-ThirdPartyNotices.txt",
+})
+
 
 @dataclass(frozen=True)
 class ReleaseMetadata:
