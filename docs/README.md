@@ -15,6 +15,8 @@ NokoCord is a privacy-first, native macOS client wrapper for Discord built with 
 | **[In-Page Runtime & DOM Engine](DOM_AND_RUNTIME.md)** | Injected script lifecycle, complete autocorrect/prediction eradication, Discord navigation hooking and local activity dispatch, and macOS styling. |
 | **[Native Features & Integrations](NATIVE_FEATURES.md)** | Native Media Viewer (Lightbox), Game Presence local IPC endpoint, Quick Switcher (`⌘K`), Zen Mode (`⌘\`), and Notifications. |
 | **[Tans Extension System](TANS.md)** | Tan package manifest schema (v1), isolation contract, native capabilities boundary (`appearance.read`), and resource limits. |
+| **[Discord Compatibility Contract](DISCORD_COMPATIBILITY.md)** | Route gating, Safe Mode's zero-script boundary, bounded probes, lifecycle generations, and recovery behavior. |
+| **[Tan Trust Model](TAN_TRUST_MODEL.md)** | Hash-bound approval, atomic replacement, quarantine, rollback, capabilities, and health states. |
 | **[Developer & Agent Runbook](DEVELOPER_GUIDE.md)** | CLI build pipeline (`scripts/build.sh`), release verification, debugging workflows, and critical technical pitfalls for AI agents. |
 
 ---
@@ -23,11 +25,14 @@ NokoCord is a privacy-first, native macOS client wrapper for Discord built with 
 
 ### Building the Project
 ```bash
-# Compile and package build/NokoCord.app (no Xcode required)
+# Compile and package build/NokoCord.app
 sh scripts/build.sh
 
 # Verify release bundle integrity
-python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
+python3 scripts/verify-release.py build/NokoCord.app --edition chiaki --metadata Config/Edition.xcconfig
+
+# Create a deterministic release archive and checksum
+sh scripts/package-release.sh
 ```
 
 ### Running NokoCord
@@ -35,7 +40,7 @@ python3 scripts/verify-release.py build/NokoCord.app --edition chiaki
 # Launch the built application
 open build/NokoCord.app
 
-# Launch in recovery Safe Mode (bypasses all Tans and custom scripts)
+# Launch in recovery Safe Mode (zero Noko scripts and bridge handlers)
 open build/NokoCord.app --args --safe-mode
 ```
 
