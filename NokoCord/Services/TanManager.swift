@@ -8,10 +8,12 @@ final class TanManager {
     private(set) var safeMode = false
     private(set) var developerMode = false
     private(set) var diagnostics: [TanDiagnostic] = []
+    private(set) var trustRecords: [String: TanTrustRecord] = [:]
     private(set) var error: String?
     var reloadRequired = false
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let root: URL
+    @ObservationIgnored private var trustStore: TanTrustStore?
     @ObservationIgnored private var enableLog: [String] = []
     @ObservationIgnored private var failures: [String: Int] = [:]
     private struct State: Codable {
@@ -25,6 +27,14 @@ final class TanManager {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NokoCord/Tans", isDirectory: true)
         do {
+            self.trustStore = try TanTrustStore(fileURL: self.root.appendingPathComponent("trust.json"))
+        } catch {
+            self.trustStore = nil
+            self.safeMode = true
+            self.error = "Tan trust storage could not be restored. Safe Mode is on."
+        }
+        do {
+            try restoreInterruptedReplacements()
             if FileManager.default.fileExists(atPath: self.root.path) {
                 guard try self.root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }
                 let files = try FileManager.default.contentsOfDirectory(at: self.root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
@@ -49,14 +59,23 @@ final class TanManager {
                     enableLog = Array(state.enableLog.filter { enabledIDs.contains($0) }.suffix(64))
                 }
             }
-        } catch { safeMode = true; self.error = "Tan storage could not be restored. Safe Mode is on." }
+            synchronizeTrust()
+        } catch {
+            safeMode = true
+            self.error = "Tan storage could not be restored. Safe Mode is on."
+        }
         if launchSafeMode { safeMode = true }
+        if trustStore == nil { enabledIDs.removeAll() }
         installed.sort { $0.manifest.name.localizedStandardCompare($1.manifest.name) == .orderedAscending }
     }
-    var active: [TanPackage] { safeMode ? [] : installed.filter { enabledIDs.contains($0.id) } }
+    var active: [TanPackage] {
+        guard !safeMode else { return [] }
+        return installed.filter { enabledIDs.contains($0.id) && trustRecords[$0.id]?.matches($0) == true }
+    }
     var availableOriginals: [TanPackage] { TanPackage.originals.filter { original in !installed.contains { $0.id == original.id } } }
     func install(_ package: TanPackage) throws {
         try package.validate()
+        guard let trustStore else { throw TanError.invalid("Tan trust storage is unavailable") }
         guard installed.count < 64 || installed.contains(where: { $0.id == package.id }) else { throw TanError.invalid("The Tan limit is 64 packages") }
         // An import never silently replaces installed code or inherits its grants.
         guard !installed.contains(where: { $0.id == package.id }) else { throw TanError.invalid("This Tan is already installed") }
@@ -64,9 +83,15 @@ final class TanManager {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let url = root.appendingPathComponent(package.id + ".tan.json")
         guard !FileManager.default.fileExists(atPath: url.path) else { throw TanError.invalid("A Tan package already exists at this location") }
-        try encoder.encode(package).write(to: url, options: [.atomic])
-        do { try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
-        catch { try? FileManager.default.removeItem(at: url); throw error }
+        do {
+            try encoder.encode(package).write(to: url, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            let record = try trustStore.record(package)
+            trustRecords[package.id] = record
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
         installed.append(package)
         installed.sort { $0.manifest.name.localizedStandardCompare($1.manifest.name) == .orderedAscending }
         // Installation stays disabled; no state mutation is necessary here.
@@ -136,20 +161,37 @@ final class TanManager {
     }
     private func replace(_ package: TanPackage) throws {
         try package.validate()
+        guard let trustStore else { throw TanError.invalid("Tan trust storage is unavailable") }
         guard let index = installed.firstIndex(where: { $0.id == package.id }) else {
             throw TanError.invalid("Enable Developer Mode and select an installed Tan")
         }
-        // A new content hash always requires another explicit enable decision.
-        let previous = enabledIDs
-        enabledIDs.remove(package.id)
-        do { try saveState() } catch { enabledIDs = previous; throw error }
-        onChange?()
-        let url = root.appendingPathComponent(package.id + ".tan.json")
-        guard try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }
-        try JSONEncoder().encode(package).write(to: url, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        installed[index] = package
-        onChange?()
+        let previousPackage = installed[index]
+        guard previousPackage.contentHash != package.contentHash else { return }
+        let previousEnabled = enabledIDs
+        let packageURL = root.appendingPathComponent(package.id + ".tan.json")
+        let recoveryURL = root.appendingPathComponent(package.id + ".previous.tan.json")
+
+        try trustStore.stageReplacement(package, previous: previousPackage)
+        do {
+            enabledIDs.remove(package.id)
+            try saveState()
+            onChange?()
+
+            try writePackage(previousPackage, to: recoveryURL)
+            try writePackage(package, to: packageURL)
+            installed[index] = package
+            trustRecords[package.id] = try trustStore.commitReplacement(package, previous: previousPackage)
+            onChange?()
+        } catch {
+            installed[index] = previousPackage
+            enabledIDs = previousEnabled
+            try? writePackage(previousPackage, to: packageURL)
+            _ = try? trustStore.restorePrevious(package.id)
+            try? saveState()
+            trustRecords[package.id] = trustStore.record(for: package.id)
+            onChange?()
+            throw error
+        }
     }
     func installTranslation(_ result: TanTranslationResult, source: [String: String]) throws {
         let package = try result.package()
@@ -176,12 +218,33 @@ final class TanManager {
         }.value
     }
     func setEnabled(_ id: String, _ enabled: Bool) {
-        guard installed.contains(where: { $0.id == id }) else { return }
+        guard let package = installed.first(where: { $0.id == id }) else { return }
         let previous = enabledIDs
-        if enabled { enabledIDs.insert(id); enableLog.append(id); enableLog = Array(enableLog.suffix(64)); failures[id] = 0 }
-        else { enabledIDs.remove(id) }
+        if enabled {
+            guard let trustStore else {
+                error = "Tan trust storage is unavailable."
+                return
+            }
+            if trustRecords[id]?.health == .quarantined {
+                error = "This Tan is quarantined. Recover it before enabling it again."
+                return
+            }
+            do {
+                trustRecords[id] = try trustStore.approve(package)
+                enabledIDs.insert(id)
+                enableLog.append(id); enableLog = Array(enableLog.suffix(64)); failures[id] = 0
+            } catch {
+                self.error = "The Tan could not be approved."
+                return
+            }
+        } else {
+            enabledIDs.remove(id)
+        }
         do { try saveState(); onChange?() }
-        catch { enabledIDs = previous; self.error = "The Tan selection could not be saved." }
+        catch {
+            enabledIDs = previous
+            self.error = "The Tan selection could not be saved."
+        }
     }
     func setSafeMode(_ enabled: Bool) {
         let previous = safeMode; safeMode = enabled
@@ -203,20 +266,138 @@ final class TanManager {
         let archive = root.appendingPathComponent(id + ".source.json")
         if FileManager.default.fileExists(atPath: archive.path) { try FileManager.default.removeItem(at: archive) }
         try FileManager.default.removeItem(at: root.appendingPathComponent(id + ".tan.json"))
+        let packageRecovery = root.appendingPathComponent(id + ".previous.tan.json")
+        if FileManager.default.fileExists(atPath: packageRecovery.path) { try FileManager.default.removeItem(at: packageRecovery) }
         installed.removeAll { $0.id == id }
+        trustRecords.removeValue(forKey: id)
         onChange?()
     }
     func record(_ id: String, event: TanDiagnostic.Event) {
-        guard installed.contains(where: { $0.id == id }) else { return }
+        guard let package = installed.first(where: { $0.id == id }) else { return }
         diagnostics.append(TanDiagnostic(tanID: id, event: event))
         if diagnostics.count > 100 { diagnostics.removeFirst(diagnostics.count - 100) }
         if event == .failed {
-            failures[id, default: 0] += 1
-            if failures[id, default: 0] >= 3 { setEnabled(id, false); error = "A repeatedly failing Tan was disabled." }
+            do {
+                let record = try trustStore?.recordFailure(package, reason: "Repeated runtime failure")
+                if let record {
+                    trustRecords[id] = record
+                    failures[id] = record.failureCount
+                    if record.health == .quarantined {
+                        enabledIDs.remove(id)
+                        try? saveState()
+                        error = "A repeatedly failing Tan was quarantined and disabled."
+                        onChange?()
+                    }
+                }
+            } catch {
+                self.error = "The Tan failure could not be recorded safely."
+            }
         }
+    }
+
+    /// Clears quarantine and requires a fresh approval before the Tan can run.
+    func recoverQuarantined(_ id: String) {
+        guard let package = installed.first(where: { $0.id == id }), let trustStore else { return }
+        do {
+            enabledIDs.remove(id)
+            trustRecords[id] = try trustStore.recover(package)
+            failures[id] = 0
+            try saveState()
+            error = nil
+            onChange?()
+        } catch {
+            self.error = "The Tan could not be recovered."
+        }
+    }
+
+    func trustRecord(for id: String) -> TanTrustRecord? {
+        trustRecords[id]
     }
     func dismissError() { error = nil }
     func clearConsole() { diagnostics.removeAll() }
+
+    private func restoreInterruptedReplacements() throws {
+        guard let trustStore else { return }
+        for (id, marker) in trustStore.pendingReplacementsSnapshot() {
+            let packageURL = root.appendingPathComponent(id + ".tan.json")
+            let recoveryURL = root.appendingPathComponent(id + ".previous.tan.json")
+            if FileManager.default.fileExists(atPath: recoveryURL.path) {
+                let previous = try loadPackage(at: recoveryURL)
+                guard previous.id == id, previous.contentHash == marker.previousContentHash else {
+                    throw TanError.invalid("Invalid interrupted Tan replacement")
+                }
+                try writePackage(previous, to: packageURL)
+                _ = try trustStore.restorePrevious(id)
+            } else if FileManager.default.fileExists(atPath: packageURL.path) {
+                let current = try loadPackage(at: packageURL)
+                guard current.contentHash == marker.previousContentHash else {
+                    throw TanError.invalid("An interrupted Tan replacement has no recoverable previous version")
+                }
+                _ = try trustStore.restorePrevious(id)
+            } else {
+                throw TanError.invalid("An interrupted Tan replacement is missing its previous version")
+            }
+        }
+    }
+
+    private func synchronizeTrust() {
+        guard let trustStore else { return }
+        let persistedEnabled = enabledIDs
+        for package in installed {
+            do {
+                trustRecords[package.id] = try trustStore.invalidateIfHashChanged(package)
+            } catch {
+                safeMode = true
+                self.error = "Tan trust storage could not be verified. Safe Mode is on."
+            }
+        }
+        enabledIDs = Set(persistedEnabled.filter { id in
+            guard let package = installed.first(where: { $0.id == id }),
+                  let record = trustRecords[id] else { return false }
+            return record.matches(package)
+        })
+        if enabledIDs != persistedEnabled {
+            try? saveState()
+        }
+    }
+
+    private func loadPackage(at url: URL) throws -> TanPackage {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              (values.fileSize ?? Int.max) <= 2 * 1024 * 1024 else {
+            throw TanError.invalid("Invalid Tan package storage")
+        }
+        let package = try JSONDecoder().decode(TanPackage.self, from: Data(contentsOf: url))
+        try package.validate()
+        return package
+    }
+
+    private func writePackage(_ package: TanPackage, to url: URL) throws {
+        try package.validate()
+        try prepareStorage()
+        let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
+        if values?.isSymbolicLink == true || (FileManager.default.fileExists(atPath: url.path) && values?.isRegularFile != true) {
+            throw TanError.invalid("Invalid Tan package storage")
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(package)
+        let temporary = root.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        do {
+            try data.write(to: temporary)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary, backupItemName: nil, options: .usingNewMetadataOnly)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: url)
+            }
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
     private func prepareStorage() throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         guard try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }

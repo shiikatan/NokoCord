@@ -11,6 +11,7 @@ private let defaultOwnerBundleID = "com.shiikatan.nokocord.chiaki"
 private let pollInterval: TimeInterval = 5
 private let ownerCheckInterval: TimeInterval = 5
 private let ownerGracePeriod: TimeInterval = 30
+private let heartbeatInterval: TimeInterval = 15
 
 /// Field separator for the AppleScript result. Music track names may contain
 /// almost anything, so the script returns one separator-joined line and the
@@ -44,6 +45,7 @@ enum ScriptOutcome {
     case playback(Playback)
     case stopped
     case denied
+    case unsupported(String)
     case failed(Int)
 }
 
@@ -64,6 +66,9 @@ private func readPlayback() -> ScriptOutcome {
         return code == -1743 ? .denied : .failed(code)
     }
     guard fields.count >= 7 else { return .failed(0) }
+    guard fields[0] == "playing" || fields[0] == "paused" else {
+        return .unsupported(fields[0])
+    }
     let name = fields[2].trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { return .stopped }
     return .playback(Playback(state: fields[0],
@@ -101,21 +106,38 @@ private var sandboxDescription: String {
 }
 
 private func post(_ body: [String: Any]) {
+    broadcastSequence &+= 1
+    var payload = body
+    payload["sequence"] = NSNumber(value: broadcastSequence)
+    payload["eventTimestamp"] = Date().timeIntervalSince1970
     DistributedNotificationCenter.default().postNotificationName(notificationName,
                                                                  object: ownerBundleID,
-                                                                 userInfo: body,
+                                                                 userInfo: payload,
                                                                  deliverImmediately: true)
 }
 
 private var lastBroadcast = ""
+private var lastBroadcastAt: Date?
+private var broadcastSequence: UInt64 = 0
 private var ownerMissingSince: Date?
+
+private func shouldBroadcast(_ key: String) -> Bool {
+    let now = Date()
+    if key == lastBroadcast,
+       let lastBroadcastAt,
+       now.timeIntervalSince(lastBroadcastAt) < heartbeatInterval {
+        return false
+    }
+    lastBroadcast = key
+    lastBroadcastAt = now
+    return true
+}
 
 private func poll() {
     guard isOwnerRunning() else { return }
 
     guard isMusicRunning() else {
-        if lastBroadcast != "notRunning" {
-            lastBroadcast = "notRunning"
+        if shouldBroadcast("notRunning") {
             post(["state": "not_running"])
         }
         return
@@ -124,8 +146,7 @@ private func poll() {
     switch readPlayback() {
     case .playback(let playback):
         let key = "\(playback.databaseID)|\(playback.state)|\(Int(playback.position))"
-        guard key != lastBroadcast else { return }
-        lastBroadcast = key
+        guard shouldBroadcast(key) else { return }
         post(["state": playback.state,
               "name": playback.name,
               "artist": playback.artist,
@@ -134,19 +155,19 @@ private func poll() {
               "position": playback.position,
               "databaseID": playback.databaseID])
     case .stopped:
-        guard lastBroadcast != "stopped" else { return }
-        lastBroadcast = "stopped"
+        guard shouldBroadcast("stopped") else { return }
         post(["state": "stopped"])
     case .denied:
-        guard lastBroadcast != "denied" else { return }
-        lastBroadcast = "denied"
+        guard shouldBroadcast("denied") else { return }
         post(["state": "denied"])
+    case .unsupported(let state):
+        guard shouldBroadcast("unsupported|\(state)") else { return }
+        post(["state": "unsupported", "detail": state])
     case .failed(let code):
         // Never stay silent: if the helper cannot read the player, the app has
         // to know, otherwise the status just quietly stops updating.
         let key = "failed|\(code)"
-        guard key != lastBroadcast else { return }
-        lastBroadcast = key
+        guard shouldBroadcast(key) else { return }
         post(["state": "unavailable", "code": code, "sandbox": sandboxDescription])
     }
 }

@@ -2,6 +2,272 @@ import Foundation
 import AppKit
 import Observation
 
+public enum AppleMusicPositionAccuracy: String, Equatable, Sendable {
+    case exact
+    case estimated
+    case unavailable
+}
+
+public enum AppleMusicHelperStatus: String, Equatable, Sendable {
+    case notStarted
+    case connected
+    case missing
+    case accessDenied
+    case unsupported
+    case stale
+
+    public var userMessage: String? {
+        switch self {
+        case .notStarted, .connected:
+            return nil
+        case .missing:
+            return "Apple Music helper is unavailable. NokoCord will retry automatically."
+        case .accessDenied:
+            return "Apple Music Automation access is unavailable. Allow NokoCord to control Music in System Settings → Privacy & Security → Automation."
+        case .unsupported:
+            return "Apple Music reported an unsupported playback state; exact position is unavailable."
+        case .stale:
+            return "Apple Music data is stale. NokoCord will retry the helper."
+        }
+    }
+}
+
+public struct AppleMusicPlaybackEvent: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case playing(track: AppleMusicTrack, accuracy: AppleMusicPositionAccuracy)
+        case paused(track: AppleMusicTrack?, accuracy: AppleMusicPositionAccuracy)
+        case stopped(track: AppleMusicTrack?, accuracy: AppleMusicPositionAccuracy)
+        case notRunning
+        case clear
+        case helperDisconnected
+        case helperDenied
+        case helperUnsupported
+        case helperStale
+    }
+
+    public let generation: UInt64
+    public let timestamp: Date
+    public let kind: Kind
+
+    public init(generation: UInt64, timestamp: Date, kind: Kind) {
+        self.generation = generation
+        self.timestamp = timestamp
+        self.kind = kind
+    }
+}
+
+public struct AppleMusicPlaybackSnapshot: Equatable, Sendable {
+    public let currentTrack: AppleMusicTrack?
+    public let helperStatus: AppleMusicHelperStatus
+    public let positionAccuracy: AppleMusicPositionAccuracy
+    public let lastEventAt: Date?
+    public let generation: UInt64
+    public let message: String?
+
+    public init(currentTrack: AppleMusicTrack? = nil,
+                helperStatus: AppleMusicHelperStatus = .notStarted,
+                positionAccuracy: AppleMusicPositionAccuracy = .unavailable,
+                lastEventAt: Date? = nil,
+                generation: UInt64 = 0,
+                message: String? = nil) {
+        self.currentTrack = currentTrack
+        self.helperStatus = helperStatus
+        self.positionAccuracy = positionAccuracy
+        self.lastEventAt = lastEventAt
+        self.generation = generation
+        self.message = message
+    }
+}
+
+/// Reduces player and helper notifications into one monotonic playback state.
+/// A delayed clear carries the generation that scheduled it; a newer event or
+/// an older timestamp therefore cannot erase the track that superseded it.
+public struct AppleMusicPlaybackReducer: Sendable {
+    public private(set) var snapshot: AppleMusicPlaybackSnapshot
+
+    public init(snapshot: AppleMusicPlaybackSnapshot = .init()) {
+        self.snapshot = snapshot
+    }
+
+    @discardableResult
+    public mutating func reduce(_ event: AppleMusicPlaybackEvent) -> AppleMusicPlaybackSnapshot {
+        guard event.generation >= snapshot.generation else { return snapshot }
+        if let lastEventAt = snapshot.lastEventAt, event.timestamp < lastEventAt {
+            return snapshot
+        }
+
+        var next = snapshot
+        next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
+                                          helperStatus: next.helperStatus,
+                                          positionAccuracy: next.positionAccuracy,
+                                          lastEventAt: event.timestamp,
+                                          generation: event.generation,
+                                          message: next.message)
+
+        switch event.kind {
+        case .playing(let track, let accuracy):
+            next = AppleMusicPlaybackSnapshot(currentTrack: track,
+                                              helperStatus: .connected,
+                                              positionAccuracy: accuracy,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation)
+        case .paused(let track, let accuracy):
+            next = AppleMusicPlaybackSnapshot(currentTrack: track ?? next.currentTrack,
+                                              helperStatus: .connected,
+                                              positionAccuracy: accuracy,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation)
+        case .stopped(let track, let accuracy):
+            next = AppleMusicPlaybackSnapshot(currentTrack: track ?? next.currentTrack,
+                                              helperStatus: next.helperStatus,
+                                              positionAccuracy: accuracy,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: next.helperStatus.userMessage)
+        case .notRunning:
+            break
+        case .clear:
+            next = AppleMusicPlaybackSnapshot(currentTrack: nil,
+                                              helperStatus: next.helperStatus,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: next.helperStatus.userMessage)
+        case .helperDisconnected:
+            next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
+                                              helperStatus: .missing,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: AppleMusicHelperStatus.missing.userMessage)
+        case .helperDenied:
+            next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
+                                              helperStatus: .accessDenied,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: AppleMusicHelperStatus.accessDenied.userMessage)
+        case .helperUnsupported:
+            next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
+                                              helperStatus: .unsupported,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: AppleMusicHelperStatus.unsupported.userMessage)
+        case .helperStale:
+            next = AppleMusicPlaybackSnapshot(currentTrack: next.currentTrack,
+                                              helperStatus: .stale,
+                                              positionAccuracy: .unavailable,
+                                              lastEventAt: event.timestamp,
+                                              generation: event.generation,
+                                              message: AppleMusicHelperStatus.stale.userMessage)
+        }
+
+        snapshot = next
+        return next
+    }
+}
+
+/// A small, deterministic backoff shared by the service's helper watchdog.
+/// A successful report resets it, while repeated launch attempts cap at the
+/// maximum delay instead of relaunching the helper in a tight loop.
+public struct AppleMusicWatcherReconnectPolicy: Equatable, Sendable {
+    public let baseDelay: TimeInterval
+    public let maximumDelay: TimeInterval
+    public private(set) var attemptCount = 0
+    public private(set) var nextAttemptAt: Date?
+
+    public init(baseDelay: TimeInterval = 10, maximumDelay: TimeInterval = 60) {
+        self.baseDelay = max(0, baseDelay)
+        self.maximumDelay = max(self.baseDelay, maximumDelay)
+    }
+
+    public func canAttempt(at date: Date) -> Bool {
+        guard let nextAttemptAt else { return true }
+        return date >= nextAttemptAt
+    }
+
+    public mutating func recordAttempt(at date: Date) {
+        var delay = baseDelay
+        if attemptCount > 0 {
+            for _ in 0..<min(attemptCount, 16) {
+                delay = min(maximumDelay, delay * 2)
+            }
+        }
+        attemptCount += 1
+        nextAttemptAt = date.addingTimeInterval(min(maximumDelay, delay))
+    }
+
+    public mutating func recordReport(at _: Date) {
+        attemptCount = 0
+        nextAttemptAt = nil
+    }
+}
+
+/// The notification payload emitted by NokoMusicWatch. Older helpers may omit
+/// sequence and timestamp, but an explicitly malformed timestamp is rejected.
+public struct AppleMusicWatcherPayload: Equatable, Sendable {
+    public enum State: String, Equatable, Sendable {
+        case playing
+        case paused
+        case stopped
+        case notRunning = "not_running"
+        case denied
+        case unavailable
+        case unsupported
+    }
+
+    public let state: State
+    public let sequence: UInt64?
+    public let timestamp: Date?
+
+    public init?(userInfo: [AnyHashable: Any]) {
+        guard let rawState = userInfo["state"] as? String,
+              let state = State(rawValue: rawState) else { return nil }
+
+        if let rawTimestamp = userInfo["eventTimestamp"] {
+            let seconds: Double?
+            if let number = rawTimestamp as? NSNumber {
+                seconds = number.doubleValue
+            } else if let value = rawTimestamp as? Double {
+                seconds = value
+            } else {
+                seconds = nil
+            }
+            guard let seconds, seconds.isFinite else { return nil }
+            timestamp = Date(timeIntervalSince1970: seconds)
+        } else {
+            timestamp = nil
+        }
+
+        if let rawSequence = userInfo["sequence"] as? NSNumber {
+            guard rawSequence.int64Value >= 0 else { return nil }
+            sequence = rawSequence.uint64Value
+        } else if let rawSequence = userInfo["sequence"] as? UInt64 {
+            sequence = rawSequence
+        } else {
+            sequence = nil
+        }
+        self.state = state
+    }
+}
+
+private extension AppleMusicTrack {
+    func withPlayerState(_ state: PlayerState) -> AppleMusicTrack {
+        AppleMusicTrack(databaseID: databaseID,
+                        name: name,
+                        artist: artist,
+                        album: album,
+                        duration: duration,
+                        position: position,
+                        playerState: state,
+                        artworkURL: artworkURL,
+                        artistImageURL: artistImageURL,
+                        source: source,
+                        updatedAt: updatedAt)
+    }
+}
+
 /// Apple Music Rich Presence: detects local playback and resolves artwork. The
 /// bundled `noko.apple-music` Tan is the feature's switch; the app itself
 /// delivers the activity inside the signed-in Discord session.
@@ -19,6 +285,11 @@ public final class AppleMusicRPCService: NSObject {
     public private(set) var lastFMStatusText = ""
     /// Set when macOS reported that NokoCord may not read Music's position.
     public private(set) var isPositionAccessDenied = false
+    public private(set) var helperStatus: AppleMusicHelperStatus = .notStarted
+    public private(set) var positionAccuracy: AppleMusicPositionAccuracy = .unavailable
+    /// A truthful, user-facing explanation for helper and data lifecycle
+    /// failures. The existing settings surface renders this status text.
+    public private(set) var statusMessage: String?
 
     static let watcherNotification = "com.shiikatan.nokocord.music"
     static let watcherBundleID = "com.shiikatan.nokocord.musicwatch"
@@ -49,6 +320,9 @@ public final class AppleMusicRPCService: NSObject {
     @ObservationIgnored private var watcherLastSeen: Date?
     @ObservationIgnored private var watcherWatchdog: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
+    @ObservationIgnored private var reducer = AppleMusicPlaybackReducer()
+    @ObservationIgnored private var eventGeneration: UInt64 = 0
+    @ObservationIgnored private var watcherReconnect = AppleMusicWatcherReconnectPolicy()
     @ObservationIgnored private let detector = AppleMusicDetector.shared
 
     /// Starts or stops the service with the bundled Tan's active state.
@@ -63,12 +337,24 @@ public final class AppleMusicRPCService: NSObject {
     public func refresh() {
         guard isEnabled else { return }
         guard detector.isMusicAppRunning() else {
-            stopPlayback()
+            let snapshot = reduce(.notRunning, at: Date()) ?? reducer.snapshot
+            scheduleStop(for: snapshot.generation, after: Self.stopGracePeriod)
             return
         }
-        if let track = detector.getCurrentTrack(), track.playerState.isPlaying {
-            show(track)
+        guard let track = detector.getCurrentTrack() else {
+            let snapshot = reduce(.notRunning, at: Date()) ?? reducer.snapshot
+            scheduleStop(for: snapshot.generation, after: Self.stopGracePeriod)
+            return
+        }
+        if track.playerState.isPlaying {
+            show(track, accuracy: .estimated)
         } else {
+            let kind: AppleMusicPlaybackEvent.Kind = track.playerState == .paused
+                ? .paused(track: track, accuracy: .estimated)
+                : .stopped(track: track, accuracy: .estimated)
+            let snapshot = reduce(kind, at: Date()) ?? reducer.snapshot
+            scheduleStop(for: snapshot.generation,
+                         after: track.playerState == .paused ? Self.pauseGracePeriod : Self.stopGracePeriod)
         }
     }
 
@@ -82,9 +368,15 @@ public final class AppleMusicRPCService: NSObject {
         } else {
             lastFMStatusText = String(localized: "Native Apple Music detector")
         }
+        if let statusMessage {
+            lastFMStatusText = statusMessage
+        }
     }
 
     private func begin() {
+        reducer = AppleMusicPlaybackReducer()
+        eventGeneration = 0
+        watcherReconnect = AppleMusicWatcherReconnectPolicy()
         refreshLastFMStatus()
         observePlayerNotifications()
         observeMusicApplication()
@@ -98,51 +390,57 @@ public final class AppleMusicRPCService: NSObject {
         removeObservers()
         artworkTask?.cancel()
         artworkTask = nil
-        stopPlayback()
+        reducer = AppleMusicPlaybackReducer()
+        eventGeneration = 0
+        applySnapshot(reducer.snapshot)
     }
 
     /// Adopts a track the detector reported. The Discord progress bar comes from
     /// the activity's start and end timestamps, so no position ticker is needed.
-    private func show(_ track: AppleMusicTrack) {
-        let changed = currentTrack?.id != track.id || currentTrack?.playerState != track.playerState
+    private func show(_ track: AppleMusicTrack,
+                      accuracy: AppleMusicPositionAccuracy,
+                      at timestamp: Date = Date()) {
+        let previousTrack = currentTrack
         var updated = track
-        if changed {
-            cancelScheduledStop()
-            currentTrack = updated
-            publish(updated)
-            guard updated.artworkURL == nil || updated.artistImageURL == nil else { return }
-            let pending = updated
-            artworkTask?.cancel()
-            artworkTask = Task { [weak self] in
-                guard let self else { return }
-                async let artwork = pending.artworkURL == nil ? self.detector.resolveArtwork(for: pending) : nil
-                async let artistImage = pending.artistImageURL == nil ? self.detector.resolveArtistImage(for: pending) : nil
-                let (resolvedArtwork, resolvedArtist) = await (artwork, artistImage)
-                guard !Task.isCancelled, self.isEnabled, self.currentTrack?.id == pending.id,
-                      self.currentTrack?.playerState == pending.playerState,
-                      resolvedArtwork != nil || resolvedArtist != nil else { return }
-                var merged = pending
-                if let resolvedArtwork { merged.artworkURL = resolvedArtwork }
-                if let resolvedArtist { merged.artistImageURL = resolvedArtist }
-                self.currentTrack = merged
-                self.publish(merged)
-            }
-        } else {
+        if previousTrack?.id == track.id {
             updated.artworkURL = currentTrack?.artworkURL
             updated.artistImageURL = currentTrack?.artistImageURL
-            if let watcherLastSeen, Date().timeIntervalSince(watcherLastSeen) < 20 {
+            if accuracy == .estimated,
+               let watcherLastSeen,
+               Date().timeIntervalSince(watcherLastSeen) < 20 {
                 // Keep the watcher's position; the notification's elapsed time
                 // can lag well behind the player.
                 updated = updated.repositioned(to: currentTrack?.currentPosition ?? updated.position)
             }
-            currentTrack = updated
-            publish(updated)
+        }
+
+        guard let snapshot = reduce(.playing(track: updated, accuracy: accuracy), at: timestamp),
+              let adopted = snapshot.currentTrack else { return }
+
+        cancelScheduledStop()
+
+        let changed = previousTrack?.id != adopted.id || previousTrack?.playerState != adopted.playerState
+        guard changed, adopted.artworkURL == nil || adopted.artistImageURL == nil else { return }
+        let pending = adopted
+        artworkTask?.cancel()
+        artworkTask = Task { [weak self] in
+            guard let self else { return }
+            async let artwork = pending.artworkURL == nil ? self.detector.resolveArtwork(for: pending) : nil
+            async let artistImage = pending.artistImageURL == nil ? self.detector.resolveArtistImage(for: pending) : nil
+            let (resolvedArtwork, resolvedArtist) = await (artwork, artistImage)
+            guard !Task.isCancelled, self.isEnabled, self.currentTrack?.id == pending.id,
+                  self.currentTrack?.playerState == pending.playerState,
+                  resolvedArtwork != nil || resolvedArtist != nil else { return }
+            var merged = pending
+            if let resolvedArtwork { merged.artworkURL = resolvedArtwork }
+            if let resolvedArtist { merged.artistImageURL = resolvedArtist }
+            self.currentTrack = merged
+            self.publish(merged)
         }
     }
 
     private func stopPlayback() {
-        currentTrack = nil
-        publish(nil)
+        _ = reduce(.clear, at: Date(), generation: reducer.snapshot.generation)
     }
 
     /// A track that ends posts a stopped state just before the next play, and a
@@ -153,14 +451,15 @@ public final class AppleMusicRPCService: NSObject {
     private nonisolated static let stopGracePeriod: TimeInterval = 8
     private nonisolated static let pauseGracePeriod: TimeInterval = 1
 
-    private func scheduleStop(after delay: TimeInterval = AppleMusicRPCService.stopGracePeriod) {
-        guard stopTask == nil else { return }
+    private func scheduleStop(for generation: UInt64,
+                              after delay: TimeInterval = AppleMusicRPCService.stopGracePeriod) {
+        stopTask?.cancel()
         stopTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.stopTask = nil
-            guard self.currentTrack?.playerState.isPlaying != true else { return }
-            self.stopPlayback()
+            guard self.reducer.snapshot.generation == generation else { return }
+            _ = self.reduce(.clear, at: Date(), generation: generation)
         }
     }
 
@@ -173,11 +472,42 @@ public final class AppleMusicRPCService: NSObject {
         onPresenceChange?()
     }
 
+    @discardableResult
+    private func reduce(_ kind: AppleMusicPlaybackEvent.Kind,
+                        at timestamp: Date,
+                        generation: UInt64? = nil) -> AppleMusicPlaybackSnapshot? {
+        let eventGeneration: UInt64
+        if let generation {
+            eventGeneration = generation
+        } else {
+            self.eventGeneration &+= 1
+            eventGeneration = self.eventGeneration
+        }
+        let previous = reducer.snapshot
+        let next = reducer.reduce(.init(generation: eventGeneration,
+                                        timestamp: timestamp,
+                                        kind: kind))
+        guard next != previous else { return nil }
+        applySnapshot(next)
+        return next
+    }
+
+    private func applySnapshot(_ snapshot: AppleMusicPlaybackSnapshot) {
+        currentTrack = snapshot.currentTrack
+        helperStatus = snapshot.helperStatus
+        positionAccuracy = snapshot.positionAccuracy
+        statusMessage = snapshot.message
+        isPositionAccessDenied = snapshot.helperStatus == .accessDenied
+        refreshLastFMStatus()
+        publish(snapshot.currentTrack)
+    }
+
     /// NokoMusicWatch, the unsandboxed helper bundled with the app, is the
     /// only component that may read Music over Apple Events. It polls the
     /// player and broadcasts what it sees, which is what reports a repeated
     /// track, a seek or a stop that the player never announces.
     private func startMusicWatcher() {
+        watcherReconnect = AppleMusicWatcherReconnectPolicy()
         watcherObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(Self.watcherNotification),
             object: nil,
@@ -188,7 +518,7 @@ public final class AppleMusicRPCService: NSObject {
                 self.applyWatcherBroadcast(notification.userInfo)
             }
         }
-        launchWatcherIfNeeded()
+        _ = launchWatcherIfNeeded(at: Date(), force: true)
         startWatcherWatchdog()
     }
 
@@ -204,7 +534,14 @@ public final class AppleMusicRPCService: NSObject {
                 try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
                 guard let self, self.isEnabled else { continue }
                 let isReporting = self.watcherLastSeen.map { Date().timeIntervalSince($0) < 20 } ?? false
-                if !isReporting { self.launchWatcherIfNeeded() }
+                let now = Date()
+                if !isReporting, self.watcherReconnect.canAttempt(at: now) {
+                    let lifecycleEvent: AppleMusicPlaybackEvent.Kind = self.watcherLastSeen == nil
+                        ? .helperDisconnected
+                        : .helperStale
+                    _ = self.reduce(lifecycleEvent, at: now)
+                    _ = self.launchWatcherIfNeeded(at: now)
+                }
             }
         }
     }
@@ -213,6 +550,7 @@ public final class AppleMusicRPCService: NSObject {
         watcherWatchdog?.cancel()
         watcherWatchdog = nil
         watcherLastSeen = nil
+        watcherReconnect = AppleMusicWatcherReconnectPolicy()
         if let watcherObserver {
             DistributedNotificationCenter.default().removeObserver(watcherObserver)
             self.watcherObserver = nil
@@ -222,48 +560,51 @@ public final class AppleMusicRPCService: NSObject {
         }
     }
 
-    private func launchWatcherIfNeeded() {
+    @discardableResult
+    private func launchWatcherIfNeeded(at date: Date, force: Bool = false) -> Bool {
+        guard force || watcherReconnect.canAttempt(at: date) else { return false }
+        watcherReconnect.recordAttempt(at: date)
         guard let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NokoMusicWatch.app", isDirectory: true) as URL?,
-              FileManager.default.fileExists(atPath: url.path) else { return }
+              FileManager.default.fileExists(atPath: url.path) else {
+            _ = reduce(.helperDisconnected, at: date)
+            return false
+        }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.arguments = ["--owner", Bundle.main.bundleIdentifier ?? ""]
         NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: nil)
+        return true
     }
 
     /// Adopts what the helper saw. Positions are exact, so this is also the
     /// path that re-anchors the seek bar and catches a repeating track.
     private func applyWatcherBroadcast(_ userInfo: [AnyHashable: Any]?) {
-        watcherLastSeen = Date()
-        guard let state = userInfo?["state"] as? String else { return }
-        switch state {
-        case "playing":
+        guard let userInfo,
+              let payload = AppleMusicWatcherPayload(userInfo: userInfo) else { return }
+        let receivedAt = Date()
+        watcherLastSeen = receivedAt
+        watcherReconnect.recordReport(at: receivedAt)
+        let timestamp = payload.timestamp ?? receivedAt
+        switch payload.state {
+        case .playing:
             guard let track = AppleMusicTrack(watcherBroadcast: userInfo) else { return }
-            isPositionAccessDenied = false
-            cancelScheduledStop()
-            if let current = currentTrack, current.playerState.isPlaying,
-               current.name == track.name, current.artist == track.artist {
-                guard abs(track.position - current.currentPosition) > 2 else { return }
-                let reanchored = current.repositioned(to: track.position)
-                currentTrack = reanchored
-                publish(reanchored)
-                return
+            show(track, accuracy: .exact, at: timestamp)
+        case .paused:
+            let paused = currentTrack?.withPlayerState(.paused)
+            let snapshot = reduce(.paused(track: paused, accuracy: .exact), at: timestamp)
+            if let snapshot {
+                scheduleStop(for: snapshot.generation, after: Self.pauseGracePeriod)
             }
-            show(track)
-        case "paused":
-            scheduleStop(after: Self.pauseGracePeriod)
-        case "stopped", "not_running":
-            scheduleStop()
-        case "denied", "unavailable":
-            // "unavailable" is what the helper reports when the Apple Event to
-            // Music comes back empty, which in practice means macOS never
-            // granted it. Either way the player cannot be read, so surface the
-            // same explanation rather than silence.
-            // macOS never prompted, or the user declined: Settings explains how
-            // to allow it instead of failing silently.
-            isPositionAccessDenied = true
-        default:
-            break
+        case .stopped, .notRunning:
+            let stopped = currentTrack?.withPlayerState(.stopped)
+            let snapshot = reduce(.stopped(track: stopped, accuracy: .exact), at: timestamp)
+            if let snapshot {
+                scheduleStop(for: snapshot.generation, after: Self.stopGracePeriod)
+            }
+        case .denied, .unavailable:
+            _ = reduce(.helperDenied, at: timestamp)
+        case .unsupported:
+            _ = reduce(.helperUnsupported, at: timestamp)
         }
     }
 
@@ -278,16 +619,17 @@ public final class AppleMusicRPCService: NSObject {
                 guard let self, self.isEnabled else { return }
                 let track = self.detector.handlePlayerNotification(notification.userInfo)
                 if let track, track.playerState.isPlaying {
-                    self.cancelScheduledStop()
-                    self.show(track)
+                    self.show(track, accuracy: .estimated)
                 } else {
-                    // Record the pause or stop before scheduling the clear. The
-                    // scheduled task trusts currentTrack, and leaving a stale
-                    // playing state there is exactly why a paused song kept its
-                    // status: the grace period is for a repeat, which arrives as
-                    // a new playing state, not for the track that just stopped.
-                    self.currentTrack = track
-                    self.scheduleStop(after: track?.playerState == .paused
+                    let kind: AppleMusicPlaybackEvent.Kind
+                    if let track, track.playerState == .paused {
+                        kind = .paused(track: track, accuracy: .estimated)
+                    } else {
+                        kind = .stopped(track: track, accuracy: .estimated)
+                    }
+                    guard let snapshot = self.reduce(kind, at: Date()) else { return }
+                    self.scheduleStop(for: snapshot.generation,
+                                      after: track?.playerState == .paused
                                       ? Self.pauseGracePeriod
                                       : Self.stopGracePeriod)
                 }

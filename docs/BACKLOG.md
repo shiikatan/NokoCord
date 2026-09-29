@@ -88,11 +88,21 @@ has not been tested against a real call yet. If voice still fails:
 
 ## Helper lifetime verification
 
-The helper now polls and checks its owner on separate serial queues, and
-NokoCord re-asks for a helper whenever nothing has reported for twenty seconds.
-Both changes are shipped but were never verified end to end: confirm that
-quitting NokoCord sees `NokoMusicWatch` exit within roughly 35 seconds, and that
-relaunching NokoCord brings it back.
+**Status:** lifecycle guarded in C1.3.0; end-to-end process verification remains
+manual on a host with Apple Music and Automation access.
+
+The helper polls and checks its owner on separate serial queues. It now emits a
+sequence and event timestamp with every report, sends a bounded heartbeat when
+an unchanged error or stopped state persists, and rejects unsupported playback
+states instead of presenting them as playable. NokoCord reduces those events
+with generation/timestamp checks, surfaces missing/denied/unsupported/stale
+states, and retries a missing helper with capped backoff rather than launching
+it in a tight loop.
+
+The remaining manual check is to quit NokoCord and confirm that
+`NokoMusicWatch` exits within roughly 35 seconds, then relaunch NokoCord and
+confirm that the helper returns. Exact position should remain marked unavailable
+when the helper is missing or Automation is denied.
 
 ## Stale installs on the maintainer's machine
 

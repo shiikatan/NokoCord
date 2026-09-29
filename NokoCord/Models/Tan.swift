@@ -3,7 +3,7 @@ import CryptoKit
 import Darwin
 
 enum TanTarget: String, Codable, CaseIterable { case css, isolated, page }
-enum TanCapability: String, Codable { case appearanceRead = "appearance.read" }
+enum TanCapability: String, Codable, Hashable { case appearanceRead = "appearance.read" }
 
 struct TanManifest: Codable, Equatable, Identifiable {
     var schemaVersion = 1
