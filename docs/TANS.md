@@ -103,6 +103,42 @@ Native bridge messages use exactly `{type: "status", state: "started" | "stopped
 unknown enums and wrong types are rejected. Cached active hashes avoid re-encoding
 package source on every message. No raw diagnostic payload is retained.
 
+## C1.3.5 presentation and accessibility fixtures
+
+The capability-free bundled `noko.focus-shield` Tan is presentation-only. It
+offers three reversible profiles through an accessible, visible control:
+
+- `screen-share` blurs server and direct-message navigation, activity, message
+  content, headers, names, and avatars;
+- `meeting` blurs participant/activity surfaces and message identity details;
+- `streaming` blurs navigation, message identity, headers, and member surfaces.
+
+The profile is held only in the current page and is removed on Tan cleanup. The
+indicator exposes `aria-live`, `aria-pressed`, a labelled profile picker, and a
+keyboard-visible focus ring. Focus is returned to the pre-Tan element when the
+controls are removed. Reduced-motion media state disables the Tan's transitions
+and is also tracked through the lifecycle. Focus Shield does not hide or
+reflow Discord content; it only applies scoped presentation styling.
+
+The capability-free `noko.code-workbench` Tan keeps code text in Discord's
+existing `pre > code` structure and adds a labelled action group, source-
+preserving line-number gutter, copy and collapse buttons, live status text, and
+keyboard shortcuts. Copy remains a user-gesture `navigator.clipboard` page
+action; there is no native clipboard or app bridge. The Tan skips editable
+surfaces, observes only relevant DOM additions/text changes, coalesces work to
+animation frames, scans at most 64 candidate blocks per frame, and decorates at
+most 256 connected blocks. Detached roots, observers, pending frames, status
+timers, generated IDs, attributes, controls, and gutters are restored or
+released on cleanup. The collapse control and live status are labelled for
+VoiceOver, visible focus, and reduced-motion behavior.
+
+Deterministic fixtures live under `Tests/Fixtures/Tans/`. The fixture contract
+covers 1,000 editor/message mutation inputs, one-frame coalescing, Safe Mode's
+Noko-free page, dynamic code blocks, editable-surface exclusion, profile
+selection, cleanup, and reduced-motion/accessibility markers. Safe Mode still
+installs zero Noko scripts and handlers through the runtime boundary, so these
+bundled Tans are absent rather than partially active there.
+
 ## App-called page hooks
 
 A bundled Noko-Tan may publish a documented page-world hook that the app calls

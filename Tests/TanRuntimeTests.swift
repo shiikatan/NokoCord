@@ -68,6 +68,21 @@ final class TanRuntimeTests: XCTestCase {
         return last
     }
 
+    private func loadFixtureFile(_ relativePath: String, in view: WKWebView, runtime: TanRuntime) async throws {
+        view.loadHTMLString(try TanFixtureSupport.html(relativePath),
+                            baseURL: URL(string: fixtureOrigin + "/fixtures")!)
+        for _ in 0..<100 {
+            if let ready = try? await view.evaluateJavaScript("document.readyState === 'complete'") as? Bool,
+               ready {
+                runtime.pageDidLoad()
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("Fixture page did not finish loading: \(relativePath)")
+        runtime.pageDidLoad()
+    }
+
     func testOriginalClearFocusAddsAndRemovesStyleWithEnableLifecycle() async throws {
         _ = NSApplication.shared
         let root = try temporaryDirectory()
@@ -149,6 +164,90 @@ final class TanRuntimeTests: XCTestCase {
         }
         let bridge = try await view.evaluateJavaScript("typeof window.webkit?.messageHandlers?.nokoCordApp === 'undefined'") as? Bool
         XCTAssertEqual(bridge, true)
+    }
+
+    func testFocusShieldFixtureIsAbsentInSafeMode() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root, launchSafeMode: true)
+        let original = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.focus-shield" }))
+        try manager.install(original)
+        manager.setEnabled(original.id, true)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        let view = makeView(runtime: runtime)
+
+        try await loadFixtureFile("focus-shield/fixture.html", in: view, runtime: runtime)
+        let absent = try await view.evaluateJavaScript("document.querySelectorAll('[data-noko-focus-shield-controls], [data-noko-focus-shield-indicator]').length === 0 && !document.documentElement.hasAttribute('data-noko-focus-shield')") as? Bool
+        XCTAssertEqual(absent, true)
+        XCTAssertTrue(view.configuration.userContentController.userScripts.isEmpty)
+    }
+
+    func testFocusShieldFixtureProfilesAreVisibleAndCleanupRestoresPresentation() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+        let original = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.focus-shield" }))
+        manager.enableOriginal(original)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+
+        try await loadFixtureFile("focus-shield/fixture.html", in: view, runtime: runtime)
+        let active = try await waitForCount(view, "document.querySelectorAll('[data-noko-focus-shield-controls]').length", expected: 1)
+        XCTAssertEqual(active, 1)
+        let initial = try await view.evaluateJavaScript("({profile: document.documentElement.getAttribute('data-noko-focus-shield-profile'), pressed: document.querySelector('[data-noko-focus-shield-indicator]')?.getAttribute('aria-pressed'), display: getComputedStyle(document.querySelector('main')).display})") as? [String: Any]
+        XCTAssertEqual(initial?["profile"] as? String, "screen-share")
+        XCTAssertEqual(initial?["pressed"] as? String, "true")
+        XCTAssertEqual(initial?["display"] as? String, "block")
+
+        let selected = try await view.evaluateJavaScript("(() => { const picker = document.querySelector('[data-noko-focus-shield-profile]'); picker.value = 'meeting'; picker.dispatchEvent(new Event('change', {bubbles: true})); return document.documentElement.getAttribute('data-noko-focus-shield-profile'); })()") as? String
+        XCTAssertEqual(selected, "meeting")
+        let profileLabel = try await view.evaluateJavaScript("document.querySelector('[data-noko-focus-shield-indicator]').textContent") as? String
+        XCTAssertTrue(profileLabel?.contains("Meeting") == true)
+
+        manager.setEnabled(original.id, false)
+        let removed = try await waitForCount(view, "document.querySelectorAll('[data-noko-focus-shield-controls]').length", expected: 0)
+        XCTAssertEqual(removed, 0)
+        let restored = try await view.evaluateJavaScript("({profile: document.documentElement.hasAttribute('data-noko-focus-shield-profile'), reduced: document.documentElement.hasAttribute('data-noko-focus-shield-reduced-motion'), focus: document.activeElement?.id})") as? [String: Any]
+        XCTAssertEqual(restored?["profile"] as? Bool, false)
+        XCTAssertEqual(restored?["reduced"] as? Bool, false)
+        XCTAssertEqual(restored?["focus"] as? String, "focus-before-tan")
+    }
+
+    func testCodeWorkbenchFixtureBoundsDynamicBlocksSkipsEditorsAndCleansUp() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+        let original = try XCTUnwrap(TanPackage.originals.first(where: { $0.id == "noko.code-workbench" }))
+        manager.enableOriginal(original)
+        let runtime = TanRuntime(manager: manager, allowedOrigin: fixtureOrigin)
+        manager.onChange = { runtime.configurationChanged() }
+        let view = makeView(runtime: runtime)
+
+        try await loadFixtureFile("code-workbench/fixture.html", in: view, runtime: runtime)
+        let initial = try await waitForCount(view, "document.querySelectorAll('pre[data-noko-code-workbench]').length", expected: 1)
+        XCTAssertEqual(initial, 1)
+        let editorUntouched = try await view.evaluateJavaScript("document.querySelector('[data-fixture-editor]')?.hasAttribute('data-noko-code-workbench') === false") as? Bool
+        XCTAssertEqual(editorUntouched, true)
+
+        _ = try await view.evaluateJavaScript("(() => { const root = document.querySelector('[data-fixture-dynamic-root]'); for (let i = 0; i < 1000; i++) { const pre = document.createElement('pre'); const code = document.createElement('code'); code.textContent = `line ${i}`; pre.append(code); root.append(pre); } return true; })()")
+        var decorated = 0
+        for _ in 0..<100 {
+            decorated = (try? await view.evaluateJavaScript("document.querySelectorAll('pre[data-noko-code-workbench]').length") as? Int) ?? decorated
+            if decorated >= 2 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(decorated, 2)
+        XCTAssertLessThanOrEqual(decorated, 256)
+        let editorsAfterMutations = try await view.evaluateJavaScript("document.querySelectorAll('[data-fixture-editor][data-noko-code-workbench]').length") as? Int
+        XCTAssertEqual(editorsAfterMutations, 0)
+
+        manager.setEnabled(original.id, false)
+        let removed = try await waitForCount(view, "document.querySelectorAll('[data-noko-code-workbench], [data-noko-code-controls], [data-noko-code-gutter]').length", expected: 0)
+        XCTAssertEqual(removed, 0)
     }
 
     func testEnteringSafeModeWhilePageIsAliveStopsActiveTanAndRemovesScripts() async throws {

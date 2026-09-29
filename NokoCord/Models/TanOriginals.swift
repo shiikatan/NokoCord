@@ -116,34 +116,85 @@ extension TanPackage {
 NokoTan.register({
   start(api) {
     const root = document.documentElement;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const profiles = Object.freeze({
+      'screen-share': 'Screen share',
+      meeting: 'Meeting',
+      streaming: 'Streaming'
+    });
+    let profile = 'screen-share';
+    let enabled = true;
+    const controls = document.createElement('div');
     const indicator = document.createElement('button');
+    const profilePicker = document.createElement('select');
+    controls.setAttribute('data-noko-focus-shield-controls', '');
     indicator.type = 'button';
     indicator.setAttribute('data-noko-focus-shield-indicator', '');
     indicator.setAttribute('aria-live', 'polite');
     indicator.setAttribute('aria-pressed', 'true');
-    const setEnabled = enabled => {
-      root.toggleAttribute('data-noko-focus-shield', enabled);
+    indicator.setAttribute('aria-label', 'Turn privacy shield off');
+    profilePicker.setAttribute('data-noko-focus-shield-profile', '');
+    profilePicker.setAttribute('aria-label', 'Privacy shield presentation profile');
+    for (const [value, label] of Object.entries(profiles)) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      profilePicker.append(option);
+    }
+    controls.append(indicator, profilePicker);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    const updateReducedMotion = () => root.toggleAttribute('data-noko-focus-shield-reduced-motion', reducedMotion?.matches === true);
+    const updateIndicator = () => {
+      const label = profiles[profile];
+      root.setAttribute('data-noko-focus-shield-profile', profile);
+      profilePicker.value = profile;
+      profilePicker.disabled = !enabled;
       indicator.setAttribute('aria-pressed', String(enabled));
-      indicator.textContent = enabled ? 'Privacy shield on' : 'Privacy shield off';
-      indicator.title = enabled ? 'Turn off privacy shield' : 'Turn on privacy shield';
+      indicator.setAttribute('aria-label', enabled ? `Turn privacy shield off (${label})` : `Turn privacy shield on (${label})`);
+      indicator.title = enabled ? `Turn privacy shield off (${label})` : `Turn privacy shield on (${label})`;
+      indicator.textContent = enabled ? `Privacy shield on · ${label}` : `Privacy shield off · ${label}`;
     };
-    setEnabled(true);
-    api.listen(indicator, 'click', () => setEnabled(!root.hasAttribute('data-noko-focus-shield')));
-    api.mount(indicator);
+    const setEnabled = value => {
+      enabled = value;
+      root.toggleAttribute('data-noko-focus-shield', enabled);
+      updateIndicator();
+    };
+    const setProfile = value => {
+      if (Object.hasOwn(profiles, value)) profile = value;
+      updateIndicator();
+    };
+    updateReducedMotion();
+    updateIndicator();
+    api.listen(indicator, 'click', () => setEnabled(!enabled));
+    api.listen(profilePicker, 'change', () => setProfile(profilePicker.value));
+    if (reducedMotion) api.listen(reducedMotion, 'change', updateReducedMotion);
+    api.mount(controls);
     api.onCleanup(() => {
       root.removeAttribute('data-noko-focus-shield');
-      indicator.remove();
+      root.removeAttribute('data-noko-focus-shield-profile');
+      root.removeAttribute('data-noko-focus-shield-reduced-motion');
+      if (previousFocus?.isConnected) {
+        try { previousFocus.focus({preventScroll: true}); } catch { previousFocus.focus(); }
+      }
+      controls.remove();
     });
   }
 });
 """##
 
     private static let focusShieldCSS = ##"""
-[data-noko-focus-shield-indicator] {
+[data-noko-focus-shield-controls] {
   position: fixed;
   top: 10px;
   right: 10px;
   z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-noko-focus-shield-indicator],
+[data-noko-focus-shield-profile] {
   border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
   border-radius: 999px;
   padding: 6px 10px;
@@ -154,7 +205,11 @@ NokoTan.register({
   cursor: pointer;
 }
 
-html[data-noko-focus-shield] :is(
+html[data-noko-focus-shield] [data-noko-focus-shield-controls] {
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+html[data-noko-focus-shield][data-noko-focus-shield-profile="screen-share"] :is(
   nav[aria-label*="server" i],
   nav[aria-label*="direct message" i],
   [aria-label*="activity" i],
@@ -167,10 +222,49 @@ html[data-noko-focus-shield] :is(
   user-select: none !important;
 }
 
-html[data-noko-focus-shield] [data-noko-focus-shield-indicator] {
+html[data-noko-focus-shield][data-noko-focus-shield-profile="meeting"] :is(
+  [aria-label*="member" i],
+  [aria-label*="activity" i],
+  [class*="messageContent_"],
+  [class*="username_"],
+  [class*="avatar_"]
+) {
+  filter: blur(8px) !important;
+  user-select: none !important;
+}
+
+html[data-noko-focus-shield][data-noko-focus-shield-profile="streaming"] :is(
+  nav[aria-label*="server" i],
+  nav[aria-label*="direct message" i],
+  [class*="messageContent_"],
+  [class*="headerText_"],
+  [class*="username_"],
+  [class*="avatar_"],
+  [class*="member"]
+) {
+  filter: blur(8px) !important;
+  user-select: none !important;
+}
+
+html[data-noko-focus-shield] [data-noko-focus-shield-indicator],
+html[data-noko-focus-shield] [data-noko-focus-shield-profile] {
   border-color: #e8b44a;
   background: #3a2b0d;
   color: #ffe6a8;
+}
+
+[data-noko-focus-shield-indicator]:focus-visible,
+[data-noko-focus-shield-profile]:focus-visible {
+  outline: 2px solid #ffd166;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-noko-focus-shield-controls] { transition: none !important; }
+}
+
+html[data-noko-focus-shield-reduced-motion] [data-noko-focus-shield-controls] {
+  transition: none !important;
 }
 """##
 
@@ -178,60 +272,181 @@ html[data-noko-focus-shield] [data-noko-focus-shield-indicator] {
 NokoTan.register({
   start(api) {
     const marked = new Set();
+    const originals = new Map();
+    const generatedCodeIDs = new WeakMap();
+    const pendingRoots = new Set();
+    const scanBudget = 64;
+    const maxMarked = 256;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let frame = null;
+    let blockSerial = 0;
     let cancelCopyReset = null;
-    const decorate = root => {
-      if (!root || typeof root.querySelectorAll !== 'function') return;
-      const blocks = [];
-      if (root.matches?.('pre > code')) blocks.push(root.parentElement);
-      root.querySelectorAll('pre > code').forEach(code => blocks.push(code.parentElement));
-      for (const pre of blocks.slice(0, 64)) {
-        for (const existing of marked) if (!existing.isConnected) marked.delete(existing);
-        if (marked.size >= 256) break;
-        if (!(pre instanceof HTMLElement) || marked.has(pre)) continue;
-        if (pre.closest('[contenteditable="true"], [role="textbox"], textarea, input')) continue;
-        const code = pre.querySelector(':scope > code');
-        if (!code) continue;
-        const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9) || 'code';
-        const lineNumbers = document.createElement('div');
-        lineNumbers.setAttribute('data-noko-code-gutter', '');
-        lineNumbers.setAttribute('aria-hidden', 'true');
-        const lineCount = Math.min(512, Math.max(1, (code.textContent || '').split('\n').length));
-        for (let line = 1; line <= lineCount; line++) {
-          const number = document.createElement('span');
-          number.textContent = String(line);
-          lineNumbers.append(number);
-        }
-        const copy = document.createElement('button');
-        const collapse = document.createElement('button');
-        copy.type = 'button'; collapse.type = 'button';
-        copy.setAttribute('data-noko-code-copy', '');
-        collapse.setAttribute('data-noko-code-collapse', '');
-        copy.textContent = 'Copy'; collapse.textContent = 'Collapse';
-        copy.setAttribute('aria-label', 'Copy code block');
-        collapse.setAttribute('aria-label', 'Collapse code block');
-        pre.setAttribute('data-noko-code-workbench', '');
-        pre.setAttribute('data-noko-code-language', language);
-        pre.append(lineNumbers, copy, collapse);
-        marked.add(pre);
+    const remember = (element, name) => {
+      if (!originals.has(element)) originals.set(element, new Map());
+      const attributes = originals.get(element);
+      if (!attributes.has(name)) attributes.set(name, element.getAttribute(name));
+    };
+    const setOwned = (element, name, value) => {
+      remember(element, name);
+      element.setAttribute(name, value);
+    };
+    const removeOwned = (element, name) => {
+      remember(element, name);
+      element.removeAttribute(name);
+    };
+    const codeFor = pre => pre?.querySelector(':scope > code');
+    const isEditor = pre => pre?.closest('[contenteditable="true"], [role="textbox"], textarea, input');
+    const prune = () => {
+      for (const pre of marked) if (!pre.isConnected) marked.delete(pre);
+    };
+    const updateLineNumbers = pre => {
+      const code = codeFor(pre);
+      const gutter = pre?.querySelector(':scope > [data-noko-code-gutter]');
+      if (!code || !gutter) return;
+      const lineCount = Math.min(512, Math.max(1, (code.textContent || '').split('\n').length));
+      if (gutter.getAttribute('data-noko-code-line-count') === String(lineCount)) return;
+      gutter.setAttribute('data-noko-code-line-count', String(lineCount));
+      gutter.replaceChildren();
+      for (let line = 1; line <= lineCount; line++) {
+        const number = document.createElement('span');
+        number.textContent = String(line);
+        number.setAttribute('aria-hidden', 'true');
+        gutter.append(number);
       }
     };
+    const ensureCodeID = code => {
+      if (code.id) return code.id;
+      let id;
+      do { id = `noko-code-${++blockSerial}`; } while (document.getElementById(id));
+      code.id = id;
+      generatedCodeIDs.set(code, id);
+      return id;
+    };
+    const updateMetadata = pre => {
+      const code = codeFor(pre);
+      if (!code) return;
+      const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9) || 'code';
+      setOwned(pre, 'data-noko-code-language', language);
+      setOwned(pre, 'aria-label', `${language} code block`);
+      setOwned(pre, 'tabindex', '0');
+      setOwned(pre, 'role', 'region');
+      setOwned(pre, 'aria-keyshortcuts', 'C');
+      const collapse = pre.querySelector(':scope > [data-noko-code-collapse]');
+      if (collapse) collapse.setAttribute('aria-controls', ensureCodeID(code));
+      updateLineNumbers(pre);
+    };
+    const decorateOne = pre => {
+      if (!(pre instanceof HTMLElement) || marked.has(pre) || isEditor(pre) || marked.size >= maxMarked) return;
+      const code = codeFor(pre);
+      if (!code) return;
+      const lineNumbers = document.createElement('div');
+      lineNumbers.setAttribute('data-noko-code-gutter', '');
+      lineNumbers.setAttribute('aria-hidden', 'true');
+      const controls = document.createElement('div');
+      controls.setAttribute('data-noko-code-controls', '');
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-label', 'Code block actions');
+      const copy = document.createElement('button');
+      const collapse = document.createElement('button');
+      const status = document.createElement('span');
+      copy.type = 'button'; collapse.type = 'button';
+      copy.setAttribute('data-noko-code-copy', '');
+      collapse.setAttribute('data-noko-code-collapse', '');
+      copy.setAttribute('aria-label', 'Copy code block');
+      collapse.setAttribute('aria-label', 'Collapse code block');
+      collapse.setAttribute('aria-expanded', 'true');
+      status.setAttribute('data-noko-code-status', '');
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.setAttribute('aria-atomic', 'true');
+      copy.textContent = 'Copy';
+      collapse.textContent = 'Collapse';
+      status.textContent = '';
+      controls.append(collapse, copy, status);
+      setOwned(pre, 'data-noko-code-workbench', '');
+      setOwned(pre, 'data-noko-code-language', 'code');
+      setOwned(pre, 'aria-label', 'code block');
+      setOwned(pre, 'tabindex', '0');
+      setOwned(pre, 'role', 'region');
+      setOwned(pre, 'aria-keyshortcuts', 'C');
+      const codeID = ensureCodeID(code);
+      collapse.setAttribute('aria-controls', codeID);
+      pre.append(lineNumbers, controls);
+      marked.add(pre);
+      updateMetadata(pre);
+    };
+    const collectBlocks = (root, limit) => {
+      const blocks = [];
+      const seen = new Set();
+      const add = pre => {
+        if (pre && !seen.has(pre)) { seen.add(pre); blocks.push(pre); }
+      };
+      if (root instanceof Element && root.matches('pre')) add(root);
+      if (root instanceof Element && root.matches('pre > code')) add(root.parentElement);
+      if (!root || typeof document.createTreeWalker !== 'function') return blocks;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      let node;
+      while (blocks.length < limit && (node = walker.nextNode())) {
+        if (node.matches?.('pre')) add(node);
+        else if (node.matches?.('pre > code')) add(node.parentElement);
+      }
+      return blocks;
+    };
+    const decorate = (root, limit = scanBudget) => {
+      prune();
+      if (!root || limit <= 0 || marked.size >= maxMarked) return false;
+      const blocks = collectBlocks(root, limit + 1);
+      const more = blocks.length > limit;
+      for (const pre of blocks.slice(0, limit)) decorateOne(pre);
+      return more;
+    };
+    const queueRoot = root => {
+      if (!(root instanceof Element) || root.closest('[data-noko-code-workbench]')) return;
+      if (pendingRoots.size >= 128) pendingRoots.clear();
+      pendingRoots.add(root);
+      if (frame === null) frame = requestAnimationFrame(flush);
+    };
+    function flush() {
+      frame = null;
+      let remaining = scanBudget;
+      const roots = [...pendingRoots];
+      pendingRoots.clear();
+      for (let index = 0; index < roots.length && remaining > 0; index++) {
+        const root = roots[index];
+        if (!root.isConnected) continue;
+        const more = decorate(root, remaining);
+        if (more) pendingRoots.add(root);
+        remaining--;
+      }
+      if (pendingRoots.size > 0) frame = requestAnimationFrame(flush);
+    }
     const copyCode = async button => {
       const pre = button.closest('pre[data-noko-code-workbench]');
-      const code = pre?.querySelector(':scope > code');
-      if (!pre || !code || !navigator.clipboard?.writeText) return;
+      const code = codeFor(pre);
+      const status = pre?.querySelector('[data-noko-code-status]');
+      if (!pre || !code) return;
+      if (!navigator.clipboard?.writeText) {
+        if (status) status.textContent = 'Copy unavailable in this context';
+        return;
+      }
       try {
         await navigator.clipboard.writeText(code.textContent || '');
-        button.textContent = 'Copied';
+        if (status) status.textContent = 'Code copied';
         cancelCopyReset?.();
-        cancelCopyReset = api.timeout(() => { if (button.isConnected) button.textContent = 'Copy'; }, 1200);
-      } catch { button.textContent = 'Copy failed'; }
+        cancelCopyReset = api.timeout(() => { if (status?.isConnected) status.textContent = ''; }, 1200);
+      } catch { if (status) status.textContent = 'Copy failed'; }
     };
     const toggleCode = button => {
       const pre = button.closest('pre[data-noko-code-workbench]');
-      const code = pre?.querySelector(':scope > code');
+      const code = codeFor(pre);
       if (!pre || !code) return;
-      const collapsed = pre.toggleAttribute('data-noko-code-collapsed');
+      const collapsed = !pre.hasAttribute('data-noko-code-collapsed');
+      if (collapsed) setOwned(pre, 'data-noko-code-collapsed', '');
+      else removeOwned(pre, 'data-noko-code-collapsed');
+      remember(code, 'hidden');
       code.hidden = collapsed;
+      button.setAttribute('aria-expanded', String(!collapsed));
+      button.setAttribute('aria-label', collapsed ? 'Expand code block' : 'Collapse code block');
       button.textContent = collapsed ? 'Expand' : 'Collapse';
     };
     api.listen(document, 'click', event => {
@@ -241,27 +456,65 @@ NokoTan.register({
       if (copy) { event.preventDefault(); void copyCode(copy); }
       else if (collapse) { event.preventDefault(); toggleCode(collapse); }
     }, true);
+    api.listen(document, 'keydown', event => {
+      const target = event.target instanceof Element ? event.target : null;
+      const pre = target?.closest('pre[data-noko-code-workbench]');
+      if (!pre || target !== pre) return;
+      if (event.key.toLowerCase() === 'c' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        const copy = pre.querySelector('[data-noko-code-copy]');
+        if (copy) void copyCode(copy);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        const collapse = pre.querySelector('[data-noko-code-collapse]');
+        if (collapse) toggleCode(collapse);
+      }
+    }, true);
     const observer = new MutationObserver(mutations => {
-      for (const mutation of mutations) for (const node of mutation.addedNodes) {
-        if (node.nodeType === 1) decorate(node);
+      for (const mutation of mutations) {
+        const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentElement;
+        const markedPre = target?.closest?.('pre[data-noko-code-workbench]');
+        const code = codeFor(markedPre);
+        if (code && (target === code || code.contains(target))) updateLineNumbers(markedPre);
+        for (const node of mutation.addedNodes) if (node.nodeType === 1) queueRoot(node);
       }
     });
     const observeRoot = document.body || document.documentElement;
-    if (observeRoot) observer.observe(observeRoot, {childList: true, subtree: true});
-    decorate(document);
+    if (observeRoot) observer.observe(observeRoot, {childList: true, subtree: true, characterData: true});
+    if (decorate(document, scanBudget) && observeRoot) {
+      pendingRoots.add(observeRoot);
+      frame = requestAnimationFrame(flush);
+    }
     api.onCleanup(() => {
       cancelCopyReset?.();
       cancelCopyReset = null;
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+      pendingRoots.clear();
       observer.disconnect();
+      const active = document.activeElement;
+      const focusWasOwned = active instanceof Element && active.closest('[data-noko-code-controls]');
+      if (focusWasOwned && previousFocus?.isConnected) {
+        try { previousFocus.focus({preventScroll: true}); } catch { previousFocus.focus(); }
+      }
       for (const pre of marked) {
-        pre.removeAttribute('data-noko-code-workbench');
-        pre.removeAttribute('data-noko-code-language');
-        pre.removeAttribute('data-noko-code-collapsed');
-        pre.querySelector('[data-noko-code-gutter]')?.remove();
-        pre.querySelector('[data-noko-code-copy]')?.remove();
-        pre.querySelector('[data-noko-code-collapse]')?.remove();
+        if (!focusWasOwned && active instanceof Element && pre.contains(active)) {
+          try { pre.focus({preventScroll: true}); } catch { pre.focus(); }
+        }
+        pre.querySelector(':scope > [data-noko-code-gutter]')?.remove();
+        pre.querySelector(':scope > [data-noko-code-controls]')?.remove();
+        const code = codeFor(pre);
+        const generatedID = code && generatedCodeIDs.get(code);
+        if (code && generatedID && code.id === generatedID) code.removeAttribute('id');
+      }
+      for (const [element, attributes] of originals) {
+        for (const [name, value] of attributes) {
+          if (value === null) element.removeAttribute(name);
+          else element.setAttribute(name, value);
+        }
       }
       marked.clear();
+      originals.clear();
     });
   }
 });
@@ -272,7 +525,7 @@ pre[data-noko-code-workbench] {
   position: relative;
   overflow: auto;
   max-width: 100%;
-  padding: 30px 12px 12px 44px !important;
+  padding: 38px 12px 12px 44px !important;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   border-radius: 10px;
   white-space: pre;
@@ -282,7 +535,7 @@ pre[data-noko-code-workbench] > code { line-height: 1.4; }
 
 pre[data-noko-code-workbench] > [data-noko-code-gutter] {
   position: absolute;
-  top: 30px;
+  top: 38px;
   left: 8px;
   width: 28px;
   display: flex;
@@ -307,10 +560,16 @@ pre[data-noko-code-workbench]::before {
   letter-spacing: .06em;
 }
 
-pre[data-noko-code-workbench] > [data-noko-code-copy],
-pre[data-noko-code-workbench] > [data-noko-code-collapse] {
+pre[data-noko-code-workbench] > [data-noko-code-controls] {
   position: absolute;
   top: 5px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+[data-noko-code-controls] button {
   border: 0;
   border-radius: 6px;
   padding: 4px 7px;
@@ -320,10 +579,26 @@ pre[data-noko-code-workbench] > [data-noko-code-collapse] {
   cursor: pointer;
 }
 
-pre[data-noko-code-workbench] > [data-noko-code-copy] { right: 8px; }
-pre[data-noko-code-workbench] > [data-noko-code-collapse] { right: 58px; }
+[data-noko-code-controls] button:focus-visible {
+  outline: 2px solid #5b9dff;
+  outline-offset: 2px;
+}
+
+[data-noko-code-status] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 pre[data-noko-code-workbench][data-noko-code-collapsed] > [data-noko-code-gutter] { display: none; }
 pre[data-noko-code-workbench][data-noko-code-collapsed] { min-height: 32px; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-noko-code-controls] button { transition: none !important; }
+}
 """##
 
     private static let clearFocusJS = ##"""
