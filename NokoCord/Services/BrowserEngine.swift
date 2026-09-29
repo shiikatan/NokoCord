@@ -66,6 +66,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     private(set) var unreadCount = 0
     private(set) var microphoneCaptureState: WKMediaCaptureState = .none
     private(set) var cameraCaptureState: WKMediaCaptureState = .none
+    private(set) var discordCompatibility = DiscordCompatibilitySnapshot.initial()
     var isInCall: Bool { microphoneCaptureState != .none || cameraCaptureState != .none }
     var isMicrophoneMuted: Bool { microphoneCaptureState == .muted }
     private(set) var notice: String?
@@ -101,6 +102,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             runtime.onToggleZenMode = { [weak self] in self?.toggleZenMode() }
             runtime.onChannelChanged = { [weak self] in self?.handleChannelChanged() }
             runtime.onSaveBookmark = { [weak self] bookmark in self?.onSaveBookmark?(bookmark) }
+            runtime.onCompatibilityChange = { [weak self] snapshot in self?.discordCompatibility = snapshot }
             tanRuntime = runtime
             tans.onChange = { [weak self] in
                 self?.tanRuntime?.configurationChanged()

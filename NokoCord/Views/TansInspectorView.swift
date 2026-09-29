@@ -39,6 +39,12 @@ struct TansInspectorView: View {
                         statusBanner
                     }
 
+                    if browser.view != nil,
+                       browser.discordCompatibility.route != "unknown",
+                       !browser.discordCompatibility.isSupportedRoute {
+                        compatibilityBanner
+                    }
+
                     installedSection
 
                     originalsSection
@@ -269,6 +275,25 @@ struct TansInspectorView: View {
         .padding(12)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange.opacity(0.24)))
+    }
+
+    private var compatibilityBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.shield")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Discord surface protected")
+                    .font(.subheadline.bold())
+                Text("Tans are paused on this page so Discord settings and sign-in remain untouched.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.18)))
     }
 
     // MARK: - Installed Tans

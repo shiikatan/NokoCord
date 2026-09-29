@@ -16,7 +16,9 @@ final class TanRuntime {
     private var transitionTask: Task<Void, Never>?
     private var livePackages: [String: TanPackage] = [:]
     fileprivate let allowedOrigin: String
+    private(set) var compatibility = DiscordCompatibilitySnapshot.initial()
     private var appHandler: NokoAppMessageHandler?
+    var onCompatibilityChange: ((DiscordCompatibilitySnapshot) -> Void)?
     var onToggleTans: (() -> Void)?
     var onToggleQuickSwitcher: (() -> Void)?
     var onToggleBookmarks: (() -> Void)?
@@ -32,7 +34,11 @@ final class TanRuntime {
         self.controller = controller
         configureScripts()
     }
-    func attach(_ view: WKWebView) { self.view = view; view.isInspectable = manager.developerMode }
+    func attach(_ view: WKWebView) {
+        self.view = view
+        view.isInspectable = manager.developerMode
+        updateCompatibility()
+    }
     func detach() {
         generation = UUID()
         transitionTask = nil
@@ -40,6 +46,8 @@ final class TanRuntime {
         controller?.removeAllUserScripts()
         controller = nil; view = nil; configured = []; livePackages = [:]
         worlds.removeAll(); activeHashes.removeAll()
+        compatibility = .initial(generation: generation)
+        onCompatibilityChange?(compatibility)
     }
     func configurationChanged() {
         let old = configured
@@ -58,11 +66,13 @@ final class TanRuntime {
     }
     func pageDidLoad() {
         manager.reloadRequired = false
+        updateCompatibility()
         // DOM Tans also work when Discord moves from /app to /channels during
         // startup. Registration replaces its own prior instance, never a view.
         applyLive(stopping: [], starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
     }
     func locationChanged() {
+        updateCompatibility()
         guard let url = view?.url else { return }
         if !Self.accepts(url, origin: allowedOrigin) {
             applyLive(stopping: configured + Array(livePackages.values), starting: [])
@@ -76,6 +86,9 @@ final class TanRuntime {
     private func configureScripts() {
         guard let controller else { return }
         clearHandlers(); controller.removeAllUserScripts()
+        configured = []
+        activeHashes = [:]
+        guard !manager.safeMode else { return }
         configured = manager.active
         activeHashes = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0.contentHash) })
         for package in configured {
@@ -158,9 +171,12 @@ final class TanRuntime {
         } else { manager.record(package.id, event: .rejected); reply(nil, "Capability not granted") }
     }
     static func accepts(_ url: URL, origin: String) -> Bool {
-        guard let expected = URL(string: origin), url.scheme == expected.scheme, url.host == expected.host,
-              (url.port ?? 443) == (expected.port ?? 443), url.user == nil, url.password == nil else { return false }
-        return origin != "https://discord.com" || url.path == "/app" || url.path.hasPrefix("/channels/")
+        DiscordCompatibilityService.accepts(url, origin: origin)
+    }
+
+    private func updateCompatibility() {
+        compatibility = DiscordCompatibilityService.snapshot(for: view?.url, origin: allowedOrigin, generation: generation)
+        onCompatibilityChange?(compatibility)
     }
     private func world(_ package: TanPackage) -> WKContentWorld {
         if package.manifest.target == .page { return .page }
@@ -253,6 +269,7 @@ final class TanRuntime {
     (() => {
       'use strict';
       if (location.origin !== 'https://discord.com') return;
+      if (!(location.pathname === '/app' || location.pathname === '/channels' || location.pathname.startsWith('/channels/'))) return;
       if (window.__nokoCordAppInjected) return;
       window.__nokoCordAppInjected = true;
 

@@ -132,6 +132,25 @@ final class TanRuntimeTests: XCTestCase {
         XCTAssertEqual(manager.enabledIDs, Set([original.id]))
     }
 
+    func testDiscordSafeModeDoesNotExposeInjectedBridge() async throws {
+        _ = NSApplication.shared
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root, launchSafeMode: true)
+        let runtime = TanRuntime(manager: manager)
+        let view = makeView(runtime: runtime)
+
+        XCTAssertTrue(view.configuration.userContentController.userScripts.isEmpty)
+        view.loadHTMLString("<html><body><main id='safe-mode'>Safe</main></body></html>",
+                            baseURL: URL(string: "https://discord.com/channels/123/456")!)
+        for _ in 0..<100 {
+            if let ready = try? await view.evaluateJavaScript("document.getElementById('safe-mode') !== null") as? Bool, ready { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let bridge = try await view.evaluateJavaScript("typeof window.webkit?.messageHandlers?.nokoCordApp === 'undefined'") as? Bool
+        XCTAssertEqual(bridge, true)
+    }
+
     func testEnteringSafeModeWhilePageIsAliveStopsActiveTanAndRemovesScripts() async throws {
         _ = NSApplication.shared
         let root = try temporaryDirectory()
