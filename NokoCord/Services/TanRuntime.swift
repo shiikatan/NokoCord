@@ -697,25 +697,35 @@ final class TanRuntime {
           } catch (_) {}
         };
 
-        const trackElements = () => {
-          document.querySelectorAll('video, audio').forEach(el => {
+        const trackElements = (scope = document) => {
+          const container = scope && typeof scope.querySelectorAll === 'function' ? scope : document;
+          const media = [];
+          if (container.matches && container.matches('video, audio')) media.push(container);
+          container.querySelectorAll('video, audio').forEach(el => media.push(el));
+          media.forEach(el => {
             if (!el.__nokoTracked && !isLiveStream(el)) {
               el.__nokoTracked = true;
               mediaObserver.observe(el);
             }
           });
-          document.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"], div[class*="imageWrapper_"] img').forEach(el => {
+          if (container.matches && container.matches('img[src*="/attachments/"], img[src*="images-ext-"], div[class*="imageWrapper_"] img')) optimizeAttachment(container);
+          container.querySelectorAll('img[src*="/attachments/"], img[src*="images-ext-"], div[class*="imageWrapper_"] img').forEach(el => {
             optimizeAttachment(el);
           });
         };
 
         let trackScheduled = false;
-        const scheduleTrackElements = () => {
+        let pendingTrackRoots = [];
+        const scheduleTrackElements = (roots = [document]) => {
+          pendingTrackRoots.push(...roots.slice(0, 64));
           if (trackScheduled) return;
           trackScheduled = true;
           requestAnimationFrame(() => {
             trackScheduled = false;
-            trackElements();
+            const work = pendingTrackRoots;
+            pendingTrackRoots = [];
+            if (work.includes(document)) trackElements(document);
+            else work.forEach(trackElements);
           });
         };
 
@@ -727,7 +737,7 @@ final class TanRuntime {
               return;
             }
             const domObserver = new MutationObserver((mutations) => {
-              let hasRelevantNode = false;
+              const addedRoots = [];
               for (let i = 0; i < mutations.length; i++) {
                 const m = mutations[i];
                 if (m.removedNodes && m.removedNodes.length > 0) {
@@ -748,16 +758,12 @@ final class TanRuntime {
                     continue;
                   }
                 }
-                if (m.addedNodes.length > 0) {
-                  hasRelevantNode = true;
-                }
+                for (const node of m.addedNodes) if (node.nodeType === 1) addedRoots.push(node);
               }
-              if (hasRelevantNode) {
-                scheduleTrackElements();
-              }
+              if (addedRoots.length > 0) scheduleTrackElements(addedRoots);
             });
             domObserver.observe(root, { childList: true, subtree: true });
-            trackElements();
+            scheduleTrackElements([document]);
           } catch (_) {}
         };
         initObservers();

@@ -77,6 +77,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var appObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var memoryPurgeTimer: Timer?
     @ObservationIgnored private var channelPurgeTask: Task<Void, Never>?
+    @ObservationIgnored private var pageGeneration = UUID()
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
     @ObservationIgnored private let tans: TanManager?
@@ -161,6 +162,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     isolated deinit {
         channelPurgeTask?.cancel()
+        gameDispatchTask?.cancel()
+        musicDispatchTask?.cancel()
         memoryPurgeTimer?.invalidate()
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         appObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -177,6 +180,19 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             guard !Task.isCancelled, let self else { return }
             self.purgeMemoryCache()
         }
+    }
+
+    @discardableResult
+    func beginPageGeneration() -> UUID {
+        pageGeneration = UUID()
+        channelPurgeTask?.cancel()
+        gameDispatchTask?.cancel()
+        musicDispatchTask?.cancel()
+        return pageGeneration
+    }
+
+    func isCurrentPageGeneration(_ generation: UUID) -> Bool {
+        pageGeneration == generation
     }
 
     /// Releases WebKit memory cache (decoded images/backing buffers) and invokes in-page media/DOM garbage cleanup.
@@ -216,6 +232,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// Loads a validated Discord URL directly into the active browser workspace.
     func openURL(_ url: URL) {
         guard BrowserPolicy.isDiscordOrigin(url), lifecycle.phase != .clearing else { return }
+        beginPageGeneration()
         lifecycle.show()
         let view = prepareBrowser()
         lifecycle.loading()
@@ -274,6 +291,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.browserView === view else { return }
+                    self.beginPageGeneration()
                     self.tanRuntime?.locationChanged()
                     self.handleChannelChanged()
                 }
@@ -337,6 +355,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func openGuild(_ id: String) {
         guard !id.isEmpty, id.utf8.count <= 20,
               id.utf8.allSatisfy({ (48...57).contains($0) }), lifecycle.phase != .clearing else { return }
+        beginPageGeneration()
         lifecycle.show()
         let view = prepareBrowser()
         lifecycle.loading()
@@ -344,6 +363,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     func reload() {
         guard lifecycle.phase != .clearing else { return }
+        beginPageGeneration()
         notice = nil
         lifecycle.loading()
         if let view = browserView { navigation = view.reload() ?? view.load(URLRequest(url: BrowserPolicy.home)) }
@@ -434,6 +454,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func dismissNotice() { notice = nil }
     func clearProfile() async {
         guard lifecycle.phase != .clearing else { return }
+        beginPageGeneration()
         lifecycle.clearing()
         downloads.cancelAll()
         browserView?.stopLoading()
@@ -463,6 +484,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     }
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard webView === browserView, lifecycle.phase != .clearing else { return }
+        beginPageGeneration()
         self.navigation = navigation
         notice = nil
         lifecycle.loading()
@@ -488,9 +510,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// music, so the caller re-evaluates the music activity afterwards.
     private func syncGamePresenceToDiscord(_ presence: GamePresence?) {
         guard browserView != nil, lifecycle.phase == .ready else { return }
+        let generation = pageGeneration
         gameDispatchTask?.cancel()
         gameDispatchTask = Task { @MainActor [weak self] in
-            await self?.dispatchLocalActivity(presence, socketID: Self.gameSocketID)
+            await self?.dispatchLocalActivity(presence, socketID: Self.gameSocketID, generation: generation)
         }
     }
 
@@ -501,6 +524,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// game takes over.
     private func syncAppleMusicPresenceToDiscord() {
         guard browserView != nil, lifecycle.phase == .ready else { return }
+        let generation = pageGeneration
         let service = AppleMusicRPCService.shared
         let suppressed = !service.isEnabled || GamePresenceService.shared.activePresence != nil
         let track = service.currentTrack
@@ -509,7 +533,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             : track?.toGamePresence(clientId: AppleMusicRPCService.configuredApplicationID)
         musicDispatchTask?.cancel()
         musicDispatchTask = Task { @MainActor [weak self] in
-            await self?.dispatchLocalActivity(presence, socketID: Self.musicSocketID)
+            await self?.dispatchLocalActivity(presence, socketID: Self.musicSocketID, generation: generation)
         }
     }
 
@@ -517,13 +541,14 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     /// resolved into Discord media-proxy keys first, and a presence that is
     /// meant to appear is confirmed against Discord's own store and retried,
     /// because Discord accepts dispatches it does not apply while it loads.
-    private func dispatchLocalActivity(_ presence: GamePresence?, socketID: String) async {
-        guard let view = browserView else { return }
+    private func dispatchLocalActivity(_ presence: GamePresence?, socketID: String, generation: UUID) async {
+        guard isCurrentPageGeneration(generation), let view = browserView else { return }
         var payload = presence?.toDiscordPayload() ?? [:]
         if let presence {
             let resolved = await Self.externalAssetKeys(view: view,
                                                         applicationId: presence.clientId,
                                                         urls: [presence.largeImageKey, presence.smallImageKey])
+            guard isCurrentPageGeneration(generation), browserView === view else { return }
             if var assets = payload["assets"] as? [String: Any] {
                 if let large = resolved[0] { assets["large_image"] = large }
                 if resolved.count > 1, let small = resolved[1] { assets["small_image"] = small }
@@ -535,7 +560,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         // "applied" when the activity is absent for this socket, so a dispatch
         // Discord swallowed while loading cannot leave a stale status behind.
         for _ in 1...15 {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, isCurrentPageGeneration(generation), browserView === view else { return }
             let outcome = (try? await view.evaluateJavaScript(Self.localActivityScript(payload: json, socketID: socketID))) as? String
             if outcome == "applied" { return }
             try? await Task.sleep(nanoseconds: 2_000_000_000)

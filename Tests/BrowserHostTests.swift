@@ -28,6 +28,17 @@ final class BrowserHostTests: XCTestCase {
         XCTAssertTrue(view.configuration.websiteDataStore.isPersistent)
         XCTAssertNil(view.url)
     }
+
+    func testPageGenerationInvalidatesStalePageWork() {
+        _ = NSApplication.shared
+        let engine = WKBrowserEngine(dataStore: .nonPersistent())
+        let first = engine.beginPageGeneration()
+        XCTAssertTrue(engine.isCurrentPageGeneration(first))
+        let second = engine.beginPageGeneration()
+        XCTAssertNotEqual(first, second)
+        XCTAssertFalse(engine.isCurrentPageGeneration(first))
+        XCTAssertTrue(engine.isCurrentPageGeneration(second))
+    }
     func testClearingAnIsolatedProfileDisposesViewAndAllowsOneReplacement() async {
         _ = NSApplication.shared
         let engine = WKBrowserEngine(dataStore: .nonPersistent())
