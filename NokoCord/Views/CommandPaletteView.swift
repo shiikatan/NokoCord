@@ -25,11 +25,61 @@ struct CommandPaletteView: View {
 
     @State private var query = ""
     @State private var selectedIndex = 0
+    @State private var pendingConfirmation: PaletteConfirmation?
     @FocusState private var isFieldFocused: Bool
     @AppStorage(NokoAppDefaults.showFloatingToolbar) private var showFloatingToolbar = false
 
     var onOpenDownloads: (() -> Void)?
     var onOpenTutorial: (() -> Void)?
+
+    private enum PaletteConfirmation: Identifiable {
+        case safeMode(enable: Bool)
+        case tan(package: TanPackage, enable: Bool)
+
+        var id: String {
+            switch self {
+            case .safeMode(let enable): return "safe-mode-\(enable)"
+            case .tan(let package, let enable): return "tan-\(package.id)-\(enable)"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .safeMode(let enable): return enable ? "Start Safe Mode?" : "Resume Tans?"
+            case .tan(let package, let enable): return "\(enable ? "Enable" : "Disable") \(package.manifest.name)?"
+            }
+        }
+
+        var buttonTitle: String {
+            switch self {
+            case .safeMode(let enable): return enable ? "Start Safe Mode" : "Resume Tans"
+            case .tan(_, let enable): return enable ? "Enable Tan" : "Disable Tan"
+            }
+        }
+
+        var isDestructive: Bool {
+            switch self {
+            case .safeMode(let enable): return !enable
+            case .tan(_, let enable): return !enable
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .safeMode(let enable):
+                return enable
+                    ? "Safe Mode reloads Discord without Noko scripts or bridge handlers."
+                    : "Resuming Tans will allow the currently approved packages to run after Discord reloads."
+            case .tan(let package, let enable):
+                if enable {
+                    return package.manifest.target == .css
+                        ? "This Tan changes Discord’s appearance. Enable only code you trust."
+                        : "This Tan runs inside Discord and can interact with content in your signed-in session. Enable only code you trust."
+                }
+                return "Disabling this Tan may require a Discord reload before the page returns to its original state."
+            }
+        }
+    }
 
     private var actions: [PaletteAction] {
         var items: [PaletteAction] = []
@@ -175,7 +225,9 @@ struct CommandPaletteView: View {
         // MARK: - Apple Music Rich Presence
         let musicPackage = TanPackage.appleMusicRPC
         let musicEnabled = tans.enabledIDs.contains(musicPackage.id)
-        if let track = AppleMusicRPCService.shared.currentTrack, track.playerState.isPlaying {
+        if let track = AppleMusicRPCService.shared.currentTrack,
+           track.playerState.isPlaying,
+           AppleMusicRPCService.shared.helperStatus == .connected {
             items.append(PaletteAction(
                 id: "applemusic.now_playing",
                 title: "Now Playing: \(track.name)",
@@ -480,6 +532,24 @@ struct CommandPaletteView: View {
             }
             return .handled
         }
+        .confirmationDialog(
+            pendingConfirmation?.title ?? "Confirm Tan action",
+            isPresented: Binding(
+                get: { pendingConfirmation != nil },
+                set: { if !$0 { pendingConfirmation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let confirmation = pendingConfirmation {
+                Button(confirmation.buttonTitle, role: confirmation.isDestructive ? .destructive : nil) {
+                    apply(confirmation)
+                    pendingConfirmation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingConfirmation = nil }
+        } message: {
+            Text(pendingConfirmation?.message ?? "")
+        }
     }
 
     private func actionRow(_ action: PaletteAction, isSelected: Bool) -> some View {
@@ -553,11 +623,51 @@ struct CommandPaletteView: View {
     }
 
     private func execute(_ action: PaletteAction) {
+        if let confirmation = confirmation(for: action) {
+            pendingConfirmation = confirmation
+            return
+        }
         withAnimation(.nokoSnappySpring) {
             isPresented = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             action.handler()
+        }
+    }
+
+    private func confirmation(for action: PaletteAction) -> PaletteConfirmation? {
+        switch action.id {
+        case "tans.safe_mode":
+            return .safeMode(enable: !tans.safeMode)
+        case "applemusic.toggle_rpc":
+            let package = TanPackage.appleMusicRPC
+            return .tan(package: package, enable: !tans.enabledIDs.contains(package.id))
+        default:
+            guard action.id.hasPrefix("tan.pkg."),
+                  let package = tans.installed.first(where: { action.id == "tan.pkg.\($0.id)" }) else {
+                return nil
+            }
+            return .tan(package: package, enable: !tans.enabledIDs.contains(package.id))
+        }
+    }
+
+    private func apply(_ confirmation: PaletteConfirmation) {
+        switch confirmation {
+        case .safeMode(let enable):
+            tans.setSafeMode(enable)
+        case .tan(let package, let enable):
+            if enable {
+                if TanPackage.originals.contains(package) {
+                    tans.enableOriginal(package)
+                } else {
+                    tans.setEnabled(package.id, true)
+                }
+            } else {
+                tans.setEnabled(package.id, false)
+            }
+        }
+        withAnimation(.nokoSnappySpring) {
+            isPresented = false
         }
     }
 }

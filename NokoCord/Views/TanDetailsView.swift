@@ -8,6 +8,7 @@ struct TanDetailsView: View {
     let reload: (String) -> Void
     let reloadPage: () -> Void
     @State private var confirming = false
+    @State private var pendingUpdate = false
     @State private var removing = false
     @State private var error: String?
     @State private var translationReport: TanTranslationReport?
@@ -52,8 +53,7 @@ struct TanDetailsView: View {
                 }
                 if tans.availableOriginalUpdate(package) != nil {
                     Button("Update Noko-Tan") {
-                        do { try tans.updateOriginal(package.id); dismiss() }
-                        catch { self.error = "The update could not be installed." }
+                        pendingUpdate = true
                     }
                     Text("Updating turns this Tan off. Enable it again when you’re ready.").font(.caption).foregroundStyle(.secondary)
                 }
@@ -72,6 +72,12 @@ struct TanDetailsView: View {
             }
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
         }.padding(28).frame(width: 440)
+            .confirmationDialog("Update Noko-Tan?", isPresented: $pendingUpdate, titleVisibility: .visible) {
+                Button("Update Tan") { updateOriginal() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The update replaces this package, turns it off, and requires fresh approval before it can run again.")
+            }
             .task(id: package.id) {
                 do {
                     let report = try await tans.translationReport(for: package.id)
@@ -89,5 +95,10 @@ struct TanDetailsView: View {
         removing = true
         do { try tans.uninstall(package.id); dismiss() }
         catch { self.error = "This Tan could not be removed. Please try again."; confirming = false; removing = false }
+    }
+
+    private func updateOriginal() {
+        do { try tans.updateOriginal(package.id); dismiss() }
+        catch { self.error = "The update could not be installed." }
     }
 }

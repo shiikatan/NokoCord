@@ -8,6 +8,7 @@ public struct AppleMusicSettingsSection: View {
     @Environment(ActiveBrowserEngine.self) private var browser
     @State private var rpc = AppleMusicRPCService.shared
     @State private var confirmEnable = false
+    @State private var confirmDisable = false
 
     private var package: TanPackage { TanPackage.appleMusicRPC }
     private var isInstalled: Bool { tans.installed.contains { $0.id == package.id } }
@@ -37,6 +38,11 @@ public struct AppleMusicSettingsSection: View {
                     Text(rpc.lastFMStatusText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let statusMessage = rpc.statusMessage {
+                        Label(statusMessage, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                     if rpc.isPositionAccessDenied {
                         Label("Exact song position needs Automation access: allow NokoCord to control Music in System Settings → Privacy & Security → Automation.", systemImage: "exclamationmark.triangle")
                             .font(.caption)
@@ -64,6 +70,12 @@ public struct AppleMusicSettingsSection: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This Tan runs code inside Discord to deliver the activity to your signed-in session. Reload Discord afterwards to apply it.")
+        }
+        .confirmationDialog("Disable Apple Music RPC?", isPresented: $confirmDisable, titleVisibility: .visible) {
+            Button("Disable Tan", role: .destructive) { tans.setEnabled(package.id, false) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The activity will stop after Discord reloads. Your Apple Music data remains local to this Mac.")
         }
         .alert("Apple Music RPC", isPresented: Binding(get: { tans.error != nil }, set: { if !$0 { tans.dismissError() } })) {
             Button("OK") { tans.dismissError() }
@@ -116,7 +128,7 @@ public struct AppleMusicSettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Disable") { tans.setEnabled(package.id, false) }
+                Button("Disable") { confirmDisable = true }
             }
         }
     }
