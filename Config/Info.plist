@@ -12,4 +12,5 @@
 </dict></array>
 <key>NSCameraUsageDescription</key><string>Preview your selected camera locally when you start a device check. No video is sent to Discord.</string>
 <key>NSMicrophoneUsageDescription</key><string>Show your microphone input level when you start a local device check. No audio is sent to Discord.</string>
+<key>NSAppleEventsUsageDescription</key><string>Read the current song and playback state from Music while Apple Music Presence is enabled.</string>
 </dict></plist>

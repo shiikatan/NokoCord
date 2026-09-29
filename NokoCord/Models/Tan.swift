@@ -2,8 +2,12 @@ import Foundation
 import CryptoKit
 import Darwin
 
-enum TanTarget: String, Codable, CaseIterable { case css, isolated, page }
+enum TanTarget: String, Codable, CaseIterable { case css, isolated, page, native }
 enum TanCapability: String, Codable { case appearanceRead = "appearance.read" }
+
+enum NokoNativeTanID {
+    static let appleMusicPresence = "noko.apple-music-presence"
+}
 
 struct TanManifest: Codable, Equatable, Identifiable {
     var schemaVersion = 1
@@ -28,6 +32,9 @@ struct TanManifest: Codable, Equatable, Identifiable {
         guard schemaVersion == 1 else { throw TanError.invalid("Unsupported manifest version") }
         guard id.range(of: "^[a-z0-9][a-z0-9.-]{2,79}$", options: .regularExpression) != nil,
               !id.contains(".."), !id.hasSuffix(".") else { throw TanError.invalid("Invalid Tan identifier") }
+        guard id != NokoNativeTanID.appleMusicPresence || target == .native else {
+            throw TanError.invalid("The Apple Music Presence identifier is reserved for its bundled native Tan")
+        }
         guard safeDisplayText(name), name.count <= 80, description.count <= 1000,
               version.range(of: "^[0-9]+\\.[0-9]+\\.[0-9]+$", options: .regularExpression) != nil,
               !authors.isEmpty, authors.count <= 8,
@@ -38,8 +45,15 @@ struct TanManifest: Codable, Equatable, Identifiable {
             guard file.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$", options: .regularExpression) != nil,
                   !file.contains("..") else { throw TanError.invalid("Tan files must be local filenames") }
         }
-        guard target == .css ? (entry == nil && stylesheet?.hasSuffix(".css") == true) : entry?.hasSuffix(".js") == true else {
-            throw TanError.invalid("Missing Tan entry file")
+        switch target {
+        case .css:
+            guard entry == nil, stylesheet?.hasSuffix(".css") == true else { throw TanError.invalid("Missing Tan stylesheet") }
+        case .isolated, .page:
+            guard entry?.hasSuffix(".js") == true else { throw TanError.invalid("Missing Tan entry file") }
+        case .native:
+            guard id == NokoNativeTanID.appleMusicPresence, entry == nil, stylesheet == nil, capabilities.isEmpty else {
+                throw TanError.invalid("Invalid native Tan declaration")
+            }
         }
         if let stylesheet, !stylesheet.hasSuffix(".css") { throw TanError.invalid("Stylesheets must be CSS") }
         guard Set(capabilities).count == capabilities.count,
@@ -64,9 +78,18 @@ struct TanPackage: Codable, Equatable, Identifiable {
     }
     func validate() throws {
         try manifest.validate()
-        guard origin.count <= 200, (javascript?.utf8.count ?? 0) + (css?.utf8.count ?? 0) <= 512 * 1024,
-              manifest.target == .css ? javascript == nil : javascript != nil,
-              manifest.stylesheet == nil || css != nil else { throw TanError.invalid("Invalid or oversized Tan content") }
+        guard origin.count <= 200, (javascript?.utf8.count ?? 0) + (css?.utf8.count ?? 0) <= 512 * 1024 else {
+            throw TanError.invalid("Invalid or oversized Tan content")
+        }
+        switch manifest.target {
+        case .css:
+            guard javascript == nil, css != nil else { throw TanError.invalid("Invalid stylesheet Tan content") }
+        case .isolated, .page:
+            guard javascript != nil, manifest.stylesheet == nil || css != nil else { throw TanError.invalid("Invalid script Tan content") }
+        case .native:
+            guard javascript == nil, css == nil, origin == "Noko Original" else { throw TanError.invalid("Invalid native Tan content") }
+        }
+        guard manifest.stylesheet == nil || css != nil else { throw TanError.invalid("Missing Tan stylesheet") }
     }
     static func load(folder: URL) throws -> TanPackage {
         let directory = open(folder.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
@@ -208,13 +231,27 @@ NokoTan.register({
         #else
         let bundle = Bundle.main
         #endif
-        return ["NokoChat", "NokoX", "Morgana"].compactMap { name in
+        let packagedOriginals: [TanPackage] = ["NokoChat", "NokoX", "Morgana"].compactMap { name in
             guard let url = bundle.resourceURL?.appendingPathComponent(name + ".tan.json"),
                   let data = try? Data(contentsOf: url),
                   let package = try? JSONDecoder().decode(TanPackage.self, from: data),
                   (try? package.validate()) != nil else { return nil }
             return package
         }
+        let appleMusic = TanPackage(
+            manifest: TanManifest(
+                id: NokoNativeTanID.appleMusicPresence,
+                name: "Apple Music Presence",
+                version: "1.0.0",
+                description: "Show the song playing in Apple Music as your Discord activity.",
+                authors: ["NokoCord"],
+                target: .native
+            ),
+            javascript: nil,
+            css: nil,
+            origin: "Noko Original"
+        )
+        return packagedOriginals + [appleMusic]
     }()
 }
 

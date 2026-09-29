@@ -5,6 +5,7 @@ import AppKit
 struct TanHubView: View {
     @Environment(TanManager.self) private var tans
     @Environment(ActiveBrowserEngine.self) private var browser
+    @Environment(AppleMusicPresenceService.self) private var appleMusicPresence
     @State private var windowReference = PresentationWindowReference()
     @State private var search = ""
     @State private var hoveredTanID: String?
@@ -98,6 +99,13 @@ struct TanHubView: View {
                                         Text(package.manifest.name).font(.headline)
                                         Text(package.manifest.description).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(2)
                                         Text((tans.enabledIDs.contains(package.id) ? "Enabled" : "Disabled") + " · " + (package.origin == "Noko Original" ? "Noko-Tan" : package.origin)).font(.caption).foregroundStyle(.secondary)
+                                        if package.id == NokoNativeTanID.appleMusicPresence {
+                                            let status = appleMusicStatus
+                                            Label(status.title, systemImage: status.symbol)
+                                                .font(.caption.weight(.medium))
+                                            Text(status.detail).font(.caption).foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                 }.buttonStyle(.plain)
                                 if tans.availableOriginalUpdate(package) != nil {
@@ -131,6 +139,10 @@ struct TanHubView: View {
                                     tanIcon(package)
                                     Text(package.manifest.name).font(.headline)
                                     Text(package.manifest.description).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                                    if package.id == NokoNativeTanID.appleMusicPresence {
+                                        Text("When enabled, NokoCord reads Music through Apple Events. On a song change, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art.")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                     Button("Install", systemImage: "plus") {
                                         do { try tans.install(package) } catch { importError = "This Tan could not be installed." }
                                     }.buttonStyle(.bordered)
@@ -204,7 +216,11 @@ struct TanHubView: View {
             if let package = pendingEnable { Button("Enable Tan") { tans.setEnabled(package.id, true); pendingEnable = nil } }
             Button("Cancel", role: .cancel) { pendingEnable = nil }
         } message: {
-            Text((pendingEnable?.manifest.target == .css ? "This Tan changes the appearance of Discord. Enable only Tans you trust." : "This Tan runs code inside Discord and can interact with content in your session. Enable only code you trust.") + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : ""))
+            if pendingEnable?.id == NokoNativeTanID.appleMusicPresence {
+                Text("While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. When the song changes, NokoCord sends artist, title, and album details to Apple’s iTunes Search service to find cover art.")
+            } else {
+                Text((pendingEnable?.manifest.target == .css ? "This Tan changes the appearance of Discord. Enable only Tans you trust." : "This Tan runs code inside Discord and can interact with content in your session. Enable only code you trust.") + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : ""))
+            }
         }
         .confirmationDialog(importTitle, isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
             if pendingImport != nil { Button(importActionTitle) { confirmImport() } }
@@ -292,8 +308,30 @@ struct TanHubView: View {
         }
     }
 
+    private var appleMusicStatus: (symbol: String, title: String, detail: String) {
+        if tans.safeMode && tans.enabledIDs.contains(NokoNativeTanID.appleMusicPresence) {
+            return ("pause.circle", "Paused by Safe Mode", "Resume Tans to read Music again.")
+        }
+        switch appleMusicPresence.status {
+        case .disabled:
+            return ("power", "Off", "Turn on this Noko-Tan to show your Apple Music song in Discord.")
+        case .waitingForMusic:
+            return ("music.note", "Waiting for Music", "Open Apple Music and play a song.")
+        case .stopped:
+            return ("stop.circle", "Music stopped", "Play a song in Apple Music to show it in Discord.")
+        case .playing:
+            return ("play.circle", "Music playing", "NokoCord is reading the current song for your Discord activity.")
+        case .paused:
+            return ("pause.circle", "Music paused", "NokoCord is reading the paused song and position.")
+        case .permissionDenied:
+            return ("hand.raised", "Music access denied", "In System Settings → Privacy & Security → Automation, allow NokoCord to access Music. Then turn this Noko-Tan off and on.")
+        case .unavailable:
+            return ("exclamationmark.circle", "Music unavailable", "NokoCord can’t read Music right now. Check that Music is available and try again.")
+        }
+    }
+
     private func tanIcon(_ package: TanPackage) -> some View {
-        Image(systemName: package.manifest.target == .css ? "paintbrush.pointed" : "sparkles")
+        Image(systemName: package.id == NokoNativeTanID.appleMusicPresence ? "music.note" : package.manifest.target == .css ? "paintbrush.pointed" : "sparkles")
             .font(.title2).foregroundStyle(.tint).frame(width: 44, height: 44)
             .background(.tint.opacity(0.1), in: .rect(cornerRadius: 12)).accessibilityHidden(true)
     }

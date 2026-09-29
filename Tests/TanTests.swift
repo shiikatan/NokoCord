@@ -68,6 +68,83 @@ final class TanTests: XCTestCase {
         XCTAssertEqual(package.origin, "Local fixture")
     }
 
+    func testNativeTanManifestIsScriptlessAndCannotBeImported() throws {
+        let manifest = TanManifest(schemaVersion: 1,
+                                   id: NokoNativeTanID.appleMusicPresence,
+                                   name: "Fixture Native Tan",
+                                   version: "1.0.0",
+                                   description: "A native fixture.",
+                                   authors: ["fixture-author"],
+                                   target: .native,
+                                   entry: nil,
+                                   stylesheet: nil,
+                                   capabilities: [],
+                                   requiresReload: false,
+                                   source: nil,
+                                   license: nil)
+        let package = TanPackage(manifest: manifest, javascript: nil, css: nil, origin: "Noko Original")
+        XCTAssertNoThrow(try package.validate())
+
+        let withScript = TanPackage(manifest: manifest, javascript: "globalThis.evil = true", css: nil, origin: "Noko Original")
+        assertTanInvalid(try withScript.validate())
+
+        let wrongID = TanManifest(schemaVersion: 1,
+                                  id: "fixture.native-other",
+                                  name: "Fixture Native Tan",
+                                  version: "1.0.0",
+                                  description: "A native fixture.",
+                                  authors: ["fixture-author"],
+                                  target: .native,
+                                  entry: nil,
+                                  stylesheet: nil,
+                                  capabilities: [],
+                                  requiresReload: false,
+                                  source: nil,
+                                  license: nil)
+        assertTanInvalid(try wrongID.validate())
+    }
+
+    func testAppleMusicNativeIdentifierRejectsScriptClaimsAndForgedOriginals() throws {
+        let claimedScriptManifest = TanManifest(
+            id: NokoNativeTanID.appleMusicPresence,
+            name: "Fake Apple Music Presence",
+            version: "1.0.0",
+            description: "A script claiming the reserved native ID.",
+            authors: ["untrusted-author"],
+            target: .isolated,
+            entry: "main.js"
+        )
+        assertTanInvalid(try claimedScriptManifest.validate())
+
+        let claimedScript = TanPackage(
+            manifest: claimedScriptManifest,
+            javascript: "globalThis.claimedNativeID = true;",
+            css: nil,
+            origin: "Local package"
+        )
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root)
+        assertTanInvalid(try manager.importDecision(for: claimedScript))
+        assertTanInvalid(try manager.install(claimedScript))
+
+        let forgedNative = TanPackage(
+            manifest: TanManifest(
+                id: NokoNativeTanID.appleMusicPresence,
+                name: "Forged Apple Music Presence",
+                version: "9.9.9",
+                description: "A forged native-package claim.",
+                authors: ["untrusted-author"],
+                target: .native
+            ),
+            javascript: nil,
+            css: nil,
+            origin: "Noko Original"
+        )
+        XCTAssertNoThrow(try forgedNative.validate(), "The persisted-package authenticity check must reject this hash, not just its manifest shape")
+        assertTanInvalid(try manager.install(forgedNative))
+    }
+
     func testBundledOriginalsPreserveSuppliedAssetsAndMorganaWakePatch() throws {
         let expected: [(String, String, TanTarget, String)] = [
             ("noko.chat", "1.6.5", .isolated, "11b2b65ad10453292c27626e4836ec0240dd098b47b2cb71f604298dcf06b0b8"),
@@ -257,6 +334,24 @@ final class TanTests: XCTestCase {
         XCTAssertTrue(launchSafeMode.installed.isEmpty)
         XCTAssertFalse(launchSafeMode.enabledIDs.contains(package.id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(package.id).tan.json").path))
+    }
+
+    func testTanManagerNotifiesNativeServicesWhenEnablementOrSafeModeChanges() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = TanManager(root: root, launchSafeMode: false)
+        let package = TanPackage(manifest: isolatedManifest(id: "fixture.activity-hook"), javascript: "export default {}", css: nil, origin: "Local fixture")
+        try manager.install(package)
+
+        var notifications = 0
+        let observer = manager.addChangeObserver { notifications += 1 }
+        manager.setEnabled(package.id, true)
+        manager.setSafeMode(true)
+        manager.setEnabled(package.id, false)
+        XCTAssertEqual(notifications, 3)
+        manager.removeChangeObserver(observer)
+        manager.setSafeMode(false)
+        XCTAssertEqual(notifications, 3)
     }
 
     func testLaunchSafeModeDoesNotErasePersistedEnabledSet() throws {

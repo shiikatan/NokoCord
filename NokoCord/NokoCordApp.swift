@@ -12,12 +12,16 @@ struct NokoCordApp: App {
     @NSApplicationDelegateAdaptor(NokoApplicationDelegate.self) private var applicationDelegate
     @State private var browser: ActiveBrowserEngine
     @State private var tans: TanManager
+    @State private var activityRuntime: NokoActivityRuntime
     @State private var handledStartup = false
 
     init() {
         let manager = TanManager()
+        let runtime = NokoActivityRuntime()
         _tans = State(initialValue: manager)
         _browser = State(initialValue: ActiveBrowserEngine(tans: manager))
+        _activityRuntime = State(initialValue: runtime)
+        NokoApplicationDelegate.configure(runtime: runtime, tanManager: manager)
     }
 
     @AppStorage("showMenuBar") private var showMenuBar = false
@@ -27,6 +31,7 @@ struct NokoCordApp: App {
             NokoRootView()
                 .environment(browser)
                 .environment(tans)
+                .environment(activityRuntime.appleMusicPresence)
                 .frame(minWidth: 960, minHeight: 600)
                 .task {
                     guard !handledStartup else { return }
@@ -47,6 +52,7 @@ struct NokoCordApp: App {
             SettingsView()
                 .environment(browser)
                 .environment(tans)
+                .environment(activityRuntime.appleMusicPresence)
         }
     }
 }
@@ -133,12 +139,20 @@ private struct NokoCordCommands: Commands {
 @MainActor
 private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
     private var activityRuntime: NokoActivityRuntime?
+    private static var configuredRuntime: NokoActivityRuntime?
+    private static var configuredTanManager: TanManager?
+
+    static func configure(runtime: NokoActivityRuntime, tanManager: TanManager) {
+        configuredRuntime = runtime
+        configuredTanManager = tanManager
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        activityRuntime = Self.configuredRuntime
         if ProcessInfo.processInfo.arguments.contains("--nokocord-activity-smoke") {
-            let runtime = NokoActivityRuntime()
-            activityRuntime = runtime
-            runtime.startSmokeTest()
+            activityRuntime?.startSmokeTest()
+        } else if let activityRuntime, let tans = Self.configuredTanManager {
+            activityRuntime.start(tanManager: tans)
         }
         // On a fresh install SwiftUI can create the single Window scene without
         // ordering it on screen. Present that existing window once at launch.

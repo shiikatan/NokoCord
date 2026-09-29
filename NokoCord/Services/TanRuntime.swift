@@ -52,7 +52,7 @@ final class TanRuntime {
             view?.reload()
             return
         }
-        applyLive(stopping: old, starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
+        applyLive(stopping: old, starting: manager.scriptActive.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
     }
     func documentNavigationStarted() {
         // WebKit captures these scripts for the new document. A later Tan change
@@ -69,14 +69,14 @@ final class TanRuntime {
         updateReloadRequirement()
         // DOM Tans also work when Discord moves from /app to /channels during
         // startup. Registration replaces its own prior instance, never a view.
-        applyLive(stopping: [], starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
+        applyLive(stopping: [], starting: manager.scriptActive.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
     }
     func locationChanged() {
         guard let url = view?.url else { return }
         if !Self.accepts(url, origin: allowedOrigin) {
             applyLive(stopping: configured + Array(livePackages.values), starting: [])
         } else {
-            applyLive(stopping: [], starting: manager.active.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
+            applyLive(stopping: [], starting: manager.scriptActive.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
         }
         updateReloadRequirement()
     }
@@ -84,7 +84,7 @@ final class TanRuntime {
         guard let view, let url = view.url, Self.accepts(url, origin: allowedOrigin), !manager.safeMode else { return }
         resumeTask?.cancel()
         let current = generation
-        let packages = manager.active
+        let packages = manager.scriptActive
         resumeTask = Task { @MainActor [weak self, weak view] in
             guard let self, let view else { return }
             defer { if self.generation == current { self.resumeTask = nil } }
@@ -110,7 +110,7 @@ final class TanRuntime {
     private func configureScripts() {
         guard let controller else { return }
         clearHandlers(); controller.removeAllUserScripts()
-        configured = manager.active
+        configured = manager.scriptActive
         activeHashes = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0.contentHash) })
         for package in configured {
             let world = world(package)
@@ -198,6 +198,7 @@ final class TanRuntime {
     static func key(_ package: TanPackage) -> String { "__nokoTan_" + package.id }
     static func quote(_ string: String) -> String { String(data: try! JSONEncoder().encode(string), encoding: .utf8)! }
     static func source(_ package: TanPackage, allowedOrigin: String) -> String {
+        precondition(package.manifest.target != .native, "Native Tans cannot be injected into WebKit")
         let nativeAllowed = package.manifest.target == .isolated && package.manifest.capabilities.contains(.appearanceRead)
         return #"""
         (() => {

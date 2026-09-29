@@ -47,8 +47,14 @@ struct TanDetailsView: View {
                         confirmingUpdate = true
                     }
                 }
-                LabeledContent("Runtime", value: package.manifest.target.rawValue)
-                LabeledContent("Capabilities", value: package.manifest.capabilities.isEmpty ? "None" : package.manifest.capabilities.map(\.rawValue).joined(separator: ", "))
+                LabeledContent("Runtime", value: package.manifest.target == .native ? "NokoCord native" : package.manifest.target.rawValue)
+                if package.id == NokoNativeTanID.appleMusicPresence {
+                    LabeledContent("Music access", value: "Current song and playback state while enabled")
+                    Text("NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    LabeledContent("Capabilities", value: package.manifest.capabilities.isEmpty ? "None" : package.manifest.capabilities.map(\.rawValue).joined(separator: ", "))
+                }
                 HStack {
                     Button("Uninstall…", role: .destructive) { guard !confirming else { return }; error = nil; confirming = true }
                     Spacer()

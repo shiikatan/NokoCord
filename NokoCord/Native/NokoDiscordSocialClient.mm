@@ -138,10 +138,15 @@ void CompleteOnMainQueue(const std::shared_ptr<CallbackGate> &gate,
     return self;
 }
 
-- (void)updateRichPresenceWithDetails:(NSString *)details
+- (void)updateRichPresenceWithType:(NSString *)activityType
+                              name:(NSString *)activityName
+                           details:(NSString *)details
                                 state:(NSString *)state
                             startedAt:(NSDate *)startedAt
                               endsAt:(NSDate *)endsAt
+                 statusDisplayField:(NSString *)statusDisplayField
+                         largeImage:(NSString *)largeImage
+                    largeImageText:(NSString *)largeImageText
                            completion:(NokoDiscordOperationCompletion)completion
 {
     NativeImplementation *implementation = static_cast<NativeImplementation *>(_implementation);
@@ -157,8 +162,30 @@ void CompleteOnMainQueue(const std::shared_ptr<CallbackGate> &gate,
         }
 
         discordpp::Activity activity;
+        activity.SetType([activityType isEqualToString:@"listening"]
+                             ? discordpp::ActivityTypes::Listening
+                             : discordpp::ActivityTypes::Playing);
+        if (activityName != nil) {
+            const char *nameUTF8 = activityName.UTF8String;
+            activity.SetName(nameUTF8 == nullptr ? std::string() : std::string(nameUTF8));
+        }
         activity.SetDetails(OptionalUTF8(details));
         activity.SetState(OptionalUTF8(state));
+
+        if ([statusDisplayField isEqualToString:@"state"]) {
+            activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::State);
+        } else if ([statusDisplayField isEqualToString:@"details"]) {
+            activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Details);
+        } else if ([statusDisplayField isEqualToString:@"name"]) {
+            activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Name);
+        }
+
+        if (const auto imageValue = OptionalUTF8(largeImage); imageValue.has_value()) {
+            discordpp::ActivityAssets assets;
+            assets.SetLargeImage(imageValue);
+            assets.SetLargeText(OptionalUTF8(largeImageText));
+            activity.SetAssets(std::move(assets));
+        }
 
         const std::optional<uint64_t> start = UnixMilliseconds(startedAt);
         const std::optional<uint64_t> end = UnixMilliseconds(endsAt);

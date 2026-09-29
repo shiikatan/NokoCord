@@ -34,10 +34,15 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
         try await withCheckedThrowingContinuation { continuation in
             let gate = DiscordCompletionGate(continuation)
             client.updateRichPresence(
+                type: activity.type.rawValue,
+                name: activity.name,
                 details: activity.details ?? activity.title,
                 state: activity.state,
                 startedAt: activity.startedAt,
-                endsAt: activity.endsAt
+                endsAt: activity.endsAt,
+                statusDisplayField: activity.statusDisplayField?.rawValue,
+                largeImage: activity.largeImageURL ?? activity.largeImageAssetKey,
+                largeImageText: activity.largeImageText
             ) { result in
                 if result.isSuccessful {
                     gate.complete(.success(()))
@@ -73,6 +78,7 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
 final class NokoActivityRuntime {
     private let client = NokoDiscordSocialClient(applicationID: 0)
     private lazy var bridge = NokoActivityBridge(transport: DiscordSocialActivityTransport(client: client))
+    lazy var appleMusicPresence = AppleMusicPresenceService(bridge: bridge)
     private let smokeOwner = NokoActivityOwner("nokocord.smoke")
     private let smokeActivity = NokoActivity(
         title: "NokoCord",
@@ -83,15 +89,45 @@ final class NokoActivityRuntime {
     private var retryTimer: Timer?
     private var discordLaunchObserver: NSObjectProtocol?
     private var stopping = false
+    private var appleMusicCallbackDemand = false
+    private var smokeTestActive = false
+    private var shutdownClearActive = false
 
     func startSmokeTest() {
         stopping = false
-        callbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.client.runCallbacks() }
-        }
+        smokeTestActive = true
+        updateCallbackPump()
         retryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.publishSmoke() }
         }
+        observeDiscordLaunches()
+        publishSmoke()
+    }
+
+    func start(tanManager: TanManager) {
+        stopping = false
+        appleMusicPresence.onCallbackPumpDemandChanged = { [weak self] demanded in
+            self?.appleMusicCallbackDemand = demanded
+            self?.updateCallbackPump()
+        }
+        observeDiscordLaunches()
+        appleMusicPresence.start(tanManager: tanManager)
+    }
+
+    private func updateCallbackPump() {
+        if smokeTestActive || appleMusicCallbackDemand || shutdownClearActive {
+            guard callbackTimer == nil else { return }
+            callbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.client.runCallbacks() }
+            }
+        } else {
+            callbackTimer?.invalidate()
+            callbackTimer = nil
+        }
+    }
+
+    private func observeDiscordLaunches() {
+        guard discordLaunchObserver == nil else { return }
         discordLaunchObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
             object: nil,
@@ -101,7 +137,6 @@ final class NokoActivityRuntime {
                   app.bundleIdentifier?.localizedCaseInsensitiveContains("discord") == true else { return }
             Task { @MainActor in await self?.reassert() }
         }
-        publishSmoke()
     }
 
     private func publishSmoke() {
@@ -128,15 +163,19 @@ final class NokoActivityRuntime {
 
     func stop() async {
         stopping = true
+        shutdownClearActive = true
+        updateCallbackPump()
         retryTimer?.invalidate()
+        retryTimer = nil
         if let discordLaunchObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(discordLaunchObserver)
         }
-        do {
-            _ = try await bridge.stop(ownedBy: smokeOwner)
-        } catch {
-            NSLog("NokoCord Social SDK clear failed: %@", error.localizedDescription)
-        }
-        callbackTimer?.invalidate()
+        discordLaunchObserver = nil
+        await appleMusicPresence.stop()
+        _ = try? await bridge.stop()
+        smokeTestActive = false
+        appleMusicCallbackDemand = false
+        shutdownClearActive = false
+        updateCallbackPump()
     }
 }

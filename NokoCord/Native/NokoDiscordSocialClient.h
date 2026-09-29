@@ -24,12 +24,17 @@ typedef void (^NokoDiscordOperationCompletion)(NokoDiscordOperationResult *resul
 - (instancetype)init NS_UNAVAILABLE;
 
 /// `successful` comes from the SDK's UpdateRichPresence callback.
-- (void)updateRichPresenceWithDetails:(nullable NSString *)details
+- (void)updateRichPresenceWithType:(NSString *)activityType
+                              name:(nullable NSString *)activityName
+                           details:(nullable NSString *)details
                                 state:(nullable NSString *)state
                             startedAt:(nullable NSDate *)startedAt
                               endsAt:(nullable NSDate *)endsAt
+                 statusDisplayField:(nullable NSString *)statusDisplayField
+                         largeImage:(nullable NSString *)largeImage
+                    largeImageText:(nullable NSString *)largeImageText
                            completion:(NokoDiscordOperationCompletion)completion
-    NS_SWIFT_NAME(updateRichPresence(details:state:startedAt:endsAt:completion:));
+    NS_SWIFT_NAME(updateRichPresence(type:name:details:state:startedAt:endsAt:statusDisplayField:largeImage:largeImageText:completion:));
 
 /// The SDK's clear call has no result callback. Completion reports that the
 /// request was issued on the serialized SDK queue, not a Discord acknowledgement.

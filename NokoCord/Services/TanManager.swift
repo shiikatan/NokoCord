@@ -18,6 +18,7 @@ final class TanManager {
     var reloadRequired = false
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let root: URL
+    @ObservationIgnored private var changeObservers: [UUID: () -> Void] = [:]
     @ObservationIgnored private var enableLog: [String] = []
     @ObservationIgnored private var failures: [String: Int] = [:]
     private struct State: Codable {
@@ -59,9 +60,22 @@ final class TanManager {
         installed.sort { $0.manifest.name.localizedStandardCompare($1.manifest.name) == .orderedAscending }
     }
     var active: [TanPackage] { safeMode ? [] : installed.filter { enabledIDs.contains($0.id) } }
+    var scriptActive: [TanPackage] { active.filter { $0.manifest.target != .native } }
     var availableOriginals: [TanPackage] { TanPackage.originals.filter { original in !installed.contains { $0.id == original.id } } }
+    @discardableResult
+    func addChangeObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        changeObservers[id] = observer
+        return id
+    }
+    func removeChangeObserver(_ id: UUID) { changeObservers.removeValue(forKey: id) }
+    private func notifyChanged() {
+        onChange?()
+        for observer in Array(changeObservers.values) { observer() }
+    }
     func importDecision(for package: TanPackage) throws -> TanImportDecision {
         try package.validate()
+        guard package.manifest.target != .native else { throw TanError.invalid("Native Tans cannot be imported") }
         if let existing = installed.first(where: { $0.id == package.id }) {
             switch package.manifest.version.compare(existing.manifest.version, options: .numeric) {
             case .orderedDescending: return .update(existing)
@@ -81,6 +95,11 @@ final class TanManager {
     }
     func install(_ package: TanPackage) throws {
         try package.validate()
+        if package.manifest.target == .native {
+            guard TanPackage.originals.contains(where: {
+                $0.id == package.id && $0.origin == "Noko Original" && $0.contentHash == package.contentHash
+            }) else { throw TanError.invalid("Only bundled native Tans can be installed") }
+        }
         guard installed.count < 64 || installed.contains(where: { $0.id == package.id }) else { throw TanError.invalid("The Tan limit is 64 packages") }
         // An import never silently replaces installed code or inherits its grants.
         guard !installed.contains(where: { $0.id == package.id }) else { throw TanError.invalid("This Tan is already installed") }
@@ -108,11 +127,16 @@ final class TanManager {
     }
     func updateOriginal(_ id: String) throws {
         guard let package = installed.first(where: { $0.id == id }), let update = availableOriginalUpdate(package) else { return }
-        try replace(update)
+        try replace(update, allowBundledNative: true)
     }
-    func replaceInstalled(_ package: TanPackage) throws { try replace(package) }
-    private func replace(_ package: TanPackage) throws {
+    func replaceInstalled(_ package: TanPackage) throws { try replace(package, allowBundledNative: false) }
+    private func replace(_ package: TanPackage, allowBundledNative: Bool) throws {
         try package.validate()
+        if package.manifest.target == .native {
+            guard allowBundledNative, TanPackage.originals.contains(where: {
+                $0.id == package.id && $0.origin == "Noko Original" && $0.contentHash == package.contentHash
+            }) else { throw TanError.invalid("Native Tans cannot be replaced from an import") }
+        }
         guard let index = installed.firstIndex(where: { $0.id == package.id }) else {
             throw TanError.invalid("This Tan is not installed")
         }
@@ -155,7 +179,7 @@ final class TanManager {
             let staleArchive = root.appendingPathComponent(package.id + ".source.json")
             if fileManager.fileExists(atPath: staleArchive.path) { try? fileManager.removeItem(at: staleArchive) }
         }
-        if wasEnabled { onChange?() }
+        if wasEnabled { notifyChanged() }
     }
     func installTranslation(_ result: TanTranslationResult, source: [String: String]) throws {
         let package = try result.package()
@@ -186,12 +210,12 @@ final class TanManager {
         let previous = enabledIDs
         if enabled { enabledIDs.insert(id); enableLog.append(id); enableLog = Array(enableLog.suffix(64)); failures[id] = 0 }
         else { enabledIDs.remove(id) }
-        do { try saveState(); onChange?() }
+        do { try saveState(); notifyChanged() }
         catch { enabledIDs = previous; self.error = "The Tan selection could not be saved." }
     }
     func setSafeMode(_ enabled: Bool) {
         let previous = safeMode; safeMode = enabled
-        do { try saveState(); onChange?() }
+        do { try saveState(); notifyChanged() }
         catch { safeMode = previous; self.error = "Safe Mode could not be saved." }
     }
     func uninstall(_ id: String) throws {
@@ -199,14 +223,14 @@ final class TanManager {
         let previous = enabledIDs
         enabledIDs.remove(id)
         do { try saveState() } catch { enabledIDs = previous; throw error }
-        onChange?() // Stop the disabled package even if removing its file fails.
+        notifyChanged() // Stop the disabled package even if removing its file fails.
         // Keep the package visible and retryable if archive removal fails.
         let archive = root.appendingPathComponent(id + ".source.json")
         if FileManager.default.fileExists(atPath: archive.path) { try FileManager.default.removeItem(at: archive) }
         try FileManager.default.removeItem(at: root.appendingPathComponent(id + ".tan.json"))
         installed.removeAll { $0.id == id }
         failures.removeValue(forKey: id)
-        onChange?()
+        notifyChanged()
     }
     func record(_ id: String, event: TanLifecycleEvent) {
         guard installed.contains(where: { $0.id == id }) else { return }
