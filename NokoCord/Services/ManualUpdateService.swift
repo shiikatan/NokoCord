@@ -64,6 +64,56 @@ actor ManualUpdateService {
         }
     }
 
+    func pendingHelperFailure() throws -> ManualUpdateHelperFailureResult? {
+        let url = paths.helperFailureResult
+        try MaomaoDataPaths.validateNoSymlinkComponents(at: url)
+        var pathInfo = stat()
+        if lstat(url.path, &pathInfo) != 0 {
+            guard errno == ENOENT else { throw ManualUpdateError.unsafePath("could not inspect the saved updater result") }
+            return nil
+        }
+        guard (pathInfo.st_mode & S_IFMT) == S_IFREG else {
+            throw ManualUpdateError.unsafePath("the saved updater result is not a bounded regular file")
+        }
+        let descriptor = try ManualUpdateTransactionFiles.openRegularFileNoFollow(url.path)
+        defer { close(descriptor) }
+        var openedInfo = stat()
+        guard fstat(descriptor, &openedInfo) == 0,
+              openedInfo.st_size > 0, openedInfo.st_size <= 8 * 1024 else {
+            throw ManualUpdateError.unsafePath("the saved updater result is not a bounded regular file")
+        }
+        var data = Data(count: Int(openedInfo.st_size))
+        var offset = 0
+        while offset < data.count {
+            let amount = data.withUnsafeMutableBytes { raw in
+                read(descriptor, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+            }
+            if amount < 0 {
+                if errno == EINTR { continue }
+                throw ManualUpdateError.unsafePath("could not read the saved updater result")
+            }
+            guard amount > 0 else { throw ManualUpdateError.unsafePath("the saved updater result changed while being read") }
+            offset += amount
+        }
+        let result = try JSONDecoder().decode(ManualUpdateHelperFailureResult.self, from: data)
+        guard UUID(uuidString: result.nonce) != nil,
+              (try? ManualUpdateVersion(result.installedVersion)) != nil,
+              (try? ManualUpdateBuild(result.installedBuild)) != nil,
+              (try? ManualUpdateVersion(result.candidateVersion)) != nil,
+              (try? ManualUpdateBuild(result.candidateBuild)) != nil,
+              result.message.count <= 1_000, result.recovery.count <= 300 else {
+            throw ManualUpdateError.unsafePath("the saved updater result contains invalid fields")
+        }
+        return result
+    }
+
+    func dismissHelperFailure(nonce: String) throws {
+        guard let result = try pendingHelperFailure(), result.nonce == nonce else {
+            throw ManualUpdateError.staleCandidate
+        }
+        try ManualUpdateTransactionFiles.removeOwnedPath(paths.helperFailureResult)
+    }
+
     /// Read-only preview used by the Updates screen. This is separate from ZIP
     /// candidate inspection and is available after M1.3.0 whenever no scoped
     /// Tan storage or prior-import marker exists.
@@ -181,6 +231,11 @@ actor ManualUpdateService {
             }
             guard stagedValidation.architectures.contains(currentArchitecture) else {
                 throw ManualUpdateError.invalidApplication("the executable does not include this Mac's running architecture")
+            }
+            guard installedValidation.architectures.isSubset(of: ManualUpdateArchitecture.supported),
+                  stagedValidation.architectures.isSubset(of: ManualUpdateArchitecture.supported),
+                  candidateHelper.validation.architectures.isSubset(of: ManualUpdateArchitecture.supported) else {
+                throw ManualUpdateError.invalidApplication("the app or updater helper includes an unsupported architecture")
             }
 
             let classification = classify(installed: installed, candidate: staged)

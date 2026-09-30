@@ -129,6 +129,28 @@ struct ManualUpdatePendingTransaction: Codable, Equatable, Sendable {
     let journalPath: String
 }
 
+enum ManualUpdateHelperFailureStatus: String, Codable, Sendable {
+    case recoveryPending
+    case previousAppRestored
+    case previousAppStillInstalled
+    case replacementReadyCleanupIncomplete
+}
+
+struct ManualUpdateHelperFailureResult: Codable, Equatable, Identifiable, Sendable {
+    let nonce: String
+    let operation: ManualUpdateOperation
+    let status: ManualUpdateHelperFailureStatus
+    let installedVersion: String
+    let installedBuild: String
+    let candidateVersion: String
+    let candidateBuild: String
+    let message: String
+    let recovery: String
+    let occurredAt: Date
+
+    var id: String { nonce }
+}
+
 struct ManualUpdateStartupReceipt: Equatable, Sendable {
     let manifest: ManualUpdateTransactionManifest
     let manifestURL: URL

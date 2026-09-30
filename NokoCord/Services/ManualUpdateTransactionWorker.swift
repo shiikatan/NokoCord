@@ -19,11 +19,11 @@ enum ManualUpdateTransactionWorker {
         let journalURL = URL(fileURLWithPath: manifest.journalPath)
         try writeJournal(manifest, .helperReady)
         emitReady(manifest.nonce)
-        try writeJournal(manifest, .waitingForOldProcess)
-        try waitForOriginalProcess(manifest)
-        try writeJournal(manifest, .oldProcessExited)
 
         do {
+            try writeJournal(manifest, .waitingForOldProcess)
+            try waitForOriginalProcess(manifest)
+            try writeJournal(manifest, .oldProcessExited)
             try validateInstalledBaseline(manifest)
             try validateStagedCandidate(manifest)
             try writePendingTransaction(manifest)
@@ -45,9 +45,7 @@ enum ManualUpdateTransactionWorker {
             )
             try writeJournal(manifest, .replacementInstalled)
 
-            if manifest.operation == .cleanReinstall {
-                try resumeCleanResetFiles(manifest)
-            }
+            _ = try applyCleanResetIfNeeded(manifest)
 
             try writeJournal(manifest, .launchRequested)
             try launchReplacement(manifest)
@@ -61,10 +59,12 @@ enum ManualUpdateTransactionWorker {
                 transactionLockReleased = true
                 return
             }
+            try? persistFailureResult(manifest, error: error, status: .recoveryPending, recovery: "The updater failed; recovery is being checked.")
             let resetBoundaryCrossed = manifest.operation == .cleanReinstall
                 && (journal?.state == .resetIncomplete || journal?.state == .cleanFilesCleared || journal?.state == .launchRequested || journal?.state == .webKitResetComplete)
             if resetBoundaryCrossed {
                 try? writeJournal(manifest, .resetIncomplete, message: error.localizedDescription)
+                try? persistFailureResult(manifest, error: error, status: .recoveryPending, recovery: "Clean Reinstall reached its reset boundary; recovery data was retained.")
                 // Clean data crossed its durable point of no return. Keep the
                 // new app and backup for retry; never restore build 3.
                 throw error
@@ -88,6 +88,7 @@ enum ManualUpdateTransactionWorker {
                         transactionLockReleased = true
                         return
                     }
+                    try? persistFailureResult(manifest, error: error, status: .recoveryPending, recovery: "Another NokoCord launch is completing recovery; transaction files were retained.")
                     throw ManualUpdateError.unavailable("NokoCord is still starting the replacement. The candidate and recovery files were retained; reopen NokoCord after startup finishes.")
                 }
                 startupLockDescriptor = lock
@@ -110,13 +111,16 @@ enum ManualUpdateTransactionWorker {
                     close(lock)
                     startupLockReleased = true
                     try? writeJournal(manifest, .resetIncomplete, message: error.localizedDescription)
+                    try? persistFailureResult(manifest, error: error, status: .recoveryPending, recovery: "Clean Reinstall reached its reset boundary; recovery data was retained.")
                     throw error
                 }
                 try terminateCandidateProcesses(manifest)
                 try rollback(manifest, reason: error.localizedDescription)
+                try? persistFailureResult(manifest, error: error, status: .previousAppRestored, recovery: "The previous app was restored.")
             } else {
                 try validateInstalled(at: URL(fileURLWithPath: manifest.applicationPath), manifest: manifest)
                 try? writeJournal(manifest, .failed, message: error.localizedDescription)
+                try? persistFailureResult(manifest, error: error, status: .previousAppStillInstalled, recovery: "The previous app remains installed.")
             }
             let markersRemoved: Bool
             do {
@@ -148,19 +152,111 @@ enum ManualUpdateTransactionWorker {
     }
 
     private static func finalizeCommittedTransaction(_ manifest: ManualUpdateTransactionManifest) throws {
-        for url in [URL(fileURLWithPath: manifest.backupApplicationPath), URL(fileURLWithPath: manifest.stagedApplicationPath)] {
-            var info = stat()
-            if lstat(url.path, &info) == 0 {
-                try validateInstalled(at: url, manifest: manifest)
-                try ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(url)
-            } else if errno != ENOENT {
-                throw ManualUpdateError.unsafePath("could not inspect an original app backup after readiness")
+        do {
+            for url in [URL(fileURLWithPath: manifest.backupApplicationPath), URL(fileURLWithPath: manifest.stagedApplicationPath)] {
+                var info = stat()
+                if lstat(url.path, &info) == 0 {
+                    try validateInstalled(at: url, manifest: manifest)
+                    try ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(url)
+                } else if errno != ENOENT {
+                    throw ManualUpdateError.unsafePath("could not inspect an original app backup after readiness")
+                }
             }
+            try removePendingMarkers(manifest)
+            try ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(
+                URL(fileURLWithPath: manifest.transactionDirectoryPath, isDirectory: true)
+            )
+        } catch {
+            try? persistFailureResult(
+                manifest,
+                error: error,
+                status: .replacementReadyCleanupIncomplete,
+                recovery: "The replacement app is ready, but updater cleanup failed; recovery files were retained."
+            )
+            throw error
         }
-        try removePendingMarkers(manifest)
-        try ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(
-            URL(fileURLWithPath: manifest.transactionDirectoryPath, isDirectory: true)
+        try? clearFailureResult(for: manifest)
+    }
+
+    static func persistFailureResult(
+        _ manifest: ManualUpdateTransactionManifest,
+        error: Error,
+        status: ManualUpdateHelperFailureStatus,
+        recovery: String,
+        pathsOverride: MaomaoDataPaths? = nil
+    ) throws {
+        let paths = try pathsOverride ?? dataPathsForCurrentUser()
+        let resultURL = paths.helperFailureResult
+        try MaomaoDataPaths.createPrivateDirectory(paths.updateRoot)
+        let message = ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            .replacingOccurrences(of: manifest.transactionDirectoryPath, with: "the updater recovery folder")
+            .replacingOccurrences(of: manifest.applicationPath, with: "the Maomao app folder")
+        let result = ManualUpdateHelperFailureResult(
+            nonce: manifest.nonce,
+            operation: manifest.operation,
+            status: status,
+            installedVersion: manifest.installedMarketingVersion,
+            installedBuild: manifest.installedBuild,
+            candidateVersion: manifest.candidateMarketingVersion,
+            candidateBuild: manifest.candidateBuild,
+            message: String(message.prefix(1_000)),
+            recovery: String(recovery.prefix(300)),
+            occurredAt: Date()
         )
+        try ManualUpdateTransactionFiles.writeDurably(result, to: resultURL, replace: true)
+    }
+
+    static func clearFailureResult(
+        for manifest: ManualUpdateTransactionManifest,
+        pathsOverride: MaomaoDataPaths? = nil
+    ) throws {
+        let paths = try pathsOverride ?? dataPathsForCurrentUser()
+        guard let result = try readFailureResult(at: paths.helperFailureResult), result.nonce == manifest.nonce else { return }
+        try ManualUpdateTransactionFiles.removeOwnedPath(paths.helperFailureResult)
+    }
+
+    static func clearPreviousFailureResult(
+        for manifest: ManualUpdateTransactionManifest,
+        pathsOverride: MaomaoDataPaths? = nil
+    ) throws {
+        let paths = try pathsOverride ?? dataPathsForCurrentUser()
+        guard let result = try readFailureResult(at: paths.helperFailureResult), result.nonce != manifest.nonce else { return }
+        try ManualUpdateTransactionFiles.removeOwnedPath(paths.helperFailureResult)
+    }
+
+    private static func readFailureResult(at url: URL) throws -> ManualUpdateHelperFailureResult? {
+        try MaomaoDataPaths.validateNoSymlinkComponents(at: url)
+        var pathInfo = stat()
+        if lstat(url.path, &pathInfo) != 0 {
+            guard errno == ENOENT else { throw ManualUpdateError.unsafePath("could not inspect the saved updater result") }
+            return nil
+        }
+        guard (pathInfo.st_mode & S_IFMT) == S_IFREG else {
+            throw ManualUpdateError.unsafePath("the saved updater result is not a regular file")
+        }
+        let descriptor = try ManualUpdateTransactionFiles.openRegularFileNoFollow(url.path)
+        defer { close(descriptor) }
+        var openedInfo = stat()
+        guard fstat(descriptor, &openedInfo) == 0,
+              openedInfo.st_size > 0, openedInfo.st_size <= 8 * 1024 else {
+            throw ManualUpdateError.unsafePath("the saved updater result is not a bounded regular file")
+        }
+        var data = Data(count: Int(openedInfo.st_size))
+        var offset = 0
+        while offset < data.count {
+            let amount = data.withUnsafeMutableBytes { raw in
+                read(descriptor, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+            }
+            if amount < 0 {
+                if errno == EINTR { continue }
+                throw ManualUpdateError.unsafePath("could not read the saved updater result")
+            }
+            guard amount > 0 else { throw ManualUpdateError.unsafePath("the saved updater result changed while being read") }
+            offset += amount
+        }
+        let result = try JSONDecoder().decode(ManualUpdateHelperFailureResult.self, from: data)
+        guard UUID(uuidString: result.nonce) != nil else { throw ManualUpdateError.unsafePath("the saved updater result has an invalid transaction identifier") }
+        return result
     }
 
     static func manifestURLFromArguments(_ arguments: [String]) throws -> URL {
@@ -302,11 +398,12 @@ enum ManualUpdateTransactionWorker {
         throw ManualUpdateError.unsafePath("could not acquire updater lock")
     }
 
-    static func finishStartupRecoveryIfHelperIsGone(_ manifest: ManualUpdateTransactionManifest) throws {
-        guard let lock = try acquireStartupRecoveryLock(manifest) else { return }
+    @discardableResult
+    static func finishStartupRecoveryIfHelperIsGone(_ manifest: ManualUpdateTransactionManifest) throws -> Bool {
+        guard let lock = try acquireStartupRecoveryLock(manifest) else { return false }
         defer { _ = flock(lock, LOCK_UN); close(lock) }
         let journal = try readJournal(URL(fileURLWithPath: manifest.journalPath))
-        guard journal.nonce == manifest.nonce, journal.state == .appReady else { return }
+        guard journal.nonce == manifest.nonce, journal.state == .appReady else { return false }
         let backup = URL(fileURLWithPath: manifest.backupApplicationPath)
         var backupInfo = stat()
         if lstat(backup.path, &backupInfo) == 0 {
@@ -325,6 +422,7 @@ enum ManualUpdateTransactionWorker {
         }
         try removePendingMarkers(manifest)
         try ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(URL(fileURLWithPath: manifest.transactionDirectoryPath))
+        return true
     }
 
     private static func writePendingTransaction(_ manifest: ManualUpdateTransactionManifest) throws {
@@ -524,6 +622,16 @@ enum ManualUpdateTransactionWorker {
         #endif
     }
 
+    @discardableResult
+    static func applyCleanResetIfNeeded(
+        _ manifest: ManualUpdateTransactionManifest,
+        pathsOverride: MaomaoDataPaths? = nil
+    ) throws -> Bool {
+        guard manifest.operation == .cleanReinstall else { return false }
+        try resumeCleanResetFiles(manifest, pathsOverride: pathsOverride)
+        return true
+    }
+
     static func resumeCleanResetFiles(_ manifest: ManualUpdateTransactionManifest, pathsOverride: MaomaoDataPaths? = nil) throws {
         let pendingURL = URL(fileURLWithPath: manifest.pendingCleanResetPath)
         let journalURL = URL(fileURLWithPath: manifest.journalPath)
@@ -538,6 +646,7 @@ enum ManualUpdateTransactionWorker {
             throw ManualUpdateError.unsafePath("clean-reset paths do not match Maomao's current data boundary")
         }
         try MaomaoDataPaths.createPrivateDirectory(paths.updateRoot)
+        try clearPreviousFailureResult(for: manifest, pathsOverride: paths)
         let pending = ManualUpdatePendingReset(nonce: manifest.nonce, manifestPath: URL(fileURLWithPath: manifest.transactionDirectoryPath).appendingPathComponent("transaction.json").path, journalPath: manifest.journalPath)
         // This durable marker is the point of no return. Any failure after it
         // leaves the new app in place and resumes clean startup before runtime.
@@ -757,10 +866,9 @@ enum ManualUpdateTransactionWorker {
     }
 
     private static func validArchitectureList(_ architectures: [String]) -> Bool {
-        let allowed: Set<String> = ["arm64", "x86_64"]
         return !architectures.isEmpty
             && Set(architectures).count == architectures.count
-            && Set(architectures).isSubset(of: allowed)
+            && Set(architectures).isSubset(of: ManualUpdateArchitecture.supported)
     }
 
     private static func validateSameSignature(installed: String, candidate: String) throws {

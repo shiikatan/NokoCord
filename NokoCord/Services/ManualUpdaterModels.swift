@@ -44,6 +44,7 @@ struct MaomaoDataPaths: Equatable, Sendable {
     var tanStorage: URL { editionRoot.appendingPathComponent("Tans", isDirectory: true) }
     var updateRoot: URL { editionRoot.appendingPathComponent("Updater", isDirectory: true) }
     var candidateRoot: URL { updateRoot.appendingPathComponent("Candidates", isDirectory: true) }
+    var helperFailureResult: URL { updateRoot.appendingPathComponent("last-helper-failure.json") }
     var noLegacyTanImportMarker: URL { updateRoot.appendingPathComponent("no-legacy-tan-import") }
     var pendingUpdateTransaction: URL { updateRoot.appendingPathComponent("pending-update-transaction.json") }
     var pendingCleanReset: URL { updateRoot.appendingPathComponent("pending-clean-reset.json") }
@@ -195,6 +196,10 @@ enum ManualUpdateOperation: String, Codable, Sendable {
 enum ManualUpdateSignature: Equatable, Sendable {
     case developerTeam(String)
     case adHoc
+}
+
+enum ManualUpdateArchitecture {
+    static let supported: Set<String> = ["arm64", "x86_64"]
 }
 
 struct ManualUpdateCandidate: Equatable, Identifiable, Sendable {

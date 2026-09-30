@@ -75,6 +75,32 @@ final class ManualUpdaterTests: XCTestCase {
         XCTAssertTrue(ManualUpdateStartupPolicy.needsExclusiveRecoveryLock(state: .cleanFilesCleared))
     }
 
+    @MainActor
+    func testStartupPreparationRunsBeforeRuntimeConstructionAndCompletion() async throws {
+        let paths = MaomaoDataPaths(home: testRoot.appendingPathComponent("startup-order-home", isDirectory: true))
+        let (manifest, manifestURL) = try makeTransactionManifest(paths: paths, operation: .cleanReinstall)
+        let receipt = ManualUpdateStartupReceipt(
+            manifest: manifest, manifestURL: manifestURL, cleanResetCompleted: true,
+            recoveryLockDescriptor: nil, startupLockDescriptor: nil
+        )
+        var events: [String] = []
+
+        let runtime = try await ManualUpdateStartupRecovery.createRuntimeAfterPreparation(
+            prepare: {
+                events.append("clean-reset-replay")
+                return receipt
+            },
+            createRuntime: {
+                events.append("construct-Tan-WebKit-Activity-runtime")
+                return "ready"
+            },
+            complete: { _ in events.append("commit-update-readiness") }
+        )
+
+        XCTAssertEqual(runtime, "ready")
+        XCTAssertEqual(events, ["clean-reset-replay", "construct-Tan-WebKit-Activity-runtime", "commit-update-readiness"])
+    }
+
     func testCandidateStartupResetLockSerializesConcurrentLaunches() throws {
         let paths = MaomaoDataPaths(home: testRoot.appendingPathComponent("startup-lock-home", isDirectory: true))
         let (manifest, _) = try makeTransactionManifest(paths: paths, operation: .cleanReinstall)
@@ -277,6 +303,15 @@ final class ManualUpdaterTests: XCTestCase {
         try Data("preferences".utf8).write(to: paths.preferencesPlist)
         try FileManager.default.createDirectory(at: paths.savedApplicationState, withIntermediateDirectories: true)
         try Data("window state".utf8).write(to: paths.savedApplicationState.appendingPathComponent("state.plist"))
+        try MaomaoDataPaths.createPrivateDirectory(paths.updateRoot)
+        let helperFailure = ManualUpdateHelperFailureResult(
+            nonce: transaction.manifest.nonce, operation: .cleanReinstall,
+            status: .recoveryPending,
+            installedVersion: "1.3.0", installedBuild: "4",
+            candidateVersion: "1.3.0", candidateBuild: "4",
+            message: "failure", recovery: "recovery retained", occurredAt: Date()
+        )
+        try ManualUpdateTransactionFiles.writeDurably(helperFailure, to: paths.helperFailureResult, replace: false)
 
         let candidate = paths.candidateRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let framework = candidate.appendingPathComponent("unpacked/Maomao.app/Contents/Frameworks/Discord.framework", isDirectory: true)
@@ -302,6 +337,7 @@ final class ManualUpdaterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths.candidateRoot.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.noLegacyTanImportMarker.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.pendingCleanReset.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.helperFailureResult.path))
         XCTAssertEqual(try Data(contentsOf: sharedSentinel), Data("preserve shared legacy data".utf8))
         XCTAssertEqual(try ManualUpdateTransactionWorker.readJournal(URL(fileURLWithPath: transaction.manifest.journalPath)).state, .cleanFilesCleared)
     }
@@ -363,6 +399,23 @@ final class ManualUpdaterTests: XCTestCase {
         let special = try archive(entries: [ZipEntry("Maomao.app/", mode: 0o040755), ZipEntry("Maomao.app/Contents/FIFO", mode: 0o010644)])
         defer { try? FileManager.default.removeItem(at: special) }
         XCTAssertThrowsError(try ManualUpdateArchiveInspector.inspect(special))
+    }
+
+    func testZipRejectsUnexpectedTopLevelEntriesAndMultipleBundles() throws {
+        let unexpected = try archive(entries: [
+            ZipEntry("Maomao.app/", mode: 0o040755),
+            ZipEntry("Maomao.app/Contents/", mode: 0o040755),
+            ZipEntry("README.txt", bytes: Data("not part of the app".utf8))
+        ])
+        defer { try? FileManager.default.removeItem(at: unexpected) }
+        XCTAssertThrowsError(try ManualUpdateArchiveInspector.inspect(unexpected))
+
+        let multiple = try archive(entries: [
+            ZipEntry("Maomao.app/", mode: 0o040755),
+            ZipEntry("Other.app/", mode: 0o040755)
+        ])
+        defer { try? FileManager.default.removeItem(at: multiple) }
+        XCTAssertThrowsError(try ManualUpdateArchiveInspector.inspect(multiple))
     }
 
     func testZipRejectsEscapingAndCyclicFrameworkSymlinks() throws {
@@ -475,6 +528,151 @@ final class ManualUpdaterTests: XCTestCase {
         }
     }
 
+    func testServiceRejectsWrongBundleMalformedMetadataAndMissingExecutable() async throws {
+        let installed = try makeInstalledApp(version: "1.3.0", build: "3")
+        let service = ManualUpdateService(
+            currentAppURL: installed,
+            paths: MaomaoDataPaths(home: testRoot.appendingPathComponent("invalid-candidate-home", isDirectory: true)),
+            validator: AcceptingValidator(), currentArchitecture: "arm64"
+        )
+        let malformedInfo = Data("not a property list".utf8)
+        let invalidVersionInfo = try appInfo(version: "1.3", build: "4")
+        let candidates = [
+            (try appArchive(version: "1.4.0", build: "1", bundleIdentifier: "com.example.other"), ManualUpdateError.unsupportedEdition),
+            (try appArchive(version: "1.4.0", build: "1", infoData: malformedInfo), ManualUpdateError.invalidApplication("application identity or version metadata is missing")),
+            (try appArchive(version: "1.4.0", build: "1", infoData: invalidVersionInfo), ManualUpdateError.invalidApplication("invalid numeric marketing version")),
+            (try appArchive(version: "1.4.0", build: "1", includeExecutable: false), ManualUpdateError.invalidApplication("the declared executable is missing or not executable"))
+        ]
+        defer { candidates.forEach { try? FileManager.default.removeItem(at: $0.0) } }
+
+        for (zip, expectedError) in candidates {
+            do {
+                _ = try await service.inspect(zipURL: zip)
+                XCTFail("invalid candidate should be rejected: \(zip.lastPathComponent)")
+            } catch let error as ManualUpdateError {
+                XCTAssertEqual(error, expectedError)
+            } catch {
+                XCTFail("unexpected error for invalid candidate: \(error)")
+            }
+        }
+    }
+
+    func testServiceRejectsArchitectureIncompatibleCandidateAndHelper() async throws {
+        let installed = try makeInstalledApp(version: "1.3.0", build: "3")
+        let service = ManualUpdateService(
+            currentAppURL: installed,
+            paths: MaomaoDataPaths(home: testRoot.appendingPathComponent("architecture-home", isDirectory: true)),
+            validator: CandidateArchitectureMismatchValidator(installedAppPath: installed.path),
+            currentArchitecture: "arm64"
+        )
+        let zip = try appArchive(version: "1.4.0", build: "1")
+        defer { try? FileManager.default.removeItem(at: zip) }
+
+        do {
+            _ = try await service.inspect(zipURL: zip)
+            XCTFail("candidate and helper without arm64 support must be rejected")
+        } catch let error as ManualUpdateError {
+            XCTAssertEqual(error, .invalidApplication("the bundled updater helper signature or architecture does not match its app"))
+        }
+    }
+
+    func testServiceRejectsUnsupportedExtraArchitectureDuringInspection() async throws {
+        let installed = try makeInstalledApp(version: "1.3.0", build: "3")
+        let service = ManualUpdateService(
+            currentAppURL: installed,
+            paths: MaomaoDataPaths(home: testRoot.appendingPathComponent("unsupported-architecture-home", isDirectory: true)),
+            validator: UnsupportedExtraArchitectureValidator(installedAppPath: installed.path),
+            currentArchitecture: "arm64"
+        )
+        let zip = try appArchive(version: "1.4.0", build: "1")
+        defer { try? FileManager.default.removeItem(at: zip) }
+
+        do {
+            _ = try await service.inspect(zipURL: zip)
+            XCTFail("candidate with an unsupported extra slice must be rejected during inspection")
+        } catch let error as ManualUpdateError {
+            XCTAssertEqual(error, .invalidApplication("the app or updater helper includes an unsupported architecture"))
+        }
+    }
+
+    func testHelperFailureResultCanBeReadAndDismissed() async throws {
+        let installed = try makeInstalledApp(version: "1.3.0", build: "3")
+        let paths = MaomaoDataPaths(home: testRoot.appendingPathComponent("helper-failure-home", isDirectory: true))
+        try MaomaoDataPaths.createPrivateDirectory(paths.updateRoot)
+        let transaction = try makeTransactionManifest(paths: paths, operation: .update)
+        try ManualUpdateTransactionWorker.persistFailureResult(
+            transaction.manifest,
+            error: ManualUpdateError.unavailable("The replacement app did not become ready."),
+            status: .previousAppRestored,
+            recovery: "The previous app was restored.",
+            pathsOverride: paths
+        )
+        try FileManager.default.removeItem(at: transaction.manifestURL.deletingLastPathComponent())
+        let service = ManualUpdateService(currentAppURL: installed, paths: paths, validator: AcceptingValidator(), currentArchitecture: "arm64")
+
+        let pending = try await service.pendingHelperFailure()
+        XCTAssertEqual(pending?.nonce, transaction.manifest.nonce)
+        XCTAssertEqual(pending?.status, .previousAppRestored)
+        XCTAssertEqual(pending?.candidateVersion, "1.3.0")
+        XCTAssertEqual(pending?.recovery, "The previous app was restored.")
+        XCTAssertTrue(pending?.message.contains("did not become ready") == true)
+        try ManualUpdateTransactionWorker.clearFailureResult(for: transaction.manifest, pathsOverride: paths)
+        let clearedOnSuccess = try await service.pendingHelperFailure()
+        XCTAssertNil(clearedOnSuccess)
+        try ManualUpdateTransactionWorker.persistFailureResult(
+            transaction.manifest,
+            error: ManualUpdateError.unavailable("The replacement app did not become ready."),
+            status: .previousAppRestored,
+            recovery: "The previous app was restored.",
+            pathsOverride: paths
+        )
+        try await service.dismissHelperFailure(nonce: transaction.manifest.nonce)
+        let dismissed = try await service.pendingHelperFailure()
+        XCTAssertNil(dismissed)
+        do {
+            try await service.dismissHelperFailure(nonce: transaction.manifest.nonce)
+            XCTFail("dismissing a missing result should fail")
+        } catch ManualUpdateError.staleCandidate {
+        }
+        let staleFailure = ManualUpdateHelperFailureResult(
+            nonce: UUID().uuidString, operation: .update,
+            status: .previousAppRestored,
+            installedVersion: "1.3.0", installedBuild: "3",
+            candidateVersion: "1.3.0", candidateBuild: "4",
+            message: "older failure", recovery: "old app restored", occurredAt: Date()
+        )
+        try ManualUpdateTransactionFiles.writeDurably(staleFailure, to: paths.helperFailureResult, replace: false)
+        try ManualUpdateTransactionWorker.clearPreviousFailureResult(for: transaction.manifest, pathsOverride: paths)
+        let staleNotice = try await service.pendingHelperFailure()
+        XCTAssertNil(staleNotice)
+    }
+
+    func testNormalUpdateSkipsCleanResetAndPreservesPersistentData() throws {
+        let home = testRoot.appendingPathComponent("normal-update-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let paths = MaomaoDataPaths(home: home)
+        let transaction = try makeTransactionManifest(paths: paths, operation: .update)
+        try FileManager.default.createDirectory(at: paths.tanStorage, withIntermediateDirectories: true)
+        try Data("keep tan state".utf8).write(to: paths.tanStorage.appendingPathComponent("state.json"))
+        try FileManager.default.createDirectory(at: paths.cacheRoot, withIntermediateDirectories: true)
+        try Data("keep cache".utf8).write(to: paths.cacheRoot.appendingPathComponent("cache.bin"))
+        try FileManager.default.createDirectory(at: paths.preferencesPlist.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("keep preferences".utf8).write(to: paths.preferencesPlist)
+        try FileManager.default.createDirectory(at: paths.savedApplicationState, withIntermediateDirectories: true)
+        try Data("keep window state".utf8).write(to: paths.savedApplicationState.appendingPathComponent("state.plist"))
+        try FileManager.default.createDirectory(at: paths.candidateRoot, withIntermediateDirectories: true)
+        let stagedCandidate = paths.candidateRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: stagedCandidate, withIntermediateDirectories: true)
+
+        XCTAssertFalse(try ManualUpdateTransactionWorker.applyCleanResetIfNeeded(transaction.manifest, pathsOverride: paths))
+        XCTAssertEqual(try Data(contentsOf: paths.tanStorage.appendingPathComponent("state.json")), Data("keep tan state".utf8))
+        XCTAssertEqual(try Data(contentsOf: paths.cacheRoot.appendingPathComponent("cache.bin")), Data("keep cache".utf8))
+        XCTAssertEqual(try Data(contentsOf: paths.preferencesPlist), Data("keep preferences".utf8))
+        XCTAssertEqual(try Data(contentsOf: paths.savedApplicationState.appendingPathComponent("state.plist")), Data("keep window state".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedCandidate.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.pendingCleanReset.path))
+    }
+
     func testServiceRejectsInstalledAppMutationAfterInspection() async throws {
         let installed = try makeInstalledApp(version: "1.3.0", build: "3")
         let service = ManualUpdateService(
@@ -581,6 +779,37 @@ final class ManualUpdaterTests: XCTestCase {
         }
     }
 
+    private struct CandidateArchitectureMismatchValidator: ManualUpdateAppValidating {
+        let installedAppPath: String
+
+        func validate(appURL: URL, executableURL: URL) throws -> ManualUpdateAppValidation {
+            ManualUpdateAppValidation(signature: .adHoc, architectures: appURL.path == installedAppPath ? ["arm64"] : ["x86_64"])
+        }
+
+        func validateStandaloneExecutable(_ executableURL: URL) throws -> ManualUpdateAppValidation {
+            ManualUpdateAppValidation(signature: .adHoc, architectures: executableURL.path.hasPrefix(installedAppPath + "/") ? ["arm64"] : ["x86_64"])
+        }
+    }
+
+    private struct UnsupportedExtraArchitectureValidator: ManualUpdateAppValidating {
+        let installedAppPath: String
+        private let unsupportedArchitectures: Set<String> = ["arm64", "riscv64"]
+
+        func validate(appURL: URL, executableURL: URL) throws -> ManualUpdateAppValidation {
+            ManualUpdateAppValidation(
+                signature: .adHoc,
+                architectures: appURL.path == installedAppPath ? ["arm64"] : unsupportedArchitectures
+            )
+        }
+
+        func validateStandaloneExecutable(_ executableURL: URL) throws -> ManualUpdateAppValidation {
+            ManualUpdateAppValidation(
+                signature: .adHoc,
+                architectures: executableURL.path.hasPrefix(installedAppPath + "/") ? ["arm64"] : unsupportedArchitectures
+            )
+        }
+    }
+
     private func makeInstalledApp(version: String, build: String) throws -> URL {
         let app = testRoot.appendingPathComponent("installed/Maomao.app", isDirectory: true)
         let contents = app.appendingPathComponent("Contents", isDirectory: true)
@@ -611,10 +840,18 @@ final class ManualUpdaterTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
     }
 
-    private func appArchive(version: String, build: String) throws -> URL {
+    private func appArchive(
+        version: String,
+        build: String,
+        bundleIdentifier: String = MaomaoDataPaths.bundleIdentifier,
+        infoData: Data? = nil,
+        includeExecutable: Bool = true
+    ) throws -> URL {
         let root = "Maomao.app"
-        let info = try appInfo(version: version, build: build)
-        let entries = [
+        let info: Data
+        if let infoData { info = infoData }
+        else { info = try appInfo(version: version, build: build, bundleIdentifier: bundleIdentifier) }
+        var entries = [
             ZipEntry(root + "/", mode: 0o040755),
             ZipEntry(root + "/Contents/", mode: 0o040755),
             ZipEntry(root + "/Contents/MacOS/", mode: 0o040755),
@@ -625,12 +862,17 @@ final class ManualUpdaterTests: XCTestCase {
             ZipEntry(root + "/Contents/Helpers/NokoCordUpdateHelper", bytes: Data("helper executable \(version) \(build)".utf8), mode: 0o100755),
             ZipEntry(root + "/Contents/_CodeSignature/CodeResources", bytes: Data("signature fixture".utf8))
         ]
+        if !includeExecutable { entries.removeAll { $0.path == root + "/Contents/MacOS/NokoCord" } }
         return try archive(entries: entries)
     }
 
-    private func appInfo(version: String, build: String) throws -> Data {
+    private func appInfo(
+        version: String,
+        build: String,
+        bundleIdentifier: String = MaomaoDataPaths.bundleIdentifier
+    ) throws -> Data {
         let values: [String: Any] = [
-            "CFBundleIdentifier": MaomaoDataPaths.bundleIdentifier,
+            "CFBundleIdentifier": bundleIdentifier,
             "NokoEditionID": MaomaoDataPaths.editionID,
             "CFBundleShortVersionString": version,
             "CFBundleVersion": build,

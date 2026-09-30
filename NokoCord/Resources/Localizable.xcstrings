@@ -61,6 +61,9 @@
     "About Tans" : {
 
     },
+    "Action" : {
+
+    },
     "Access" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -86,6 +89,9 @@
       }
     },
     "Are You Sure?" : {
+
+    },
+    "Before attempt" : {
 
     },
     "Assisted" : {
@@ -605,6 +611,15 @@
     "Previous Discord page" : {
 
     },
+    "Previous app remains installed" : {
+
+    },
+    "Previous app restored" : {
+
+    },
+    "Previous update attempt" : {
+
+    },
     "Privacy" : {
       "localizations" : {
         "en" : {
@@ -639,6 +654,9 @@
       }
     },
     "Ready to review" : {
+
+    },
+    "Replacement ready; cleanup incomplete" : {
 
     },
     "Refresh" : {
@@ -927,6 +945,12 @@
 
     },
     "Update Noko-Tan" : {
+
+    },
+    "Update recovery needs attention" : {
+
+    },
+    "Update result needs attention" : {
 
     },
     "Update…" : {

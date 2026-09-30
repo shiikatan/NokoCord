@@ -286,6 +286,9 @@ private struct ManualUpdatesSettingsView: View {
     @State private var legacyImporting = false
     @State private var showLegacyImportConfirmation = false
     @State private var pendingLegacyDigest: String?
+    @State private var helperFailure: ManualUpdateHelperFailureResult?
+    @State private var helperFailureError: String?
+    @State private var dismissingHelperFailure = false
 
     private enum Phase {
         case empty, inspecting, ready, error(String), applying, waitingForRelaunch
@@ -301,6 +304,33 @@ private struct ManualUpdatesSettingsView: View {
 
     var body: some View {
         Form {
+            if helperFailure != nil || helperFailureError != nil {
+                Section("Previous update attempt") {
+                    if let helperFailure {
+                        Label(helperFailureHeading(helperFailure.status), systemImage: "exclamationmark.triangle")
+                            .font(.headline)
+                        LabeledContent("Action", value: helperFailure.operation == .cleanReinstall ? "Clean Reinstall" : "Update")
+                        LabeledContent("Before attempt", value: "Maomao \(helperFailure.installedVersion) (build \(helperFailure.installedBuild))")
+                        LabeledContent("Selected ZIP", value: "Maomao \(helperFailure.candidateVersion) (build \(helperFailure.candidateBuild))")
+                        Text(helperFailure.message)
+                            .lineLimit(4)
+                        Text(helperFailure.recovery)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                        Button("Dismiss") { dismissHelperFailure(helperFailure.nonce) }
+                            .disabled(dismissingHelperFailure)
+                    }
+                    if let helperFailureError {
+                        Label("Update result needs attention", systemImage: "exclamationmark.triangle")
+                        Text(helperFailureError)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                        Button("Retry") { refreshHelperFailure() }
+                    }
+                }
+            }
             Section("Local update ZIP") {
                 Text("Choose a Maomao app ZIP from this Mac. Selecting a file only checks it; nothing is installed until you choose an action below.")
                     .foregroundStyle(.secondary)
@@ -412,6 +442,7 @@ private struct ManualUpdatesSettingsView: View {
             for await update in updates { progress = update }
         }
         .task { refreshLegacyAvailability() }
+        .onAppear { refreshHelperFailure() }
     }
 
     @ViewBuilder private var legacyImportContent: some View {
@@ -523,6 +554,42 @@ private struct ManualUpdatesSettingsView: View {
                 legacyImportError = error.localizedDescription
             }
             legacyLoading = false
+        }
+    }
+
+    private func refreshHelperFailure() {
+        Task {
+            do {
+                helperFailure = try await updater.pendingHelperFailure()
+                helperFailureError = nil
+            } catch {
+                helperFailure = nil
+                helperFailureError = "Could not read the saved updater result. \(String(error.localizedDescription.prefix(240)))"
+            }
+        }
+    }
+
+    private func helperFailureHeading(_ status: ManualUpdateHelperFailureStatus) -> LocalizedStringKey {
+        switch status {
+        case .recoveryPending: "Update recovery needs attention"
+        case .previousAppRestored: "Previous app restored"
+        case .previousAppStillInstalled: "Previous app remains installed"
+        case .replacementReadyCleanupIncomplete: "Replacement ready; cleanup incomplete"
+        }
+    }
+
+    private func dismissHelperFailure(_ nonce: String) {
+        guard !dismissingHelperFailure else { return }
+        dismissingHelperFailure = true
+        Task {
+            do {
+                try await updater.dismissHelperFailure(nonce: nonce)
+                helperFailure = nil
+                helperFailureError = nil
+            } catch {
+                helperFailureError = "Could not dismiss the saved updater result. \(String(error.localizedDescription.prefix(240)))"
+            }
+            dismissingHelperFailure = false
         }
     }
 

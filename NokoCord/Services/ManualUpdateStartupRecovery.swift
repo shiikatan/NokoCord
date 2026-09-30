@@ -77,6 +77,17 @@ enum ManualUpdateStartupRecovery {
         try ManualUpdateTransactionWorker.dataPathsForCurrentUser()
     }
 
+    static func createRuntimeAfterPreparation<Runtime>(
+        prepare: () async throws -> ManualUpdateStartupReceipt?,
+        createRuntime: () throws -> Runtime,
+        complete: (ManualUpdateStartupReceipt) throws -> Void
+    ) async throws -> Runtime {
+        let receipt = try await prepare()
+        let runtime = try createRuntime()
+        if let receipt { try complete(receipt) }
+        return runtime
+    }
+
     static func prepare(
         runningAppURL: URL = Bundle.main.bundleURL,
         paths: MaomaoDataPaths? = nil,
@@ -159,7 +170,19 @@ enum ManualUpdateStartupRecovery {
             if journal.state == .appReady {
                 // A crash after readiness can leave markers and the old backup.
                 // The completed journal suppresses a second data wipe.
-                try? ManualUpdateTransactionWorker.finishStartupRecoveryIfHelperIsGone(manifest)
+                do {
+                    if try ManualUpdateTransactionWorker.finishStartupRecoveryIfHelperIsGone(manifest) {
+                        try? ManualUpdateTransactionWorker.clearFailureResult(for: manifest, pathsOverride: paths)
+                    }
+                } catch {
+                    try? ManualUpdateTransactionWorker.persistFailureResult(
+                        manifest,
+                        error: error,
+                        status: .replacementReadyCleanupIncomplete,
+                        recovery: "The replacement app is ready, but updater cleanup failed; recovery files were retained.",
+                        pathsOverride: paths
+                    )
+                }
                 return nil
             }
 
@@ -261,7 +284,18 @@ enum ManualUpdateStartupRecovery {
         }
         // If the helper exited during launch, finish its post-readiness cleanup
         // here while preserving the same lock and commit-point rules.
-        try? ManualUpdateTransactionWorker.finishStartupRecoveryIfHelperIsGone(manifest)
+        do {
+            if try ManualUpdateTransactionWorker.finishStartupRecoveryIfHelperIsGone(manifest) {
+                try? ManualUpdateTransactionWorker.clearFailureResult(for: manifest)
+            }
+        } catch {
+            try? ManualUpdateTransactionWorker.persistFailureResult(
+                manifest,
+                error: error,
+                status: .replacementReadyCleanupIncomplete,
+                recovery: "The replacement app is ready, but updater cleanup failed; recovery files were retained."
+            )
+        }
     }
 
     static func clearMaomaoPreferences(using defaults: UserDefaults) throws {

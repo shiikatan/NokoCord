@@ -98,17 +98,23 @@ private final class NokoStartupCoordinator {
         errorMessage = nil
         do {
             let paths = try ManualUpdateStartupRecovery.currentPaths()
-            let receipt = try await ManualUpdateStartupRecovery.prepare(
-                runningAppURL: Bundle.main.bundleURL,
-                paths: paths,
-                arguments: ProcessInfo.processInfo.arguments
+            let readyContext = try await ManualUpdateStartupRecovery.createRuntimeAfterPreparation(
+                prepare: {
+                    try await ManualUpdateStartupRecovery.prepare(
+                        runningAppURL: Bundle.main.bundleURL,
+                        paths: paths,
+                        arguments: ProcessInfo.processInfo.arguments
+                    )
+                },
+                createRuntime: {
+                    let tans = TanManager()
+                    let browser = ActiveBrowserEngine(tans: tans)
+                    let activityRuntime = NokoActivityRuntime()
+                    return NokoAppContext(tans: tans, browser: browser, activityRuntime: activityRuntime)
+                },
+                complete: { try ManualUpdateStartupRecovery.complete($0) }
             )
-            let tans = TanManager()
-            let browser = ActiveBrowserEngine(tans: tans)
-            let activityRuntime = NokoActivityRuntime()
-            if let receipt { try ManualUpdateStartupRecovery.complete(receipt) }
-            let readyContext = NokoAppContext(tans: tans, browser: browser, activityRuntime: activityRuntime)
-            NokoApplicationDelegate.configure(runtime: activityRuntime, tanManager: tans)
+            NokoApplicationDelegate.configure(runtime: readyContext.activityRuntime, tanManager: readyContext.tans)
             context = readyContext
             showMenuBar = UserDefaults.standard.bool(forKey: "showMenuBar")
             observeMenuBarPreference()
