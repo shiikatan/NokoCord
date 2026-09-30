@@ -18,6 +18,8 @@ final class TanManager {
     var reloadRequired = false
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let root: URL
+    @ObservationIgnored private let usesEditionScopedStorage: Bool
+    @ObservationIgnored private let launchSafeMode: Bool
     @ObservationIgnored private var changeObservers: [UUID: () -> Void] = [:]
     @ObservationIgnored private var enableLog: [String] = []
     @ObservationIgnored private var failures: [String: Int] = [:]
@@ -28,11 +30,18 @@ final class TanManager {
         var enableLog: [String]
     }
     init(root: URL? = nil, launchSafeMode: Bool = ProcessInfo.processInfo.arguments.contains("--safe-mode")) {
-        self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let editionPaths = try? MaomaoDataPaths.current()
+        usesEditionScopedStorage = root == nil && editionPaths != nil
+        self.launchSafeMode = launchSafeMode
+        self.root = root ?? editionPaths?.tanStorage ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NokoCord/Tans", isDirectory: true)
         do {
             if FileManager.default.fileExists(atPath: self.root.path) {
-                guard try self.root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }
+                if usesEditionScopedStorage {
+                    try MaomaoDataPaths.validateNoSymlinkComponents(at: self.root)
+                } else {
+                    guard try self.root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }
+                }
                 let files = try FileManager.default.contentsOfDirectory(at: self.root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
                 for url in files.filter({ $0.lastPathComponent.hasSuffix(".tan.json") }).prefix(64) {
                     do {
@@ -58,6 +67,21 @@ final class TanManager {
         } catch { safeMode = true; self.error = "Tan storage could not be restored. Safe Mode is on." }
         if launchSafeMode { safeMode = true }
         installed.sort { $0.manifest.name.localizedStandardCompare($1.manifest.name) == .orderedAscending }
+    }
+
+    /// Reloads validated storage after an explicit updater-assisted Tan import.
+    /// The new in-memory snapshot is published atomically to observers so
+    /// enabled packages and Safe Mode take effect without restarting NokoCord.
+    func reloadFromStorage() throws {
+        let refreshed = TanManager(root: usesEditionScopedStorage ? nil : root, launchSafeMode: launchSafeMode)
+        if let error = refreshed.error { throw TanError.invalid(error) }
+        installed = refreshed.installed
+        enabledIDs = refreshed.enabledIDs
+        safeMode = refreshed.safeMode
+        error = refreshed.error
+        enableLog = refreshed.enableLog
+        failures.removeAll()
+        notifyChanged()
     }
     var active: [TanPackage] { safeMode ? [] : installed.filter { enabledIDs.contains($0.id) } }
     var scriptActive: [TanPackage] { active.filter { $0.manifest.target != .native } }
@@ -241,8 +265,12 @@ final class TanManager {
     }
     func dismissError() { error = nil }
     private func prepareStorage() throws {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        guard try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }
+        if usesEditionScopedStorage {
+            try MaomaoDataPaths.createPrivateDirectory(root)
+        } else {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            guard try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw TanError.invalid("Invalid Tan storage") }
+        }
     }
     private func saveState() throws {
         try prepareStorage()

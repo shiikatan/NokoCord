@@ -24,20 +24,22 @@
         }
       }
     },
-    "%lld/%lld" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld/%2$lld"
-          }
-        }
-      }
+    "• Discord login, WebKit data, and cookies" : {
+
+    },
+    "• Maomao preferences, gateway and bridge configuration, caches, and customizations" : {
+
+    },
+    "• Maomao's scoped Tans, Tan settings, and enabled selections" : {
+
     },
     "A classification describes how much conversion work is needed. It does not rate a plugin’s safety or quality." : {
 
     },
     "A little Noko. A lot of possibility." : {
+
+    },
+    "A newer Maomao version is available. Updating preserves the Discord session, Maomao settings, and Tans in Maomao's scoped storage. Shared build-3 Tans remain untouched and require a separate import." : {
 
     },
     "About" : {
@@ -49,6 +51,9 @@
           }
         }
       }
+    },
+    "About Manual Updates" : {
+
     },
     "About NokoCord" : {
 
@@ -70,9 +75,6 @@
     "All" : {
 
     },
-    "Allowed" : {
-
-    },
     "Appearance" : {
       "localizations" : {
         "en" : {
@@ -83,13 +85,16 @@
         }
       }
     },
+    "Are You Sure?" : {
+
+    },
     "Assisted" : {
 
     },
-    "Attachment %@" : {
+    "Automatic" : {
 
     },
-    "Automatic" : {
+    "Available" : {
 
     },
     "Back" : {
@@ -109,6 +114,7 @@
 
     },
     "Camera" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -143,7 +149,19 @@
     "Check your connection, then reload. Reloading interrupts any active call." : {
 
     },
+    "Checking shared Tan folder…" : {
+
+    },
     "Choose a destination" : {
+
+    },
+    "Choose a different local ZIP or inspect this one again." : {
+
+    },
+    "Choose a local Maomao app ZIP or drop it into Updates. Selection inspects the ZIP only. NokoCord does not check for, download, or schedule app updates." : {
+
+    },
+    "Choose a Maomao app ZIP from this Mac. Selecting a file only checks it; nothing is installed until you choose an action below." : {
 
     },
     "Choose a new filename. This download cannot overwrite an existing file." : {
@@ -158,10 +176,25 @@
     "Choose another folder…" : {
 
     },
+    "Choose or drop a ZIP to inspect it. Selection does not install it." : {
+
+    },
     "Choose repository…" : {
 
     },
     "Choose source folder…" : {
+
+    },
+    "Choose ZIP…" : {
+
+    },
+    "Clean Reinstall" : {
+
+    },
+    "Clean Reinstall can repair a broken Maomao installation. It is offered only for the exact same version and build. It replaces the app and resets Maomao-owned data during the reinstall and relaunch:" : {
+
+    },
+    "Clean Reinstall…" : {
 
     },
     "Clear & Reload" : {
@@ -200,13 +233,10 @@
     "Close" : {
 
     },
-    "Code" : {
+    "Collapsed" : {
 
     },
     "Color scheme" : {
-
-    },
-    "Collapsed" : {
 
     },
     "Compatibility" : {
@@ -215,22 +245,22 @@
     "Completed" : {
 
     },
-    "Connected" : {
+    "Continue to Discord" : {
 
     },
-    "Continue to Discord" : {
+    "Continue to Final Confirmation" : {
 
     },
     "Convert with document-ready startup" : {
 
     },
-    "Copy" : {
+    "Current" : {
+
+    },
+    "Current → selected ZIP" : {
 
     },
     "Dark" : {
-
-    },
-    "Device" : {
 
     },
     "Different package IDs are separate Tans, even if their names resemble one another—for example, NokoChat, Noko Chat, Noko-Chat, and noko_chat." : {
@@ -260,9 +290,6 @@
     "Dismiss" : {
 
     },
-    "Display %lld" : {
-
-    },
     "Done" : {
       "localizations" : {
         "en" : {
@@ -285,6 +312,9 @@
     "Downloads from Discord appear here during this session." : {
 
     },
+    "Drop a local ZIP here" : {
+
+    },
     "Edition" : {
 
     },
@@ -297,7 +327,10 @@
     "Enabled" : {
 
     },
-    "Engine" : {
+    "Erase Data and Clean Reinstall" : {
+
+    },
+    "Error" : {
 
     },
     "Expanded" : {
@@ -310,6 +343,9 @@
 
     },
     "Fast Find — search Tans" : {
+
+    },
+    "Final confirmation: this permanently erases Maomao's Discord session, WebKit data and cookies, scoped Tans, Tan and app settings, gateways, bridge configuration, and customizations. This cannot be undone." : {
 
     },
     "Finish or cancel a download before starting another." : {
@@ -355,7 +391,44 @@
     "Home (⇧⌘H)" : {
 
     },
+    "Import complete" : {
+
+    },
+    "Import error" : {
+
+    },
+    "Import not supported by this build" : {
+
+    },
+    "Import Shared Tans" : {
+
+    },
+    "Import shared Tans into Maomao?" : {
+
+    },
+    "Import Shared Tans…" : {
+
+    },
     "Import Tan…" : {
+
+    },
+    "Imported %lld Tans; %lld saved enabled selections are restored. The shared source folder was left unchanged." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Imported %1$lld Tans; %2$lld saved enabled selections are restored. The shared source folder was left unchanged."
+          }
+        }
+      }
+    },
+    "Importing shared Tans…" : {
+
+    },
+    "Information" : {
+
+    },
+    "Inspection" : {
 
     },
     "Install" : {
@@ -364,7 +437,13 @@
     "Install Tan" : {
 
     },
+    "Install the M1.3.0 checkpoint before importing shared Tans." : {
+
+    },
     "Installing & Updating Tans" : {
+
+    },
+    "Keep Maomao open while the update handoff starts." : {
 
     },
     "Keyboard shortcuts" : {
@@ -379,6 +458,9 @@
     "Liquid Glass" : {
 
     },
+    "Local update ZIP" : {
+
+    },
     "Made by shiikatan" : {
 
     },
@@ -388,17 +470,11 @@
     "Make it yours." : {
 
     },
-    "Message from %@, %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Message from %1$@, %2$@"
-          }
-        }
-      }
+    "Maomao already has its own Tans" : {
+
     },
     "Microphone" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -409,6 +485,9 @@
       }
     },
     "Most supported behavior can be converted, while uncertain or unsupported parts may need review or manual adjustment." : {
+
+    },
+    "Music access" : {
 
     },
     "No analytics or telemetry" : {
@@ -433,7 +512,16 @@
     "No matching Tans" : {
 
     },
+    "No shared Tan folder found" : {
+
+    },
     "No Tans match this filter. Choose All to see your collection." : {
+
+    },
+    "No valid Tans to import" : {
+
+    },
+    "No ZIP selected" : {
 
     },
     "Noko-Tans" : {
@@ -455,10 +543,19 @@
     "NokoCord cannot currently make a trustworthy equivalent with the available APIs and runtime. This may change as support improves." : {
 
     },
+    "NokoCord could not finish startup" : {
+
+    },
     "NokoCord identifies a Tan primarily by its package ID. The same ID means the same Tan; a different ID means a different Tan, even when display names look alike." : {
 
     },
     "NokoCord understands the supported functionality and converts it into Noko-Tan equivalents. Automatic conversion does not make arbitrary third-party code safe." : {
+
+    },
+    "NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art." : {
+
+    },
+    "Not Supported" : {
 
     },
     "OK" : {
@@ -467,7 +564,7 @@
     "One more step" : {
 
     },
-    "Open %@" : {
+    "One-time import already completed" : {
 
     },
     "Open Discord" : {
@@ -486,7 +583,13 @@
         }
       }
     },
+    "Optional shared Tan import" : {
+
+    },
     "Plugin" : {
+
+    },
+    "Preparing NokoCord…" : {
 
     },
     "Preserved source files: %lld · License files: %lld" : {
@@ -535,9 +638,6 @@
         }
       }
     },
-    "Rate limited. Try again in %lld seconds." : {
-
-    },
     "Ready to review" : {
 
     },
@@ -552,6 +652,9 @@
         }
       }
     },
+    "Refresh Tan folder" : {
+
+    },
     "Refreshing web cache" : {
 
     },
@@ -564,7 +667,13 @@
     "Reinstall %@?" : {
 
     },
+    "Reinstall Maomao %@ Cleanly?" : {
+
+    },
     "Reinstall Noko-Tan" : {
+
+    },
+    "Relaunching Maomao" : {
 
     },
     "Reload" : {
@@ -583,9 +692,6 @@
 
     },
     "Reloads Discord and may interrupt an active call" : {
-
-    },
-    "Reply to %@" : {
 
     },
     "Requires Native Adapter" : {
@@ -625,10 +731,25 @@
     "Save Discord download" : {
 
     },
-    "Send" : {
+    "Saved as enabled" : {
+
+    },
+    "Saved enabled Tans may start running in Discord as soon as you import them." : {
+
+    },
+    "Selected ZIP" : {
 
     },
     "Settings" : {
+
+    },
+    "Shared Tan folder unavailable" : {
+
+    },
+    "Shared Tan import unavailable" : {
+
+    },
+    "Shared Tans available" : {
 
     },
     "Shortcuts" : {
@@ -658,6 +779,9 @@
     "Source" : {
 
     },
+    "Source folder" : {
+
+    },
     "Start with something small." : {
 
     },
@@ -679,19 +803,52 @@
     "Tan Translator" : {
 
     },
-    "Temporary" : {
+    "Tans in shared folder" : {
 
     },
     "The download failed. Retry from Discord when the connection is available." : {
 
     },
+    "The import is unavailable because it would replace your existing Maomao Tan collection." : {
+
+    },
+    "The saved Safe Mode setting is on, so imported enabled Tans will stay paused until you resume them." : {
+
+    },
     "The saved translation report could not be read." : {
+
+    },
+    "The shared folder contains no Tan packages that passed validation." : {
+
+    },
+    "The shared source is being checked again before validated files are copied." : {
+
+    },
+    "The update handoff started. Maomao will close and reopen." : {
+
+    },
+    "The ZIP is being copied to a private location and checked before any action is offered." : {
 
     },
     "This ends active calls and playback, signs you out of Discord, and removes saved session data. Downloaded files are kept." : {
 
     },
-    "This opens %@ in your default browser. The site may download the file." : {
+    "This exact same version and build will be reinstalled. It will erase Maomao's Discord login, WebKit data and cookies, scoped Tans, settings, gateways, bridge configuration, and customizations. You will need to sign in and set up again." : {
+
+    },
+    "This folder was shared with older editions. Its files have no reliable edition provenance and may include M1.2 or Chiaki Tans." : {
+
+    },
+    "This installed Maomao version is below the supported updater baseline. Install the M1.3.0 checkpoint manually, then inspect a ZIP here again." : {
+
+    },
+    "This is the exact installed version and build. Only Clean Reinstall is available; it erases Maomao-owned data during the reinstall and relaunch. Read Information before continuing." : {
+
+    },
+    "This local ZIP will replace the app with a newer version or build. Maomao will close and relaunch. Your Discord login, Maomao settings, and scoped Tans are preserved. Shared build-3 Tans remain untouched and need a separate import." : {
+
+    },
+    "This one-time import is separate from app ZIP updates. A later Clean Reinstall resets imported Tans with other Maomao data." : {
 
     },
     "This page could not open in NokoCord. You can try signing in at discord.com." : {
@@ -706,7 +863,10 @@
     "This Tan needs functionality ordinary browser page JavaScript cannot provide. It requires an approved NokoCord native provider or capability." : {
 
     },
-    "This will open %@ in your default browser." : {
+    "This ZIP contains an older version or build. This updater cannot install it. To downgrade, back up your data and install the older app manually." : {
+
+    },
+    "This ZIP has the same version number with a newer build. Updating preserves the Discord session, Maomao settings, and Tans in Maomao's scoped storage. Shared build-3 Tans remain untouched and require a separate import." : {
 
     },
     "Translate" : {
@@ -721,6 +881,9 @@
     "Translating…" : {
 
     },
+    "Translation archives" : {
+
+    },
     "Translation Compatibility" : {
 
     },
@@ -728,12 +891,6 @@
 
     },
     "Try another name, author, or feature." : {
-
-    },
-    "Trying to restore the call (attempt %lld)." : {
-
-    },
-    "Unavailable" : {
 
     },
     "Uninstall Tan" : {
@@ -757,25 +914,55 @@
     "Update %@?" : {
 
     },
+    "Update and Relaunch" : {
+
+    },
     "Update available" : {
+
+    },
+    "Update is offered only for a newer version or build. After you confirm, Maomao closes and relaunches. Your Discord session, Maomao settings and customizations, and scoped Tans are preserved. The old shared build-3 Tan folder is left untouched; import from it separately after reviewing its provenance warning." : {
+
+    },
+    "Update Maomao?" : {
 
     },
     "Update Noko-Tan" : {
 
     },
+    "Update…" : {
+
+    },
+    "Updates" : {
+
+    },
     "Use translucent controls and surfaces. Accessibility settings take priority." : {
+
+    },
+    "Validated Tans" : {
 
     },
     "Version" : {
 
     },
+    "When enabled, NokoCord reads Music through Apple Events. On a song change, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art." : {
+
+    },
     "When names may be confusing, NokoCord shows “Two Tans have similar names.” Check each Tan’s package ID, author, and source before installing. Install Anyway keeps both Tans; it does not replace one based on its name." : {
+
+    },
+    "While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. When the song changes, NokoCord sends artist, title, and album details to Apple’s iTunes Search service to find cover art." : {
+
+    },
+    "You will need to sign in and set up again. Two separate confirmations are required." : {
 
     },
     "Your Tans" : {
 
     },
     "Your Tans are paused. Your selections are saved." : {
+
+    },
+    "Your Tans are ready in this session. Review them on Home, especially any that are enabled." : {
 
     }
   },

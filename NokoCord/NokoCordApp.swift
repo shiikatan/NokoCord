@@ -6,53 +6,184 @@
 //
 
 import SwiftUI
+import Observation
 
 @main
 struct NokoCordApp: App {
     @NSApplicationDelegateAdaptor(NokoApplicationDelegate.self) private var applicationDelegate
-    @State private var browser: ActiveBrowserEngine
-    @State private var tans: TanManager
-    @State private var activityRuntime: NokoActivityRuntime
-    @State private var handledStartup = false
-
-    init() {
-        let manager = TanManager()
-        let runtime = NokoActivityRuntime()
-        _tans = State(initialValue: manager)
-        _browser = State(initialValue: ActiveBrowserEngine(tans: manager))
-        _activityRuntime = State(initialValue: runtime)
-        NokoApplicationDelegate.configure(runtime: runtime, tanManager: manager)
-    }
-
-    @AppStorage("showMenuBar") private var showMenuBar = false
+    @State private var startup = NokoStartupCoordinator()
 
     var body: some Scene {
         Window("NokoCord", id: "main") {
-            NokoRootView()
-                .environment(browser)
-                .environment(tans)
-                .environment(activityRuntime.appleMusicPresence)
-                .frame(minWidth: 960, minHeight: 600)
-                .task {
-                    guard !handledStartup else { return }
-                    handledStartup = true
-                    if UserDefaults.standard.bool(forKey: "openDiscordOnLaunch"), !tans.safeMode {
-                        browser.openDiscord()
-                    }
+            Group {
+                if let context = startup.context {
+                    NokoRootView()
+                        .environment(context.browser)
+                        .environment(context.tans)
+                        .environment(context.activityRuntime.appleMusicPresence)
+                        .task { startup.openDiscordOnLaunchIfNeeded(context) }
+                } else {
+                    NokoStartupRecoveryView(
+                        isPreparing: startup.isPreparing,
+                        errorMessage: startup.errorMessage,
+                        retry: { Task { await startup.start() } }
+                    )
                 }
+            }
+            .frame(minWidth: 960, minHeight: 600)
+            .task { await startup.start() }
         }
         .defaultSize(width: 1280, height: 800)
-        .commands { NokoCordCommands(browser: browser) }
-        MenuBarExtra(isInserted: $showMenuBar) {
-            MenuBarContent()
+        .commands {
+            if let context = startup.context {
+                NokoCordCommands(browser: context.browser)
+            } else {
+                NokoStartupRecoveryCommands()
+            }
+        }
+        MenuBarExtra(isInserted: Binding(
+            get: { startup.context != nil && startup.showMenuBar },
+            set: { startup.setMenuBarVisible($0) }
+        )) {
+            if startup.context != nil { MenuBarContent() }
         } label: {
             NokoMenuBarIcon()
         }
         Settings {
-            SettingsView()
-                .environment(browser)
-                .environment(tans)
-                .environment(activityRuntime.appleMusicPresence)
+            Group {
+                if let context = startup.context {
+                    SettingsView()
+                        .environment(context.browser)
+                        .environment(context.tans)
+                        .environment(context.activityRuntime.appleMusicPresence)
+                } else {
+                    NokoStartupRecoveryView(
+                        isPreparing: startup.isPreparing,
+                        errorMessage: startup.errorMessage,
+                        retry: { Task { await startup.start() } }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class NokoAppContext {
+    let tans: TanManager
+    let browser: ActiveBrowserEngine
+    let activityRuntime: NokoActivityRuntime
+    var handledInitialDiscordOpen = false
+
+    init(tans: TanManager, browser: ActiveBrowserEngine, activityRuntime: NokoActivityRuntime) {
+        self.tans = tans
+        self.browser = browser
+        self.activityRuntime = activityRuntime
+    }
+}
+
+@MainActor @Observable
+private final class NokoStartupCoordinator {
+    private(set) var context: NokoAppContext?
+    private(set) var errorMessage: String?
+    private(set) var isPreparing = true
+    private(set) var showMenuBar = false
+    @ObservationIgnored private var started = false
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+
+    func start() async {
+        guard context == nil, !started else { return }
+        started = true
+        isPreparing = true
+        errorMessage = nil
+        do {
+            let paths = try ManualUpdateStartupRecovery.currentPaths()
+            let receipt = try await ManualUpdateStartupRecovery.prepare(
+                runningAppURL: Bundle.main.bundleURL,
+                paths: paths,
+                arguments: ProcessInfo.processInfo.arguments
+            )
+            let tans = TanManager()
+            let browser = ActiveBrowserEngine(tans: tans)
+            let activityRuntime = NokoActivityRuntime()
+            if let receipt { try ManualUpdateStartupRecovery.complete(receipt) }
+            let readyContext = NokoAppContext(tans: tans, browser: browser, activityRuntime: activityRuntime)
+            NokoApplicationDelegate.configure(runtime: activityRuntime, tanManager: tans)
+            context = readyContext
+            showMenuBar = UserDefaults.standard.bool(forKey: "showMenuBar")
+            observeMenuBarPreference()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isPreparing = false
+        started = false
+    }
+
+    func openDiscordOnLaunchIfNeeded(_ readyContext: NokoAppContext) {
+        guard context === readyContext, !readyContext.handledInitialDiscordOpen else { return }
+        readyContext.handledInitialDiscordOpen = true
+        if UserDefaults.standard.bool(forKey: "openDiscordOnLaunch"), !readyContext.tans.safeMode {
+            readyContext.browser.openDiscord()
+        }
+    }
+
+    func setMenuBarVisible(_ visible: Bool) {
+        guard context != nil else { return }
+        showMenuBar = visible
+        UserDefaults.standard.set(visible, forKey: "showMenuBar")
+    }
+
+    private func observeMenuBarPreference() {
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.context != nil else { return }
+                self.showMenuBar = UserDefaults.standard.bool(forKey: "showMenuBar")
+            }
+        }
+    }
+}
+
+private struct NokoStartupRecoveryView: View {
+    let isPreparing: Bool
+    let errorMessage: String?
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            if isPreparing {
+                ProgressView("Preparing NokoCord…")
+            } else if let errorMessage {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.largeTitle)
+                    .foregroundStyle(.orange)
+                Text("NokoCord could not finish startup")
+                    .font(.title2.bold())
+                Text(errorMessage)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 520)
+                HStack {
+                    Button("Retry", action: retry)
+                        .buttonStyle(.borderedProminent)
+                    Button("Quit NokoCord") { NokoApplicationDelegate.requestTermination() }
+                }
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct NokoStartupRecoveryCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .appTermination) {
+            Button("Quit NokoCord") { NokoApplicationDelegate.requestTermination() }
+                .keyboardShortcut("q")
         }
     }
 }
@@ -139,21 +270,22 @@ private struct NokoCordCommands: Commands {
 @MainActor
 private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
     private var activityRuntime: NokoActivityRuntime?
+    private var didFinishLaunching = false
+    private var didStartActivity = false
+    private static weak var activeDelegate: NokoApplicationDelegate?
     private static var configuredRuntime: NokoActivityRuntime?
     private static var configuredTanManager: TanManager?
 
     static func configure(runtime: NokoActivityRuntime, tanManager: TanManager) {
         configuredRuntime = runtime
         configuredTanManager = tanManager
+        activeDelegate?.startConfiguredRuntimeIfReady()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        activityRuntime = Self.configuredRuntime
-        if ProcessInfo.processInfo.arguments.contains("--nokocord-activity-smoke") {
-            activityRuntime?.startSmokeTest()
-        } else if let activityRuntime, let tans = Self.configuredTanManager {
-            activityRuntime.start(tanManager: tans)
-        }
+        Self.activeDelegate = self
+        didFinishLaunching = true
+        startConfiguredRuntimeIfReady()
         // On a fresh install SwiftUI can create the single Window scene without
         // ordering it on screen. Present that existing window once at launch.
         DispatchQueue.main.async {
@@ -161,6 +293,19 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
                   !main.isVisible else { return }
             main.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func startConfiguredRuntimeIfReady() {
+        guard didFinishLaunching, !didStartActivity,
+              let runtime = Self.configuredRuntime,
+              let tans = Self.configuredTanManager else { return }
+        didStartActivity = true
+        activityRuntime = runtime
+        if ProcessInfo.processInfo.arguments.contains("--nokocord-activity-smoke") {
+            runtime.startSmokeTest()
+        } else {
+            runtime.start(tanManager: tans)
         }
     }
     static func requestTermination() {

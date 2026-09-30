@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 enum NokoDestination: String, CaseIterable, Identifiable {
     case home, discord, downloads, shortcuts, privacy, settings
@@ -257,7 +259,423 @@ struct SettingsView: View {
                 DiscordSessionPrivacySection()
                 Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }
+            ManualUpdatesSettingsView()
+                .tabItem { Label("Updates", systemImage: "arrow.down.app") }
         }.frame(width: 640, height: 480).nokoCordAppearance()
+    }
+}
+
+private struct ManualUpdatesSettingsView: View {
+    @Environment(TanManager.self) private var tans
+    @State private var updater = ManualUpdateService()
+    @State private var selectedFileName: String?
+    @State private var candidate: ManualUpdateCandidate?
+    @State private var phase: Phase = .empty
+    @State private var progress: ManualUpdateProgress?
+    @State private var dropTargeted = false
+    @State private var showFileImporter = false
+    @State private var showInformation = false
+    @State private var showUpdateConfirmation = false
+    @State private var showCleanFirstConfirmation = false
+    @State private var showCleanFinalConfirmation = false
+    @State private var pendingCandidate: ManualUpdateCandidate?
+    @State private var legacyAvailability: ManualUpdateTanImportAvailability?
+    @State private var legacyImportResult: ManualUpdateTanImportResult?
+    @State private var legacyImportError: String?
+    @State private var legacyLoading = true
+    @State private var legacyImporting = false
+    @State private var showLegacyImportConfirmation = false
+    @State private var pendingLegacyDigest: String?
+
+    private enum Phase {
+        case empty, inspecting, ready, error(String), applying, waitingForRelaunch
+    }
+
+    private var isBusy: Bool {
+        if legacyImporting { return true }
+        return switch phase {
+        case .inspecting, .applying, .waitingForRelaunch: true
+        default: false
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section("Local update ZIP") {
+                Text("Choose a Maomao app ZIP from this Mac. Selecting a file only checks it; nothing is installed until you choose an action below.")
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Choose ZIP…", systemImage: "folder") { showFileImporter = true }
+                        .disabled(isBusy)
+                    Button("Information", systemImage: "info.circle") { showInformation = true }
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Label("Drop a local ZIP here", systemImage: "square.and.arrow.down")
+                        .font(.headline)
+                    Text(selectedFileName ?? "No ZIP selected")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+                .padding(.horizontal, 16)
+                .background(dropTargeted ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(dropTargeted ? Color.accentColor : .secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5])))
+                .onDrop(of: [UTType.fileURL.identifier], isTargeted: $dropTargeted) { providers in
+                    guard !isBusy, let provider = providers.first else { return false }
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        guard let url else { return }
+                        Task { @MainActor in inspectSelection(url) }
+                    }
+                    return true
+                }
+            }
+
+            Section("Inspection") {
+                inspectionContent
+                if let candidate, case .ready = phase {
+                    LabeledContent("Current", value: versionLabel(candidate.installedMarketingVersion, build: candidate.installedBuild))
+                    LabeledContent("Selected ZIP", value: versionLabel(candidate.marketingVersion, build: candidate.build))
+                    Text("Current → selected ZIP").font(.caption).foregroundStyle(.secondary)
+                    candidateExplanation(candidate)
+                    if candidate.permits(.update) {
+                        Button("Update…") {
+                            pendingCandidate = candidate
+                            showUpdateConfirmation = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else if candidate.permits(.cleanReinstall) {
+                        Button("Clean Reinstall…", role: .destructive) {
+                            pendingCandidate = candidate
+                            showCleanFirstConfirmation = true
+                        }
+                    }
+                }
+            }
+
+            Section("Optional shared Tan import") {
+                Text("This one-time import is separate from app ZIP updates. A later Clean Reinstall resets imported Tans with other Maomao data.")
+                    .font(.caption).foregroundStyle(.secondary)
+                legacyImportContent
+                if !legacyLoading && !legacyImporting && legacyImportResult == nil {
+                    Button("Refresh Tan folder", systemImage: "arrow.clockwise") { refreshLegacyAvailability() }
+                        .disabled(isBusy)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.zip]) { result in
+            switch result {
+            case .success(let url): inspectSelection(url)
+            case .failure(let error): phase = .error("Could not open the ZIP picker: \(error.localizedDescription)")
+            }
+        }
+        .sheet(isPresented: $showInformation) { informationSheet }
+        .confirmationDialog("Update Maomao?", isPresented: $showUpdateConfirmation, titleVisibility: .visible) {
+            Button("Update and Relaunch") {
+                if let pendingCandidate { apply(pendingCandidate, operation: .update) }
+                pendingCandidate = nil
+            }
+            Button("Cancel", role: .cancel) { pendingCandidate = nil }
+        } message: {
+            Text("This local ZIP will replace the app with a newer version or build. Maomao will close and relaunch. Your Discord login, Maomao settings, and scoped Tans are preserved. Shared build-3 Tans remain untouched and need a separate import.")
+        }
+        .confirmationDialog("Reinstall Maomao \(pendingCandidate?.marketingVersion.description ?? "") Cleanly?", isPresented: $showCleanFirstConfirmation, titleVisibility: .visible) {
+            Button("Continue to Final Confirmation", role: .destructive) {
+                showCleanFirstConfirmation = false
+                DispatchQueue.main.async { showCleanFinalConfirmation = true }
+            }
+            Button("Cancel", role: .cancel) { pendingCandidate = nil }
+        } message: {
+            Text("This exact same version and build will be reinstalled. It will erase Maomao's Discord login, WebKit data and cookies, scoped Tans, settings, gateways, bridge configuration, and customizations. You will need to sign in and set up again.")
+        }
+        .alert("Are You Sure?", isPresented: $showCleanFinalConfirmation) {
+            Button("Cancel", role: .cancel) { pendingCandidate = nil }
+                .keyboardShortcut(.defaultAction)
+            Button("Erase Data and Clean Reinstall", role: .destructive) {
+                if let pendingCandidate { apply(pendingCandidate, operation: .cleanReinstall) }
+                pendingCandidate = nil
+            }
+        } message: {
+            Text("Final confirmation: this permanently erases Maomao's Discord session, WebKit data and cookies, scoped Tans, Tan and app settings, gateways, bridge configuration, and customizations. This cannot be undone.")
+        }
+        .confirmationDialog("Import shared Tans into Maomao?", isPresented: $showLegacyImportConfirmation, titleVisibility: .visible) {
+            Button("Import Shared Tans") {
+                if let pendingLegacyDigest { importLegacyTans(expectedSourceDigest: pendingLegacyDigest) }
+                pendingLegacyDigest = nil
+            }
+            Button("Cancel", role: .cancel) { pendingLegacyDigest = nil }
+        } message: {
+            Text(legacyImportWarning)
+        }
+        .task {
+            let updates = await updater.progressUpdates()
+            for await update in updates { progress = update }
+        }
+        .task { refreshLegacyAvailability() }
+    }
+
+    @ViewBuilder private var legacyImportContent: some View {
+        if legacyImporting {
+            ProgressView("Importing shared Tans…")
+            Text("The shared source is being checked again before validated files are copied.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if let result = legacyImportResult {
+            Label("Import complete", systemImage: "checkmark.circle").font(.headline)
+            Text("Imported \(result.packageCount) Tans; \(result.enabledCount) saved enabled selections are restored. The shared source folder was left unchanged.")
+                .font(.caption).foregroundStyle(.secondary)
+            if result.tanManagerRefreshed {
+                Text("Your Tans are ready in this session. Review them on Home, especially any that are enabled.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } else if legacyLoading {
+            ProgressView("Checking shared Tan folder…")
+        } else {
+            if let legacyImportError {
+                Label("Import error", systemImage: "exclamationmark.triangle").font(.headline)
+                Text(legacyImportError).foregroundStyle(.secondary)
+            }
+            if let availability = legacyAvailability {
+                if availability.eligible {
+                    Label("Shared Tans available", systemImage: "square.on.square").font(.headline)
+                    Text("This folder was shared with older editions. Its files have no reliable edition provenance and may include M1.2 or Chiaki Tans.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Source folder").font(.caption).foregroundStyle(.secondary)
+                    Text(availability.sourcePath).font(.caption.monospaced())
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    LabeledContent("Validated Tans", value: "\(availability.packageCount)")
+                    LabeledContent("Saved as enabled", value: "\(availability.enabledCount)")
+                    if availability.translatedArchiveCount > 0 {
+                        LabeledContent("Translation archives", value: "\(availability.translatedArchiveCount)")
+                    }
+                    DisclosureGroup("Tans in shared folder") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(availability.packageNames.indices, id: \.self) { index in
+                                Text(availability.packageNames[index])
+                            }
+                        }.font(.caption).padding(.top, 4)
+                    }
+                    if availability.safeMode {
+                        Text("The saved Safe Mode setting is on, so imported enabled Tans will stay paused until you resume them.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if availability.enabledCount > 0 {
+                        Text("Saved enabled Tans may start running in Discord as soon as you import them.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("Import Shared Tans…") {
+                        pendingLegacyDigest = availability.sourceDigest
+                        showLegacyImportConfirmation = pendingLegacyDigest != nil
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isBusy)
+                } else {
+                    legacyUnavailableMessage(availability.reason)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func legacyUnavailableMessage(_ reason: ManualUpdateTanImportBlockReason?) -> some View {
+        switch reason {
+        case .sourceMissing:
+            Label("No shared Tan folder found", systemImage: "tray")
+                .foregroundStyle(.secondary)
+        case .alreadyCompleted:
+            Label("One-time import already completed", systemImage: "checkmark.circle")
+                .foregroundStyle(.secondary)
+        case .scopedStorageExists:
+            Label("Maomao already has its own Tans", systemImage: "square.stack")
+            Text("The import is unavailable because it would replace your existing Maomao Tan collection.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .unsupportedBaseline:
+            Label("Import not supported by this build", systemImage: "xmark.circle")
+            Text("Install the M1.3.0 checkpoint before importing shared Tans.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .noValidatedPackages:
+            Label("No valid Tans to import", systemImage: "tray")
+            Text("The shared folder contains no Tan packages that passed validation.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .invalidSource(let detail):
+            Label("Shared Tan folder unavailable", systemImage: "exclamationmark.triangle")
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+        case nil:
+            Label("Shared Tan import unavailable", systemImage: "xmark.circle")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var legacyImportWarning: String {
+        guard let availability = legacyAvailability else { return "Review the shared Tan folder before importing." }
+        let executionWarning = availability.enabledCount > 0
+            ? " \(availability.enabledCount) saved enabled Tans may start running in Discord immediately\(availability.safeMode ? " after Safe Mode is turned off" : "")."
+            : ""
+        return "The shared build-3 Tan folder has no reliable edition provenance. It may contain M1.2 or Chiaki data. This one-time action copies \(availability.packageCount) validated Tans, matching translation archives, and saved Tan settings into Maomao; the original folder stays untouched.\(executionWarning) Import is separate from Update and Clean Reinstall."
+    }
+
+    private func refreshLegacyAvailability() {
+        guard !isBusy else { return }
+        legacyLoading = true
+        legacyImportError = nil
+        Task {
+            do {
+                legacyAvailability = try await updater.legacyTanImportAvailability()
+            } catch {
+                legacyAvailability = nil
+                legacyImportError = error.localizedDescription
+            }
+            legacyLoading = false
+        }
+    }
+
+    private func importLegacyTans(expectedSourceDigest: String) {
+        guard !isBusy, legacyAvailability?.sourceDigest == expectedSourceDigest else { return }
+        legacyImporting = true
+        legacyImportError = nil
+        Task {
+            do {
+                let result = try await updater.importLegacyTansOnce(expectedSourceDigest: expectedSourceDigest, refreshing: tans)
+                legacyImportResult = result
+                legacyAvailability = try? await updater.legacyTanImportAvailability()
+            } catch {
+                legacyAvailability = nil
+                legacyImportError = (error as? ManualUpdateError) == .staleCandidate
+                    ? "The shared Tan folder changed since the preview. Refresh the folder and review it before importing."
+                    : error.localizedDescription
+            }
+            legacyImporting = false
+        }
+    }
+
+    @ViewBuilder private var inspectionContent: some View {
+        switch phase {
+        case .empty:
+            Label("No ZIP selected", systemImage: "doc.zipper").foregroundStyle(.secondary)
+            Text("Choose or drop a ZIP to inspect it. Selection does not install it.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .inspecting:
+            ProgressView(progressLabel)
+            Text("The ZIP is being copied to a private location and checked before any action is offered.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .ready:
+            if let candidate {
+                Label(candidate.classification == .older || candidate.classification == .unsupportedBaseline ? "Not Supported" : "Available",
+                      systemImage: candidate.classification == .older || candidate.classification == .unsupportedBaseline ? "xmark.circle" : "checkmark.circle")
+                    .font(.headline)
+            }
+        case .error(let message):
+            Label("Error", systemImage: "exclamationmark.triangle").font(.headline)
+            Text(message).foregroundStyle(.secondary)
+            Text("Choose a different local ZIP or inspect this one again.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .applying:
+            ProgressView(progressLabel)
+            Text("Keep Maomao open while the update handoff starts.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .waitingForRelaunch:
+            Label("Relaunching Maomao", systemImage: "arrow.clockwise").font(.headline)
+            Text("The update handoff started. Maomao will close and reopen.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private func candidateExplanation(_ candidate: ManualUpdateCandidate) -> some View {
+        switch candidate.classification {
+        case .newerMarketingVersion:
+            Text("A newer Maomao version is available. Updating preserves the Discord session, Maomao settings, and Tans in Maomao's scoped storage. Shared build-3 Tans remain untouched and require a separate import.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .newerBuild:
+            Text("This ZIP has the same version number with a newer build. Updating preserves the Discord session, Maomao settings, and Tans in Maomao's scoped storage. Shared build-3 Tans remain untouched and require a separate import.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .sameVersionCleanReinstall:
+            Text("This is the exact installed version and build. Only Clean Reinstall is available; it erases Maomao-owned data during the reinstall and relaunch. Read Information before continuing.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .older:
+            Text("This ZIP contains an older version or build. This updater cannot install it. To downgrade, back up your data and install the older app manually.")
+                .font(.caption).foregroundStyle(.secondary)
+        case .unsupportedBaseline:
+            Text("This installed Maomao version is below the supported updater baseline. Install the M1.3.0 checkpoint manually, then inspect a ZIP here again.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var informationSheet: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("About Manual Updates").font(.title2.bold())
+                Text("Choose a local Maomao app ZIP or drop it into Updates. Selection inspects the ZIP only. NokoCord does not check for, download, or schedule app updates.")
+                Text("Update").font(.headline)
+                Text("Update is offered only for a newer version or build. After you confirm, Maomao closes and relaunches. Your Discord session, Maomao settings and customizations, and scoped Tans are preserved. The old shared build-3 Tan folder is left untouched; import from it separately after reviewing its provenance warning.")
+                Text("Clean Reinstall").font(.headline)
+                Text("Clean Reinstall can repair a broken Maomao installation. It is offered only for the exact same version and build. It replaces the app and resets Maomao-owned data during the reinstall and relaunch:")
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("• Discord login, WebKit data, and cookies")
+                    Text("• Maomao's scoped Tans, Tan settings, and enabled selections")
+                    Text("• Maomao preferences, gateway and bridge configuration, caches, and customizations")
+                }
+                Text("You will need to sign in and set up again. Two separate confirmations are required.")
+                    .fontWeight(.semibold)
+                HStack { Spacer(); Button("Done") { showInformation = false }.keyboardShortcut(.defaultAction) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
+        }
+        .frame(width: 520, height: 390)
+    }
+
+    private var progressLabel: String {
+        switch progress {
+        case .inspecting: "Inspecting ZIP…"
+        case .copyingArchive: "Copying ZIP privately…"
+        case .validatingArchive: "Checking ZIP contents…"
+        case .extracting: "Unpacking app for inspection…"
+        case .validatingApplication: "Checking app identity and signature…"
+        case .staging: "Staging the replacement app…"
+        case .launchingHelper: "Starting the update helper…"
+        case .applying: "Preparing update handoff…"
+        case .waitingForRelaunch: "Waiting for Maomao to relaunch…"
+        default: "Inspecting ZIP…"
+        }
+    }
+
+    private func versionLabel(_ version: ManualUpdateVersion, build: ManualUpdateBuild) -> String {
+        "Maomao \(version) (build \(build))"
+    }
+
+    private func inspectSelection(_ url: URL) {
+        guard !isBusy else { return }
+        selectedFileName = url.lastPathComponent
+        candidate = nil
+        pendingCandidate = nil
+        guard url.isFileURL, url.pathExtension.lowercased() == "zip" else {
+            phase = .error("Choose a local .zip file containing a Maomao app.")
+            return
+        }
+        phase = .inspecting
+        progress = .inspecting
+        Task {
+            do {
+                candidate = try await updater.inspect(zipURL: url)
+                phase = .ready
+            } catch {
+                candidate = nil
+                phase = .error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func apply(_ candidate: ManualUpdateCandidate, operation: ManualUpdateOperation) {
+        guard !isBusy, candidate.permits(operation) else { return }
+        phase = .applying
+        progress = .applying
+        Task {
+            do {
+                _ = try await updater.apply(candidate: candidate, operation: operation)
+                phase = .waitingForRelaunch
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            } catch {
+                self.candidate = nil
+                phase = .error(error.localizedDescription)
+            }
+        }
     }
 }
 

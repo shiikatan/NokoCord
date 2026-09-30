@@ -11,6 +11,13 @@
 		A0123456789012345678900B /* TanTranslator in Embed Tan Translator Helper */ = {isa = PBXBuildFile; fileRef = A01234567890123456789004 /* TanTranslator */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		B01234567890123456789002 /* Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B01234567890123456789001 /* Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework */; };
 		B01234567890123456789003 /* Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B01234567890123456789001 /* Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C01234567890123456789001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789011 /* main.swift */; };
+		C01234567890123456789002 /* NokoCord/Services/ManualUpdaterModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789012 /* NokoCord/Services/ManualUpdaterModels.swift */; };
+		C01234567890123456789003 /* NokoCord/Services/ManualUpdateArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789013 /* NokoCord/Services/ManualUpdateArchive.swift */; };
+		C01234567890123456789005 /* NokoCord/Services/ManualUpdateTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789015 /* NokoCord/Services/ManualUpdateTransaction.swift */; };
+		C01234567890123456789006 /* NokoCord/Services/ManualUpdateTransactionWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789016 /* NokoCord/Services/ManualUpdateTransactionWorker.swift */; };
+		C01234567890123456789007 /* NokoCordUpdateHelper in Embed Update Helper */ = {isa = PBXBuildFile; fileRef = C01234567890123456789018 /* NokoCordUpdateHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		C01234567890123456789025 /* NokoCord/Services/ManualUpdateValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789024 /* NokoCord/Services/ManualUpdateValidation.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,6 +27,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A01234567890123456789006;
 			remoteInfo = TanTranslator;
+		};
+		C01234567890123456789008 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 046C5B2330608FCD00F6B9E0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C01234567890123456789020;
+			remoteInfo = ManualUpdateHelper;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -41,6 +55,15 @@
 			);
 			name = "Embed Frameworks";
 		};
+		C01234567890123456789009 /* Embed Update Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = Contents/Helpers;
+			dstSubfolder = Wrapper;
+			files = (
+				C01234567890123456789007 /* NokoCordUpdateHelper in Embed Update Helper */,
+			);
+			name = "Embed Update Helper";
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +72,13 @@
 		A01234567890123456789004 /* TanTranslator */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = TanTranslator; sourceTree = BUILT_PRODUCTS_DIR; };
 		A0123456789012345678900F /* Edition.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Edition.xcconfig; sourceTree = "<group>"; };
 		B01234567890123456789001 /* Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = "Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework"; sourceTree = SOURCE_ROOT; };
+		C01234567890123456789011 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		C01234567890123456789012 /* NokoCord/Services/ManualUpdaterModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdaterModels.swift; sourceTree = SOURCE_ROOT; };
+		C01234567890123456789013 /* NokoCord/Services/ManualUpdateArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdateArchive.swift; sourceTree = SOURCE_ROOT; };
+		C01234567890123456789015 /* NokoCord/Services/ManualUpdateTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdateTransaction.swift; sourceTree = SOURCE_ROOT; };
+		C01234567890123456789016 /* NokoCord/Services/ManualUpdateTransactionWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdateTransactionWorker.swift; sourceTree = SOURCE_ROOT; };
+		C01234567890123456789018 /* NokoCordUpdateHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NokoCordUpdateHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		C01234567890123456789024 /* NokoCord/Services/ManualUpdateValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdateValidation.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -76,7 +106,9 @@
 				046C5B2D30608FCD00F6B9E0 /* NokoCord */,
 				B01234567890123456789001 /* Vendor/DiscordSocialSDK-1.10.19337/discord_partner_sdk.framework */,
 				A0123456789012345678900E /* Tools/TanTranslator/Helper */,
+				C01234567890123456789017 /* Tools/ManualUpdateHelper */,
 				046C5B2C30608FCD00F6B9E0 /* Products */,
+				04AD19B1306CA5D600377628 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -87,6 +119,14 @@
 				A01234567890123456789004 /* TanTranslator */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		04AD19B1306CA5D600377628 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				C01234567890123456789018 /* NokoCordUpdateHelper */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 		A0123456789012345678900E /* Tools/TanTranslator/Helper */ = {
@@ -105,6 +145,19 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		C01234567890123456789017 /* Tools/ManualUpdateHelper */ = {
+			isa = PBXGroup;
+			children = (
+				C01234567890123456789011 /* main.swift */,
+				C01234567890123456789012 /* NokoCord/Services/ManualUpdaterModels.swift */,
+				C01234567890123456789013 /* NokoCord/Services/ManualUpdateArchive.swift */,
+				C01234567890123456789024 /* NokoCord/Services/ManualUpdateValidation.swift */,
+				C01234567890123456789015 /* NokoCord/Services/ManualUpdateTransaction.swift */,
+				C01234567890123456789016 /* NokoCord/Services/ManualUpdateTransactionWorker.swift */,
+			);
+			path = Tools/ManualUpdateHelper;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -116,12 +169,14 @@
 				046C5B2830608FCD00F6B9E0 /* Frameworks */,
 				046C5B2930608FCD00F6B9E0 /* Resources */,
 				A0123456789012345678900A /* Embed Tan Translator Helper */,
+				C01234567890123456789009 /* Embed Update Helper */,
 				B01234567890123456789004 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				A0123456789012345678900D /* PBXTargetDependency */,
+				C01234567890123456789019 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				046C5B2D30608FCD00F6B9E0 /* NokoCord */,
@@ -142,6 +197,19 @@
 			name = TanTranslator;
 			productName = TanTranslator;
 			productReference = A01234567890123456789004 /* TanTranslator */;
+			productType = "com.apple.product-type.tool";
+		};
+		C01234567890123456789020 /* ManualUpdateHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C01234567890123456789028 /* Build configuration list for PBXNativeTarget "ManualUpdateHelper" */;
+			buildPhases = (
+				C01234567890123456789021 /* Sources */,
+			);
+			buildRules = (
+			);
+			name = ManualUpdateHelper;
+			productName = NokoCordUpdateHelper;
+			productReference = C01234567890123456789018 /* NokoCordUpdateHelper */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -178,6 +246,7 @@
 			targets = (
 				046C5B2A30608FCD00F6B9E0 /* NokoCord */,
 				A01234567890123456789006 /* TanTranslator */,
+				C01234567890123456789020 /* ManualUpdateHelper */,
 			);
 		};
 /* End PBXProject section */
@@ -202,6 +271,17 @@
 				A01234567890123456789003 /* main.swift in Sources */,
 			);
 		};
+		C01234567890123456789021 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+				C01234567890123456789001 /* main.swift in Sources */,
+				C01234567890123456789002 /* NokoCord/Services/ManualUpdaterModels.swift in Sources */,
+				C01234567890123456789003 /* NokoCord/Services/ManualUpdateArchive.swift in Sources */,
+				C01234567890123456789025 /* NokoCord/Services/ManualUpdateValidation.swift in Sources */,
+				C01234567890123456789005 /* NokoCord/Services/ManualUpdateTransaction.swift in Sources */,
+				C01234567890123456789006 /* NokoCord/Services/ManualUpdateTransactionWorker.swift in Sources */,
+			);
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -209,6 +289,11 @@
 			isa = PBXTargetDependency;
 			target = A01234567890123456789006 /* TanTranslator */;
 			targetProxy = A0123456789012345678900C /* PBXContainerItemProxy */;
+		};
+		C01234567890123456789019 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C01234567890123456789020 /* ManualUpdateHelper */;
+			targetProxy = C01234567890123456789008 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -335,7 +420,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/NokoCord.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -390,7 +475,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/NokoCord.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEPLOYMENT_POSTPROCESSING = YES;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -494,6 +579,51 @@
 			};
 			name = Release;
 		};
+		C01234567890123456789022 /* Debug configuration for PBXNativeTarget "ManualUpdateHelper" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NOKO_BUNDLE_ID).UpdateHelper";
+				PRODUCT_NAME = NokoCordUpdateHelper;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C01234567890123456789023 /* Release configuration for PBXNativeTarget "ManualUpdateHelper" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.6;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NOKO_BUNDLE_ID).UpdateHelper";
+				PRODUCT_NAME = NokoCordUpdateHelper;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = "non-global";
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -518,6 +648,14 @@
 			buildConfigurations = (
 				A01234567890123456789008 /* Debug configuration for PBXNativeTarget "TanTranslator" */,
 				A01234567890123456789009 /* Release configuration for PBXNativeTarget "TanTranslator" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		C01234567890123456789028 /* Build configuration list for PBXNativeTarget "ManualUpdateHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C01234567890123456789022 /* Debug configuration for PBXNativeTarget "ManualUpdateHelper" */,
+				C01234567890123456789023 /* Release configuration for PBXNativeTarget "ManualUpdateHelper" */,
 			);
 			defaultConfigurationName = Release;
 		};
