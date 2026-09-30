@@ -13,24 +13,32 @@ private final class DiscordCompletionGate: @unchecked Sendable {
         self.continuation = continuation
     }
 
-    func complete(_ result: Result<Void, any Error>) {
+    @discardableResult
+    func complete(_ result: Result<Void, any Error>) -> Bool {
         lock.lock()
         let pending = continuation
         continuation = nil
         lock.unlock()
-        pending?.resume(with: result)
+        guard let pending else { return false }
+        pending.resume(with: result)
+        return true
     }
 }
 
 /// App-only adapter. The shared activity bridge never imports Discord SDK types.
 final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Sendable {
     private let client: NokoDiscordSocialClient
+    private let publicationGate: DiscordSocialPublicationGate
 
-    init(client: NokoDiscordSocialClient) {
+    init(client: NokoDiscordSocialClient, publicationGate: DiscordSocialPublicationGate) {
         self.client = client
+        self.publicationGate = publicationGate
     }
 
     func update(activity: NokoActivity) async throws {
+        guard publicationGate.beginPublication() else {
+            throw DiscordSocialTransportError(message: "Discord Social SDK is connecting; activity will be retried when it is ready.")
+        }
         try await withCheckedThrowingContinuation { continuation in
             let gate = DiscordCompletionGate(continuation)
             client.updateRichPresence(
@@ -44,30 +52,49 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
                 largeImage: activity.largeImageURL ?? activity.largeImageAssetKey,
                 largeImageText: activity.largeImageText
             ) { result in
-                if result.isSuccessful {
-                    gate.complete(.success(()))
-                } else {
-                    gate.complete(.failure(DiscordSocialTransportError(message: result.message)))
+                let updateResult: Result<Void, any Error> = result.isSuccessful
+                    ? .success(())
+                    : .failure(DiscordSocialTransportError(message: result.message))
+                if gate.complete(updateResult) {
+                    self.publicationGate.endPublication()
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                gate.complete(.failure(DiscordSocialTransportError(message: "Rich Presence callback timed out.")))
+                if gate.complete(.failure(DiscordSocialTransportError(message: "Rich Presence callback timed out."))) {
+                    self.publicationGate.endPublication()
+                }
             }
         }
     }
 
     func clear() async throws {
+        guard publicationGate.beginPublication() else {
+            if publicationGate.deferClearIfBlocked() { return }
+            throw DiscordSocialTransportError(message: "Discord Social SDK is connecting; presence will be cleared after it is ready.")
+        }
+        try await issueClear { _ in self.publicationGate.endPublication() }
+    }
+
+    func flushDeferredClear() async throws {
+        guard publicationGate.beginDeferredClear() else { return }
+        try await issueClear { succeeded in
+            self.publicationGate.finishDeferredClear(succeeded: succeeded)
+        }
+    }
+
+    private func issueClear(onFinished: @escaping (Bool) -> Void) async throws {
         try await withCheckedThrowingContinuation { continuation in
             let gate = DiscordCompletionGate(continuation)
             client.clearRichPresence { result in
-                if result.isSuccessful {
-                    gate.complete(.success(()))
-                } else {
-                    gate.complete(.failure(DiscordSocialTransportError(message: result.message)))
-                }
+                let clearResult: Result<Void, any Error> = result.isSuccessful
+                    ? .success(())
+                    : .failure(DiscordSocialTransportError(message: result.message))
+                if gate.complete(clearResult) { onFinished(result.isSuccessful) }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                gate.complete(.failure(DiscordSocialTransportError(message: "Rich Presence clear timed out.")))
+                if gate.complete(.failure(DiscordSocialTransportError(message: "Rich Presence clear timed out."))) {
+                    onFinished(false)
+                }
             }
         }
     }
@@ -77,7 +104,10 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
 @MainActor
 final class NokoActivityRuntime {
     private let client = NokoDiscordSocialClient(applicationID: 0)
-    private lazy var bridge = NokoActivityBridge(transport: DiscordSocialActivityTransport(client: client))
+    private let publicationGate = DiscordSocialPublicationGate()
+    private lazy var transport = DiscordSocialActivityTransport(client: client, publicationGate: publicationGate)
+    private lazy var bridge = NokoActivityBridge(transport: transport)
+    lazy var discordAccount = DiscordSocialAccountService(client: client, publicationGate: publicationGate)
     lazy var appleMusicPresence = AppleMusicPresenceService(bridge: bridge)
     private let smokeOwner = NokoActivityOwner("nokocord.smoke")
     private let smokeActivity = NokoActivity(
@@ -86,26 +116,17 @@ final class NokoActivityRuntime {
         state: "Social SDK transport test"
     )
     private var callbackTimer: Timer?
-    private var retryTimer: Timer?
     private var discordLaunchObserver: NSObjectProtocol?
     private var stopping = false
     private var appleMusicCallbackDemand = false
-    private var smokeTestActive = false
+    private var discordAccountCallbackDemand = false
+    private var authenticatedSmokeTestActive = false
     private var shutdownClearActive = false
-
-    func startSmokeTest() {
-        stopping = false
-        smokeTestActive = true
-        updateCallbackPump()
-        retryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.publishSmoke() }
-        }
-        observeDiscordLaunches()
-        publishSmoke()
-    }
 
     func start(tanManager: TanManager) {
         stopping = false
+        configureDiscordAccountCallbacks()
+        Task { await discordAccount.start() }
         appleMusicPresence.onCallbackPumpDemandChanged = { [weak self] demanded in
             self?.appleMusicCallbackDemand = demanded
             self?.updateCallbackPump()
@@ -115,7 +136,8 @@ final class NokoActivityRuntime {
     }
 
     private func updateCallbackPump() {
-        if smokeTestActive || appleMusicCallbackDemand || shutdownClearActive {
+        if authenticatedSmokeTestActive || appleMusicCallbackDemand ||
+            discordAccountCallbackDemand || shutdownClearActive {
             guard callbackTimer == nil else { return }
             callbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.client.runCallbacks() }
@@ -152,6 +174,55 @@ final class NokoActivityRuntime {
         }
     }
 
+    /// Debug acceptance route for verifying the authenticated Social SDK while
+    /// the Discord desktop process is closed. It uses the same generic bridge.
+    func startAuthenticatedSmokeTest() {
+        stopping = false
+        authenticatedSmokeTestActive = true
+        configureDiscordAccountCallbacks()
+        updateCallbackPump()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.discordAccount.start()
+            if self.discordAccount.requiresAuthorization {
+                await self.discordAccount.authorize()
+            }
+        }
+    }
+
+    private func configureDiscordAccountCallbacks() {
+        discordAccount.onCallbackPumpDemandChanged = { [weak self] demanded in
+            self?.discordAccountCallbackDemand = demanded
+            self?.updateCallbackPump()
+        }
+        discordAccount.onReady = { [weak self] in
+            self?.handlePresenceRouteAvailable()
+        }
+        discordAccount.onDesktopRPCFallback = { [weak self] in
+            self?.handlePresenceRouteAvailable()
+        }
+    }
+
+    private var routeAvailableTask: Task<Void, Never>?
+
+    private func handlePresenceRouteAvailable() {
+        guard routeAvailableTask == nil else { return }
+        routeAvailableTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.routeAvailableTask = nil }
+            do {
+                try await self.transport.flushDeferredClear()
+            } catch {
+                return
+            }
+            if self.authenticatedSmokeTestActive {
+                self.publishSmoke()
+            } else {
+                await self.reassert()
+            }
+        }
+    }
+
     private func reassert() async {
         guard !stopping else { return }
         do {
@@ -165,16 +236,16 @@ final class NokoActivityRuntime {
         stopping = true
         shutdownClearActive = true
         updateCallbackPump()
-        retryTimer?.invalidate()
-        retryTimer = nil
         if let discordLaunchObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(discordLaunchObserver)
         }
         discordLaunchObserver = nil
         await appleMusicPresence.stop()
         _ = try? await bridge.stop()
-        smokeTestActive = false
+        await discordAccount.shutdown()
+        authenticatedSmokeTestActive = false
         appleMusicCallbackDemand = false
+        discordAccountCallbackDemand = false
         shutdownClearActive = false
         updateCallbackPump()
     }

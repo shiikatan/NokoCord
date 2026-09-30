@@ -7,14 +7,42 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, readonly, getter=isSuccessful) BOOL successful;
 @property(nonatomic, readonly, copy) NSString *message;
+@property(nonatomic, readonly) BOOL invalidGrant;
+@property(nonatomic, readonly, getter=isRetryable) BOOL retryable;
 
 @end
 
 typedef void (^NokoDiscordOperationCompletion)(NokoDiscordOperationResult *result);
+@class NokoDiscordTokenResult;
+typedef void (^NokoDiscordTokenCompletion)(NokoDiscordTokenResult *result);
+typedef void (^NokoDiscordConnectionStatusCompletion)(NSInteger status);
+typedef void (^NokoDiscordStatusChangedHandler)(NSInteger status, NSInteger error, NSInteger errorDetail);
+typedef void (^NokoDiscordTokenExpirationHandler)(void);
 
-/// Serializes Discord Social SDK presence operations and callback pumping.
-/// This client only configures the application ID and uses desktop RPC. It does
-/// not connect an SDK account or start an OAuth flow.
+typedef NS_ENUM(NSInteger, NokoDiscordSocialClientStatus) {
+    NokoDiscordSocialClientStatusDisconnected = 0,
+    NokoDiscordSocialClientStatusConnecting = 1,
+    NokoDiscordSocialClientStatusConnected = 2,
+    NokoDiscordSocialClientStatusReady = 3,
+    NokoDiscordSocialClientStatusReconnecting = 4,
+    NokoDiscordSocialClientStatusDisconnecting = 5,
+    NokoDiscordSocialClientStatusHTTPWait = 6,
+};
+
+@interface NokoDiscordTokenResult : NSObject
+
+@property(nonatomic, readonly, getter=isSuccessful) BOOL successful;
+@property(nonatomic, readonly) BOOL invalidGrant;
+@property(nonatomic, readonly) BOOL wasCancelled;
+@property(nonatomic, readonly, getter=isRetryable) BOOL retryable;
+@property(nonatomic, readonly) NSTimeInterval expiresIn;
+@property(nonatomic, readonly, copy, nullable) NSString *accessToken;
+@property(nonatomic, readonly, copy, nullable) NSString *refreshToken;
+
+@end
+
+/// Serializes Discord Social SDK authentication, connection, presence, and
+/// callback pumping on one queue.
 @interface NokoDiscordSocialClient : NSObject {
 @private
     void *_implementation;
@@ -22,6 +50,41 @@ typedef void (^NokoDiscordOperationCompletion)(NokoDiscordOperationResult *resul
 
 - (instancetype)initWithApplicationID:(uint64_t)applicationID NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
+
+@property(nonatomic, copy, nullable) NokoDiscordStatusChangedHandler statusChangedHandler;
+@property(nonatomic, copy, nullable) NokoDiscordTokenExpirationHandler tokenExpirationHandler;
+
+/// Runs Discord's public-client OAuth flow with SDK-generated state and PKCE.
+- (void)authorizeWithCompletion:(NokoDiscordTokenCompletion)completion
+    NS_SWIFT_NAME(authorize(completion:));
+
+/// Exchanges a saved refresh token. The returned pair replaces the old pair.
+- (void)refreshToken:(NSString *)refreshToken
+          completion:(NokoDiscordTokenCompletion)completion
+    NS_SWIFT_NAME(refreshToken(_:completion:));
+
+/// Updates the SDK's bearer token. Call `connect()` after this completion on
+/// the first authenticated connection.
+- (void)updateToken:(NSString *)accessToken
+         completion:(NokoDiscordOperationCompletion)completion
+    NS_SWIFT_NAME(updateToken(_:completion:));
+
+- (void)connect NS_SWIFT_NAME(connect());
+- (void)disconnect NS_SWIFT_NAME(disconnect());
+- (void)abortAuthorization NS_SWIFT_NAME(abortAuthorization());
+
+/// Returns the last SDK connection state reported by its callback pump.
+- (NSInteger)connectionStatus NS_SWIFT_NAME(connectionStatus());
+
+/// Reads Client::GetStatus on the serialized SDK queue after previously queued
+/// SDK operations have run.
+- (void)refreshConnectionStatusWithCompletion:(NokoDiscordConnectionStatusCompletion)completion
+    NS_SWIFT_NAME(refreshConnectionStatus(completion:));
+
+/// Revokes the application authorization associated with this token.
+- (void)revokeToken:(NSString *)token
+         completion:(NokoDiscordOperationCompletion)completion
+    NS_SWIFT_NAME(revokeToken(_:completion:));
 
 /// `successful` comes from the SDK's UpdateRichPresence callback.
 - (void)updateRichPresenceWithType:(NSString *)activityType
