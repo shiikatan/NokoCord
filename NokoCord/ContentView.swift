@@ -256,6 +256,7 @@ struct SettingsView: View {
                 }
             }.formStyle(.grouped).tabItem { Label("General", systemImage: "gearshape") }
             Form {
+                DiscordSocialAccountSection()
                 DiscordSessionPrivacySection()
                 Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }

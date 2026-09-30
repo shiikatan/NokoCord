@@ -139,6 +139,134 @@ struct BrowserSettingsView: View {
     }
 }
 
+struct DiscordSocialAccountSection: View {
+    @Environment(DiscordSocialAccountService.self) private var account
+    @State private var connecting = false
+    @State private var disconnecting = false
+
+    var body: some View {
+        Section("Discord activity") {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(statusTitle, systemImage: statusSymbol)
+                    .font(.headline)
+                    .accessibilityLabel("Discord activity: \(statusTitle)")
+
+                Text(statusDescription)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                if let warning = account.warning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                }
+
+                HStack(spacing: 10) {
+                    if showsConnect {
+                        Button(connectTitle) {
+                            connecting = true
+                            Task {
+                                await account.authorize()
+                                connecting = false
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(connecting || disconnecting)
+                    }
+
+                    if showsDisconnect {
+                        Button(disconnectTitle, role: .destructive) {
+                            disconnecting = true
+                            Task {
+                                await account.disconnect()
+                                disconnecting = false
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(disconnecting)
+                    }
+
+                    if isWaiting || connecting || disconnecting {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel("Discord activity connection in progress")
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var statusTitle: String {
+        switch account.state {
+        case .signedOut: "Checking saved authorization"
+        case .authorizationRequired: "Not connected"
+        case .authorizing: "Waiting for Discord authorization"
+        case .connecting: "Connecting"
+        case .ready: "Connected"
+        case .reconnecting: "Reconnecting"
+        case .failed: "Connection needs attention"
+        }
+    }
+
+    private var statusSymbol: String {
+        switch account.state {
+        case .ready: "checkmark.circle.fill"
+        case .failed: "exclamationmark.circle"
+        case .authorizationRequired: "person.crop.circle.badge.plus"
+        default: "circle.dotted"
+        }
+    }
+
+    private var statusDescription: String {
+        switch account.state {
+        case .signedOut:
+            "NokoCord is checking Keychain for a saved Discord authorization."
+        case .authorizationRequired:
+            "Connect your Discord account so NokoCord can publish activity while the Discord desktop app is closed."
+        case .authorizing:
+            "Complete the Discord authorization in your browser."
+        case .connecting, .reconnecting:
+            "NokoCord is establishing the activity connection."
+        case .ready:
+            "NokoCord can publish activity while the Discord desktop app is closed."
+        case .failed(let message):
+            message
+        }
+    }
+
+    private var showsConnect: Bool {
+        switch account.state {
+        case .authorizationRequired, .failed: true
+        default: false
+        }
+    }
+
+    private var showsDisconnect: Bool {
+        switch account.state {
+        case .authorizing, .connecting, .ready, .reconnecting, .failed: true
+        default: false
+        }
+    }
+
+    private var isWaiting: Bool {
+        switch account.state {
+        case .signedOut, .authorizing, .connecting, .reconnecting: true
+        default: false
+        }
+    }
+
+    private var connectTitle: String {
+        if case .failed = account.state { return "Try Again" }
+        return "Connect Discord"
+    }
+
+    private var disconnectTitle: String {
+        if case .authorizing = account.state { return "Cancel" }
+        return disconnecting ? "Disconnecting…" : "Disconnect"
+    }
+}
+
 struct DiscordSessionPrivacySection: View {
     var body: some View {
         Section("Discord session") { DiscordSessionControls() }

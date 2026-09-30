@@ -56,6 +56,7 @@ struct NokoCordApp: App {
                         .environment(context.browser)
                         .environment(context.tans)
                         .environment(context.activityRuntime.appleMusicPresence)
+                        .environment(context.activityRuntime.discordAccount)
                 } else {
                     NokoStartupRecoveryView(
                         isPreparing: startup.isPreparing,
