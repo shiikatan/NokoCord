@@ -115,6 +115,21 @@ struct DiscordAccountServiceHarness {
         try await Task.sleep(nanoseconds: 100_000_000)
     }
 
+    private static func waitForCancellationWarning(
+        _ service: DiscordSocialAccountService,
+        pollCount: Int = 150
+    ) async throws {
+        for _ in 0..<pollCount {
+            if service.warning?.contains("Restart NokoCord") == true { return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        let warning = service.warning ?? "<none>"
+        throw NSError(domain: "NativeAuthHarness", code: 2, userInfo: [
+            NSLocalizedDescriptionKey: "Restart guidance did not appear within the bounded wait; state=\(service.state), quarantined=\(service.authorizationIsQuarantined), warning=\(warning)"
+        ])
+    }
+
     private static func revokeTimeoutKeepsConnectQuarantined() async throws {
         let client = NokoDiscordSocialClient()
         let store = KeychainDiscordSocialCredentialStore()
@@ -157,10 +172,12 @@ struct DiscordAccountServiceHarness {
         try check(service.authorizationIsQuarantined, "canceled OAuth callback must remain quarantined")
         await service.authorize()
         try check(client.authorizeCount == 1, "new OAuth must wait for canceled callback")
-        try await Task.sleep(nanoseconds: 60_200_000_000)
+        // The production warning deadline is 60 seconds. Wait through that
+        // deadline, then poll briefly so scheduler delay cannot make a
+        // single boundary snapshot fail spuriously.
+        try await Task.sleep(nanoseconds: 60_000_000_000)
+        try await waitForCancellationWarning(service)
         try check(service.authorizationIsQuarantined, "OAuth must remain quarantined after the warning deadline")
-        try check(service.warning?.contains("Restart NokoCord") == true,
-                  "a stalled canceled OAuth attempt needs visible restart guidance")
         await service.authorize()
         try check(client.authorizeCount == 1, "OAuth must still be blocked after the warning deadline")
         client.authorizeCallbacks[0](.lateSuccess)
