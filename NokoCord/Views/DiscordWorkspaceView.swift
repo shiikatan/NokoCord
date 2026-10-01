@@ -171,7 +171,7 @@ struct DiscordSocialAccountSection: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(connecting || disconnecting)
+                        .disabled(connecting || disconnecting || account.authorizationIsQuarantined)
                     }
 
                     if showsDisconnect {

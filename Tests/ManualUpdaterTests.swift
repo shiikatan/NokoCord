@@ -354,10 +354,37 @@ final class ManualUpdaterTests: XCTestCase {
             paths: paths,
             arguments: ["NokoCord"],
             defaults: defaults,
-            webDataResetter: resetter
+            webDataResetter: resetter,
+            credentialReset: { XCTFail("No transaction must not access Keychain") }
         )
         XCTAssertNil(result)
         XCTAssertFalse(resetter.wasCalled)
+    }
+
+    @MainActor
+    func testCleanResetStopsBeforePreferencesAndWebKitWhenCredentialDeletionFails() async throws {
+        let resetter = RecordingWebDataResetter()
+        let defaults = UserDefaults(suiteName: "ManualUpdaterTests.\(UUID().uuidString)")!
+        let key = "credential-reset-order"
+        defaults.set("preserve", forKey: key)
+        defer { defaults.removeObject(forKey: key) }
+        var credentialResetWasCalled = false
+
+        do {
+            try await ManualUpdateStartupRecovery.clearCleanReinstallCredentialsPreferencesAndWebsiteData(
+                defaults: defaults,
+                webDataResetter: resetter,
+                credentialReset: {
+                    credentialResetWasCalled = true
+                    throw DiscordSocialCredentialStoreError.invalidCredentialData
+                }
+            )
+            XCTFail("Failed authorization cleanup must stop Clean Reinstall startup")
+        } catch DiscordSocialCredentialStoreError.invalidCredentialData {
+            XCTAssertTrue(credentialResetWasCalled)
+            XCTAssertEqual(defaults.string(forKey: key), "preserve")
+            XCTAssertFalse(resetter.wasCalled)
+        }
     }
 
     @MainActor

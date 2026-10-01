@@ -28,3 +28,14 @@ node_modules/
 
 # Installed translation archives may contain private user-selected source.
 *.source.json
+
+# Private build settings, review evidence, and local tooling.
+/Config/Local.xcconfig
+/.local-review/
+/.codex/
+/.agents/
+/.aws/
+/docs/checkpoints/
+AGENTS.md
+*.pem
+*.key

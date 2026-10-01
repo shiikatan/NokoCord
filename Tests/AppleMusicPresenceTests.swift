@@ -67,7 +67,7 @@ final class AppleMusicPresenceTests: XCTestCase {
     func testInvalidOrNonAppleArtworkURLIsOmitted() throws {
         var mapper = AppleMusicActivityMapper()
         let sample = track(position: 1)
-        let rejected = try XCTUnwrap(mapper.activity(for: sample, artworkURL: URL(string: "file:///Users/test/artwork.jpg"), sampledAt: Date()))
+        let rejected = try XCTUnwrap(mapper.activity(for: sample, artworkURL: URL(string: "file:///tmp/synthetic-artwork.jpg"), sampledAt: Date()))
         XCTAssertNil(rejected.largeImageURL)
         XCTAssertNil(rejected.largeImageText)
     }

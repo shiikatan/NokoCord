@@ -1,6 +1,24 @@
 import Foundation
 import Security
 
+enum DiscordSocialConfiguration {
+    static var applicationID: UInt64? {
+        parseApplicationID(Bundle.main.object(forInfoDictionaryKey: "NokoDiscordApplicationID"))
+    }
+
+    static func parseApplicationID(_ value: Any?) -> UInt64? {
+        guard let raw = value as? String,
+              !raw.isEmpty,
+              raw.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+              let identifier = UInt64(raw), identifier > 0 else { return nil }
+        return identifier
+    }
+
+    static func credentialService(applicationID: UInt64) -> String {
+        KeychainDiscordSocialCredentialStore.productionService + "." + String(applicationID)
+    }
+}
+
 struct DiscordSocialCredentials: Codable, Equatable, Sendable, CustomStringConvertible {
     let accessToken: String
     let refreshToken: String
@@ -13,6 +31,54 @@ protocol DiscordSocialCredentialStoring: Sendable {
     func load() async throws -> DiscordSocialCredentials?
     func save(_ credentials: DiscordSocialCredentials) async throws
     func remove() async throws
+}
+
+/// Clean Reinstall removes Maomao-owned authorizations before preferences are
+/// reset. A failure leaves startup recovery pending, so it cannot restore a
+/// saved session after claiming the reset has completed.
+enum DiscordSocialCredentialReset {
+    /// Inspect attributes only, never token data. An earlier build may have
+    /// used a different Discord application ID, so the current ID is not a
+    /// complete inventory of Maomao-owned Keychain authorizations.
+    static func authorizationServicesInKeychain() throws -> [String] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "authorization",
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess else {
+            throw DiscordSocialCredentialStoreError.keychainStatus(status)
+        }
+        guard let items = result as? [[String: Any]] else {
+            throw DiscordSocialCredentialStoreError.invalidCredentialData
+        }
+        return items.compactMap { $0[kSecAttrService as String] as? String }
+    }
+
+    static func isOwnedAuthorizationService(_ service: String) -> Bool {
+        let prefix = KeychainDiscordSocialCredentialStore.productionService
+        if service == prefix { return true }
+        guard service.hasPrefix(prefix + ".") else { return false }
+        let suffix = String(service.dropFirst(prefix.count + 1))
+        guard let applicationID = UInt64(suffix), applicationID > 0 else { return false }
+        return String(applicationID) == suffix
+    }
+
+    static func removeForCleanReinstall(
+        authorizationServices: () throws -> [String] = authorizationServicesInKeychain,
+        storeForService: (String) -> any DiscordSocialCredentialStoring = {
+            KeychainDiscordSocialCredentialStore(service: $0)
+        }
+    ) async throws {
+        let ownedServices = Set(try authorizationServices().filter(isOwnedAuthorizationService))
+        for service in ownedServices.sorted() {
+            try await storeForService(service).remove()
+        }
+    }
 }
 
 enum DiscordSocialCredentialStoreError: Error, Equatable {

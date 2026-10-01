@@ -5,3 +5,8 @@ NOKO_EDITION_ID = maomao
 NOKO_EDITION_NAME = Maomao
 NOKO_PUBLIC_VERSION = M1.3.0
 NOKO_MAINTAINER = Shiikatan
+
+// Supply the application's ID locally or as an xcodebuild setting.
+// Zero keeps an unconfigured source build offline for Social SDK operations.
+NOKO_DISCORD_APPLICATION_ID = 0
+#include? "Local.xcconfig"

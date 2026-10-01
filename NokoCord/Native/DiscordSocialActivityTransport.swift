@@ -29,13 +29,18 @@ private final class DiscordCompletionGate: @unchecked Sendable {
 final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Sendable {
     private let client: NokoDiscordSocialClient
     private let publicationGate: DiscordSocialPublicationGate
+    private let isConfigured: Bool
 
-    init(client: NokoDiscordSocialClient, publicationGate: DiscordSocialPublicationGate) {
+    init(client: NokoDiscordSocialClient, publicationGate: DiscordSocialPublicationGate, isConfigured: Bool = true) {
         self.client = client
         self.publicationGate = publicationGate
+        self.isConfigured = isConfigured
     }
 
     func update(activity: NokoActivity) async throws {
+        guard isConfigured else {
+            throw DiscordSocialTransportError(message: "Discord activity is unavailable in this unconfigured build.")
+        }
         guard publicationGate.beginPublication() else {
             throw DiscordSocialTransportError(message: "Discord Social SDK is connecting; activity will be retried when it is ready.")
         }
@@ -68,6 +73,7 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
     }
 
     func clear() async throws {
+        guard isConfigured else { return }
         guard publicationGate.beginPublication() else {
             if publicationGate.deferClearIfBlocked() { return }
             throw DiscordSocialTransportError(message: "Discord Social SDK is connecting; presence will be cleared after it is ready.")
@@ -76,6 +82,7 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
     }
 
     func flushDeferredClear() async throws {
+        guard isConfigured else { return }
         guard publicationGate.beginDeferredClear() else { return }
         try await issueClear { succeeded in
             self.publicationGate.finishDeferredClear(succeeded: succeeded)
@@ -103,24 +110,38 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
 /// Owns the SDK client and callback pump independently of any SwiftUI window.
 @MainActor
 final class NokoActivityRuntime {
-    private let client = NokoDiscordSocialClient(applicationID: 0)
+    private static let applicationID = DiscordSocialConfiguration.applicationID
+    private let client = NokoDiscordSocialClient(applicationID: NokoActivityRuntime.applicationID ?? 0)
     private let publicationGate = DiscordSocialPublicationGate()
-    private lazy var transport = DiscordSocialActivityTransport(client: client, publicationGate: publicationGate)
+    private lazy var transport = DiscordSocialActivityTransport(client: client, publicationGate: publicationGate, isConfigured: Self.applicationID != nil)
     private lazy var bridge = NokoActivityBridge(transport: transport)
-    lazy var discordAccount = DiscordSocialAccountService(client: client, publicationGate: publicationGate)
+    lazy var discordAccount = DiscordSocialAccountService(
+        client: client,
+        publicationGate: publicationGate,
+        credentialStore: KeychainDiscordSocialCredentialStore(service: Self.applicationID.map {
+            DiscordSocialConfiguration.credentialService(applicationID: $0)
+        } ?? KeychainDiscordSocialCredentialStore.productionService + ".unconfigured"),
+        isConfigured: Self.applicationID != nil
+    )
     lazy var appleMusicPresence = AppleMusicPresenceService(bridge: bridge)
+    #if DEBUG
     private let smokeOwner = NokoActivityOwner("nokocord.smoke")
     private let smokeActivity = NokoActivity(
         title: "NokoCord",
         details: "NokoCord Activity Bridge",
         state: "Social SDK transport test"
     )
+    #endif
     private var callbackTimer: Timer?
     private var discordLaunchObserver: NSObjectProtocol?
     private var stopping = false
     private var appleMusicCallbackDemand = false
     private var discordAccountCallbackDemand = false
+    #if DEBUG
     private var authenticatedSmokeTestActive = false
+    #else
+    private var authenticatedSmokeTestActive: Bool { false }
+    #endif
     private var shutdownClearActive = false
 
     func start(tanManager: TanManager) {
@@ -161,6 +182,7 @@ final class NokoActivityRuntime {
         }
     }
 
+    #if DEBUG
     private func publishSmoke() {
         guard !stopping else { return }
         Task {
@@ -189,6 +211,7 @@ final class NokoActivityRuntime {
             }
         }
     }
+    #endif
 
     private func configureDiscordAccountCallbacks() {
         discordAccount.onCallbackPumpDemandChanged = { [weak self] demanded in
@@ -215,11 +238,13 @@ final class NokoActivityRuntime {
             } catch {
                 return
             }
+            #if DEBUG
             if self.authenticatedSmokeTestActive {
                 self.publishSmoke()
-            } else {
-                await self.reassert()
+                return
             }
+            #endif
+            await self.reassert()
         }
     }
 
@@ -243,7 +268,9 @@ final class NokoActivityRuntime {
         await appleMusicPresence.stop()
         _ = try? await bridge.stop()
         await discordAccount.shutdown()
+        #if DEBUG
         authenticatedSmokeTestActive = false
+        #endif
         appleMusicCallbackDemand = false
         discordAccountCallbackDemand = false
         shutdownClearActive = false

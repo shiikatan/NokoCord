@@ -7,7 +7,7 @@ let package = Package(
     products: [.library(name: "NokoCordCore", targets: ["NokoCordCore"])],
     targets: [
         .target(name: "NokoCordCore", path: "NokoCord", exclude: ["NokoCordApp.swift", "ContentView.swift", "Assets.xcassets", "Views", "Native"], sources: ["Models", "Services"], resources: [.process("Resources")]),
-        .testTarget(name: "NokoCordCoreTests", dependencies: ["NokoCordCore"], path: "Tests")
+        .testTarget(name: "NokoCordCoreTests", dependencies: ["NokoCordCore"], path: "Tests", exclude: ["Native"])
     ],
     swiftLanguageModes: [.v5]
 )

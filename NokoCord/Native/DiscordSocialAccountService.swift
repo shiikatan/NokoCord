@@ -108,10 +108,12 @@ private enum DiscordSocialLogoutBarrier {
 final class DiscordSocialAccountService {
     private(set) var state: DiscordSocialAccountState = .signedOut
     private(set) var warning: String?
+    private(set) var authorizationIsQuarantined = false
 
     @ObservationIgnored private let client: NokoDiscordSocialClient
     @ObservationIgnored private let credentialStore: any DiscordSocialCredentialStoring
     @ObservationIgnored private let publicationGate: DiscordSocialPublicationGate
+    @ObservationIgnored private let isConfigured: Bool
     @ObservationIgnored private var credentials: DiscordSocialCredentials?
     @ObservationIgnored private var currentStatus: Int = NokoDiscordSocialClientStatus.disconnected.rawValue
     @ObservationIgnored private var didStart = false
@@ -135,6 +137,7 @@ final class DiscordSocialAccountService {
     @ObservationIgnored private var pendingAuthorizationCallbacks: Set<UUID> = []
     @ObservationIgnored private var authorizationCallbackExpiryTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var lateCallbackCleanupCount = 0
+    @ObservationIgnored private var pendingRevocationCallbacks: Set<UUID> = []
     @ObservationIgnored private var shutdownDisconnectInProgress = false
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
     @ObservationIgnored private var statusEventGeneration: UInt64 = 0
@@ -157,11 +160,13 @@ final class DiscordSocialAccountService {
     init(
         client: NokoDiscordSocialClient,
         publicationGate: DiscordSocialPublicationGate,
-        credentialStore: any DiscordSocialCredentialStoring = KeychainDiscordSocialCredentialStore()
+        credentialStore: any DiscordSocialCredentialStoring = KeychainDiscordSocialCredentialStore(),
+        isConfigured: Bool = true
     ) {
         self.client = client
         self.publicationGate = publicationGate
         self.credentialStore = credentialStore
+        self.isConfigured = isConfigured
 
         client.statusChangedHandler = { [weak self] status, error, errorDetail in
             Task { @MainActor [weak self] in
@@ -184,6 +189,10 @@ final class DiscordSocialAccountService {
     func start() async {
         guard !didStart else { return }
         didStart = true
+        guard isConfigured else {
+            state = .failed("This build has no Discord application configured. Set NOKO_DISCORD_APPLICATION_ID when building NokoCord.")
+            return
+        }
         let requestGeneration = sessionGeneration
         if DiscordSocialLogoutBarrier.isRaised {
             do {
@@ -223,12 +232,13 @@ final class DiscordSocialAccountService {
     /// Starts Discord's documented public-client authorization flow. The SDK
     /// creates and verifies OAuth state and the PKCE challenge.
     func authorize() async {
-        guard (requiresAuthorization || isRetryableFailure),
+        guard isConfigured, (requiresAuthorization || isRetryableFailure),
               !authorizationInProgress,
               refreshOperationID == nil,
               installOperationID == nil,
               pendingAuthorizationCallbacks.isEmpty,
               lateCallbackCleanupCount == 0,
+              pendingRevocationCallbacks.isEmpty,
               !disconnectInProgress,
               !shuttingDown else { return }
 
@@ -334,6 +344,7 @@ final class DiscordSocialAccountService {
     /// best-effort. Logout completes locally even if Discord never answers a
     /// revoke or disconnect callback.
     func disconnect() async {
+        guard isConfigured else { return }
         sessionGeneration &+= 1
         let logoutGeneration = sessionGeneration
         userRequestedDisconnect = true
@@ -363,7 +374,9 @@ final class DiscordSocialAccountService {
 
         let refreshToken = credentials?.refreshToken
         if let refreshToken, !(await revoke(refreshToken: refreshToken)) {
-            warning = "Discord did not confirm revocation. NokoCord removed the local authorization."
+            warning = pendingRevocationCallbacks.isEmpty
+                ? "Discord did not confirm revocation. NokoCord removed the local authorization."
+                : "Discord has not finished revocation. Connect will be available after its callback; restart NokoCord if it does not finish."
         }
 
         var removalSucceeded = true
@@ -399,6 +412,7 @@ final class DiscordSocialAccountService {
     /// Stops the connection when NokoCord exits while retaining Keychain
     /// credentials for the next launch. It does not revoke the user's grant.
     func shutdown() async {
+        guard isConfigured else { return }
         shuttingDown = true
         shutdownDisconnectInProgress = true
         sessionGeneration &+= 1
@@ -651,6 +665,11 @@ final class DiscordSocialAccountService {
             authorizationAttempt = nil
         }
 
+        if !wasAccepted, !result.isSuccessful,
+           warning == "Discord authorization cancellation is taking longer than expected. Restart NokoCord to retry Connect." {
+            warning = nil
+        }
+
         if !wasAccepted, result.isSuccessful,
            let refreshToken = result.refreshToken ?? result.accessToken {
             lateCallbackCleanupCount += 1
@@ -669,9 +688,12 @@ final class DiscordSocialAccountService {
             } catch {
                 return
             }
-            guard let self, self.pendingAuthorizationCallbacks.remove(operationID) != nil else { return }
+            guard let self, self.pendingAuthorizationCallbacks.contains(operationID) else { return }
             self.authorizationCallbackExpiryTasks[operationID] = nil
-            self.warning = "Discord authorization cancellation is taking longer than expected. You can retry Connect now."
+            // AbortAuthorize does not guarantee a callback. Keep this attempt
+            // quarantined: a later success would revoke every grant for this
+            // app and user, including one issued by a newer Connect attempt.
+            self.warning = "Discord authorization cancellation is taking longer than expected. Restart NokoCord to retry Connect."
             self.updateCallbackPumpDemand()
         }
     }
@@ -1000,10 +1022,18 @@ final class DiscordSocialAccountService {
     }
 
     private func revoke(refreshToken: String) async -> Bool {
-        await withCheckedContinuation { continuation in
+        let operationID = UUID()
+        pendingRevocationCallbacks.insert(operationID)
+        updateCallbackPumpDemand()
+        return await withCheckedContinuation { continuation in
             let gate = DiscordSocialContinuationGate(continuation)
-            client.revokeToken(refreshToken) { result in
+            client.revokeToken(refreshToken) { [weak self] result in
                 gate.complete(result.isSuccessful)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.pendingRevocationCallbacks.remove(operationID)
+                    self.updateCallbackPumpDemand()
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 gate.complete(false)
@@ -1027,6 +1057,8 @@ final class DiscordSocialAccountService {
     }
 
     private func updateCallbackPumpDemand() {
+        authorizationIsQuarantined = !pendingAuthorizationCallbacks.isEmpty ||
+            lateCallbackCleanupCount > 0 || !pendingRevocationCallbacks.isEmpty
         guard !shuttingDown else {
             setCallbackPumpDemand(
                 shutdownDisconnectInProgress || currentStatus != Self.disconnectedStatus ||
@@ -1036,7 +1068,7 @@ final class DiscordSocialAccountService {
         }
         let sdkIsActive = currentStatus != Self.disconnectedStatus || client.connectionStatus() != Self.disconnectedStatus
         let demanded = authorizationInProgress || refreshOperationID != nil || installOperationID != nil ||
-            !pendingAuthorizationCallbacks.isEmpty || lateCallbackCleanupCount > 0 ||
+            !pendingAuthorizationCallbacks.isEmpty || lateCallbackCleanupCount > 0 || !pendingRevocationCallbacks.isEmpty ||
             disconnectInProgress || retryTask != nil || sdkIsActive || state == .ready ||
             state == .connecting || state == .reconnecting
         setCallbackPumpDemand(demanded)

@@ -7,7 +7,101 @@ private actor PublicationDrainFlag {
     func markDrained() { isDrained = true }
 }
 
+private actor RecordingCredentialStore: DiscordSocialCredentialStoring {
+    private(set) var removeCount = 0
+    var shouldFail = false
+
+    func load() async throws -> DiscordSocialCredentials? { nil }
+    func save(_ credentials: DiscordSocialCredentials) async throws {}
+    func remove() async throws {
+        removeCount += 1
+        if shouldFail { throw DiscordSocialCredentialStoreError.invalidCredentialData }
+    }
+    func failRemoval() { shouldFail = true }
+}
+
 final class DiscordSocialCredentialStoreTests: XCTestCase {
+    func testUnconfiguredOrInvalidApplicationIdentifiersAreRejected() {
+        for value in [nil, "", "0", "$(NOKO_DISCORD_APPLICATION_ID)", "-1", "+1", " 42", "42 ", "18446744073709551616"] as [String?] {
+            XCTAssertNil(DiscordSocialConfiguration.parseApplicationID(value))
+        }
+        XCTAssertNil(DiscordSocialConfiguration.parseApplicationID(42))
+        XCTAssertEqual(DiscordSocialConfiguration.parseApplicationID("42"), 42)
+    }
+
+    func testKeychainServiceSeparatesApplications() {
+        XCTAssertNotEqual(
+            DiscordSocialConfiguration.credentialService(applicationID: 42),
+            DiscordSocialConfiguration.credentialService(applicationID: 43)
+        )
+        XCTAssertNotEqual(DiscordSocialConfiguration.credentialService(applicationID: 42), KeychainDiscordSocialCredentialStore.productionService)
+    }
+
+    func testCleanReinstallRemovesOnlyOwnedAuthorizationNamespace() async throws {
+        let current = RecordingCredentialStore()
+        let other = RecordingCredentialStore()
+        let legacy = RecordingCredentialStore()
+        let unrelated = RecordingCredentialStore()
+        let currentService = DiscordSocialConfiguration.credentialService(applicationID: 42)
+        let otherService = DiscordSocialConfiguration.credentialService(applicationID: 43)
+        let unrelatedService = "com.example.unrelated"
+        let stores: [String: RecordingCredentialStore] = [
+            currentService: current,
+            otherService: other,
+            KeychainDiscordSocialCredentialStore.productionService: legacy,
+            unrelatedService: unrelated
+        ]
+        try await DiscordSocialCredentialReset.removeForCleanReinstall(
+            authorizationServices: { Array(stores.keys) + [KeychainDiscordSocialCredentialStore.productionService + ".invalid"] },
+            storeForService: { stores[$0]! }
+        )
+        let currentCount = await current.removeCount
+        let legacyCount = await legacy.removeCount
+        let otherCount = await other.removeCount
+        let unrelatedCount = await unrelated.removeCount
+        XCTAssertEqual(currentCount, 1)
+        XCTAssertEqual(legacyCount, 1)
+        XCTAssertEqual(otherCount, 1)
+        XCTAssertEqual(unrelatedCount, 0)
+    }
+
+    func testCleanReinstallKeychainFailurePreventsResetCompletion() async throws {
+        let legacy = RecordingCredentialStore()
+        let current = RecordingCredentialStore()
+        await legacy.failRemoval()
+        let currentService = DiscordSocialConfiguration.credentialService(applicationID: 42)
+        let stores: [String: RecordingCredentialStore] = [
+            currentService: current,
+            KeychainDiscordSocialCredentialStore.productionService: legacy
+        ]
+        do {
+            try await DiscordSocialCredentialReset.removeForCleanReinstall(
+                authorizationServices: { Array(stores.keys) },
+                storeForService: { stores[$0]! }
+            )
+            XCTFail("A failed Keychain deletion must keep startup recovery pending")
+        } catch DiscordSocialCredentialStoreError.invalidCredentialData {
+            let currentCount = await current.removeCount
+            let legacyCount = await legacy.removeCount
+            XCTAssertEqual(currentCount, 0)
+            XCTAssertEqual(legacyCount, 1)
+        }
+    }
+
+    func testCleanReinstallKeychainEnumerationFailureDeletesNothing() async throws {
+        let store = RecordingCredentialStore()
+        do {
+            try await DiscordSocialCredentialReset.removeForCleanReinstall(
+                authorizationServices: { throw DiscordSocialCredentialStoreError.invalidCredentialData },
+                storeForService: { _ in store }
+            )
+            XCTFail("Failed Keychain inventory must keep startup recovery pending")
+        } catch DiscordSocialCredentialStoreError.invalidCredentialData {
+            let count = await store.removeCount
+            XCTAssertEqual(count, 0)
+        }
+    }
+
     func testKeychainStoreSavesReplacesLoadsAndRemovesTokenPair() async throws {
         let service = "com.shiikatan.nokocord.tests.\(UUID().uuidString)"
         let store = KeychainDiscordSocialCredentialStore(service: service)

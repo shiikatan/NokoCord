@@ -309,18 +309,25 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
               let tans = Self.configuredTanManager else { return }
         didStartActivity = true
         activityRuntime = runtime
+        #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("--nokocord-social-auth-smoke") {
             runtime.startAuthenticatedSmokeTest()
-        } else {
-            runtime.start(tanManager: tans)
+            return
         }
+        #endif
+        runtime.start(tanManager: tans)
     }
     static func requestTermination() {
         // AppKit may defer its standard termination action while a sheet is
         // modal. Clear owned presentation state before invoking that action.
         NotificationCenter.default.post(name: .nokoCloseTransientUI, object: nil)
-        DispatchQueue.main.async { NSApp.terminate(nil) }
+        // AppKit waits in a nested run loop for terminateLater. Start that
+        // wait from the run loop, leaving the main dispatch queue free for
+        // the MainActor shutdown task and its reply callback.
+        RunLoop.main.perform(inModes: [.default, .modalPanel, .eventTracking]) {
+            NSApp.terminate(nil)
+        }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

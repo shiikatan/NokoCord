@@ -231,6 +231,7 @@ void CompleteOnMainQueue(std::shared_ptr<CallbackGate> gate,
         __weak NokoDiscordSocialClient *weakSelf = self;
         std::weak_ptr<CallbackGate> weakGate = implementation->callbackGate;
         dispatch_sync(self.sdkQueue, ^{
+            if (applicationID == 0) { return; }
             implementation->client = std::make_unique<discordpp::Client>();
             implementation->client->SetApplicationId(applicationID);
             implementation->client->SetStatusChangedCallback(

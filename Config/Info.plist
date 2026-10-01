@@ -5,6 +5,7 @@
 <key>NokoEditionName</key><string>$(NOKO_EDITION_NAME)</string>
 <key>NokoPublicVersion</key><string>$(NOKO_PUBLIC_VERSION)</string>
 <key>NokoMaintainer</key><string>$(NOKO_MAINTAINER)</string>
+<key>NokoDiscordApplicationID</key><string>$(NOKO_DISCORD_APPLICATION_ID)</string>
 <key>CFBundleURLTypes</key><array><dict>
 <key>CFBundleURLName</key><string>com.nokocord.NokoCord.oauth</string>
 <key>CFBundleURLSchemes</key><array><string>nokocord</string></array>

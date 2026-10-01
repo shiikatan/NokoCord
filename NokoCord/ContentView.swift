@@ -738,7 +738,9 @@ private struct ManualUpdatesSettingsView: View {
             do {
                 _ = try await updater.apply(candidate: candidate, operation: operation)
                 phase = .waitingForRelaunch
-                DispatchQueue.main.async { NSApp.terminate(nil) }
+                RunLoop.main.perform(inModes: [.default, .modalPanel, .eventTracking]) {
+                    NSApp.terminate(nil)
+                }
             } catch {
                 self.candidate = nil
                 phase = .error(error.localizedDescription)

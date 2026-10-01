@@ -93,7 +93,10 @@ enum ManualUpdateStartupRecovery {
         paths: MaomaoDataPaths? = nil,
         arguments: [String] = ProcessInfo.processInfo.arguments,
         defaults: UserDefaults = .standard,
-        webDataResetter: (any ManualUpdateWebDataResetting)? = nil
+        webDataResetter: (any ManualUpdateWebDataResetting)? = nil,
+        credentialReset: () async throws -> Void = {
+            try await DiscordSocialCredentialReset.removeForCleanReinstall()
+        }
     ) async throws -> ManualUpdateStartupReceipt? {
         let paths = try paths ?? currentPaths()
         let webDataResetter = webDataResetter ?? WKWebsiteDataManualResetter()
@@ -189,8 +192,11 @@ enum ManualUpdateStartupRecovery {
             let cleanResetCompleted = manifest.operation == .cleanReinstall
             if cleanResetCompleted {
                 try ManualUpdateTransactionWorker.resumeCleanResetFiles(manifest)
-                try clearMaomaoPreferences(using: defaults)
-                try await webDataResetter.clearWebsiteData()
+                try await clearCleanReinstallCredentialsPreferencesAndWebsiteData(
+                    defaults: defaults,
+                    webDataResetter: webDataResetter,
+                    credentialReset: credentialReset
+                )
                 try ManualUpdateTransactionWorker.writeJournal(manifest, .webKitResetComplete)
             }
             let receipt = ManualUpdateStartupReceipt(
@@ -303,6 +309,16 @@ enum ManualUpdateStartupRecovery {
         guard defaults.synchronize() else {
             throw ManualUpdateError.unavailable("Maomao preferences could not be reset safely. Retry Clean Reinstall.")
         }
+    }
+
+    static func clearCleanReinstallCredentialsPreferencesAndWebsiteData(
+        defaults: UserDefaults,
+        webDataResetter: any ManualUpdateWebDataResetting,
+        credentialReset: () async throws -> Void
+    ) async throws {
+        try await credentialReset()
+        try clearMaomaoPreferences(using: defaults)
+        try await webDataResetter.clearWebsiteData()
     }
 
     private static func readOptional<T: Decodable>(_ type: T.Type, at url: URL, limit: Int) throws -> T? {
