@@ -103,7 +103,9 @@ BOOL IsInvalidGrant(const discordpp::ClientResult &result)
     return response.find("invalid_grant") != std::string::npos ? YES : NO;
 }
 
-void CompleteTokenOnMainQueue(const std::shared_ptr<CallbackGate> &gate,
+// Pass ownership by value: Objective-C blocks retain C++ reference parameters
+// as references, which would dangle when the SDK callback returns.
+void CompleteTokenOnMainQueue(std::shared_ptr<CallbackGate> gate,
                               NokoDiscordTokenCompletion completion,
                               discordpp::ClientResult result,
                               std::string accessToken,
@@ -137,7 +139,7 @@ void CompleteTokenOnMainQueue(const std::shared_ptr<CallbackGate> &gate,
     });
 }
 
-void CompleteOnMainQueue(const std::shared_ptr<CallbackGate> &gate,
+void CompleteOnMainQueue(std::shared_ptr<CallbackGate> gate,
                          NokoDiscordOperationCompletion completion,
                          BOOL successful,
                          NSString *message,

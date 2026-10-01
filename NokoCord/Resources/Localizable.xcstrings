@@ -278,6 +278,15 @@
     "Discord" : {
 
     },
+    "Discord activity" : {
+
+    },
+    "Discord activity connection in progress" : {
+
+    },
+    "Discord activity: %@" : {
+
+    },
     "Discord could not load" : {
 
     },
