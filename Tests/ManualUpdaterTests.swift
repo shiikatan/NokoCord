@@ -524,6 +524,7 @@ final class ManualUpdaterTests: XCTestCase {
         )
         let cases: [(String, String, ManualUpdateClassification, ManualUpdateOperation)] = [
             ("1.4.0", "1", .newerMarketingVersion, .update),
+            ("1.3.1", "5", .newerMarketingVersion, .update),
             ("1.3.0", "4", .newerBuild, .update),
             ("1.3.0", "3", .sameVersionCleanReinstall, .cleanReinstall),
             ("1.2.9", "99", .older, .update)

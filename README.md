@@ -15,12 +15,13 @@ Social SDK 1.10.19337 from Discord, then install its macOS package locally:
 ```
 
 The SDK framework is ignored by Git and must contain both arm64 and x86_64 slices.
-Set `NOKO_DISCORD_APPLICATION_ID` in an ignored `Config/Local.xcconfig`, or supply
-it as an `xcodebuild` setting. Configure that Discord application as a public
-client with the desktop redirect `http://127.0.0.1/callback`. No client secret is
-needed. Without a positive application ID, Social SDK operations remain disabled;
-the rest of the app builds and runs. A distributed app requires its configured
-application ID in the compiled bundle for OAuth and registered artwork assets.
+The public NokoCord Discord Application ID is configured in `Config/Edition.xcconfig`.
+No client secret is required. For a separate Discord application, override
+`NOKO_DISCORD_APPLICATION_ID` in an ignored `Config/Local.xcconfig` or as an
+`xcodebuild` setting, and configure it as a public client with the desktop
+redirect `http://127.0.0.1/callback`. Credentials are scoped to that application ID.
+A distributed app requires a positive application ID for OAuth and registered
+artwork assets.
 
 Run `sh scripts/verify.sh` for tests, Debug/Release builds, and bundle checks.
 The verification script uses local ad-hoc signatures while keeping hardened

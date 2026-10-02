@@ -2,6 +2,18 @@ import XCTest
 @testable import NokoCordCore
 
 final class AppleMusicPresenceTests: XCTestCase {
+    func testTitleSanitizationPreservesVisibleUnicodeAndRejectsControlOnlyText() throws {
+        for title in ["Synthetic Song Name", "It's Nice to Go Trav'ling", "Café", "音楽", "👩‍🎤"] {
+            var mapper = AppleMusicActivityMapper()
+            let activity = try XCTUnwrap(mapper.activity(for: track(title: title, position: 0), artworkURL: nil, sampledAt: Date()))
+            XCTAssertEqual(activity.state, title)
+        }
+        var mapper = AppleMusicActivityMapper()
+        XCTAssertNil(mapper.activity(for: track(title: "\u{0000}\u{0007}\u{200B}", position: 0), artworkURL: nil, sampledAt: Date()))
+        let clean = try XCTUnwrap(mapper.activity(for: track(title: "Song\u{0007}\nTitle", position: 0), artworkURL: nil, sampledAt: Date()))
+        XCTAssertEqual(clean.state, "SongTitle")
+    }
+
     func testListeningActivityMapsArtistAndSongWithStableTimeline() throws {
         var mapper = AppleMusicActivityMapper()
         let start = Date(timeIntervalSince1970: 1_800_000_000)

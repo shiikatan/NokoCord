@@ -626,5 +626,14 @@ actor AppleMusicCurrentArtworkSource: AppleMusicArtworkSource {
 }
 
 private extension Character {
-    var isControlCharacter: Bool { unicodeScalars.allSatisfy(CharacterSet.controlCharacters.contains) }
+    var isControlCharacter: Bool {
+        unicodeScalars.allSatisfy { scalar in
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator:
+                return true
+            default:
+                return false
+            }
+        }
+    }
 }

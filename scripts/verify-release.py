@@ -120,11 +120,11 @@ def require_hardened_runtime(signature, label):
 EDITIONS = {
     "maomao": {
         "CFBundleIdentifier": "com.shiikatan.nokocord.maomao",
-        "CFBundleShortVersionString": "1.3.0",
-        "CFBundleVersion": "4",
+        "CFBundleShortVersionString": "1.3.1",
+        "CFBundleVersion": "5",
         "NokoEditionID": "maomao",
         "NokoEditionName": "Maomao",
-        "NokoPublicVersion": "M1.3.0",
+        "NokoPublicVersion": "M1.3.1",
         "NokoMaintainer": "Shiikatan",
     },
     "chiaki": {
