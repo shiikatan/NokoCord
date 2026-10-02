@@ -55,8 +55,7 @@ enabled, then uses the registered generic artwork asset on a miss. Album text
 is not shown in presence. Disabling the Tan clears its owned activity.
 
 Maomao M1.3 uses a manual ZIP updater. Updater source, test, and build verification
-passed; live updater validation remains deferred to M1.3.5. There is currently
-no public Maomao binary release.
+passed; live updater validation remains deferred to M1.3.5.
 
 ## License and attribution
 
