@@ -23,12 +23,25 @@ the rest of the app builds and runs. A distributed app requires its configured
 application ID in the compiled bundle for OAuth and registered artwork assets.
 
 Run `sh scripts/verify.sh` for tests, Debug/Release builds, and bundle checks.
-The verification script uses local ad-hoc signing and a runtime override for
-its generated test apps. These are source checks, not distribution packages:
-ad-hoc code has no Team ID for hardened-runtime SDK library validation.
-Production project settings keep hardened runtime enabled. Distribution needs
-matching Developer ID signatures on the app and its embedded code, plus
-notarization. The bundle checker rejects ad-hoc signatures by default.
+The verification script uses local ad-hoc signatures while keeping hardened
+runtime enabled. Its `--allow-ad-hoc` check is source validation only. The
+separate `--ad-hoc-release` check validates the hardened signature layout used
+for a direct, non-notarized distribution; it does not claim Developer ID trust
+or notarization.
+
+Maomao's main app uses the approved
+`com.apple.security.cs.disable-library-validation` entitlement to load the
+Discord Social SDK in that distribution. This removes the same-Team-ID check
+for libraries loaded into the main app process; macOS does not scope the
+exception to a particular framework. The Discord SDK is bundled and checked by
+the release verifier, and NokoCord is not designed to load external plugins.
+The translator and updater helpers do not receive this exception.
+
+An ad-hoc, non-notarized download may be blocked by macOS. Only open a copy from
+a source you trust and have verified. After trying to open it, go to **System
+Settings > Privacy & Security > Open Anyway**, then confirm the prompt. See
+[Apple's instructions for safely opening apps](https://support.apple.com/en-us/102445).
+This approval does not mean Apple notarized or checked the app for malware.
 Generated apps and private signing configuration do not belong in source control.
 
 ## Privacy and presence
