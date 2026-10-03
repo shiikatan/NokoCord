@@ -3,6 +3,7 @@ import WebKit
 
 struct NokoRootView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
+    @AppStorage(MaomaoWorkspaceAppearance.barPreferenceKey) private var showNokoBar = true
     @State private var selection: NokoDestination = .home
     @State private var showQuickSwitcher = false
     @Environment(\.openSettings) private var openSettings
@@ -10,7 +11,9 @@ struct NokoRootView: View {
         ZStack {
             if let view = browser.view {
                 VStack(spacing: 0) {
-                    workspaceBar
+                    if EditionIdentity.current?.id != "maomao" || showNokoBar {
+                        workspaceBar
+                    }
                     if let notice = browser.notice {
                         HStack { Text(notice).font(.callout); Spacer(); Button("Dismiss") { browser.dismissNotice() } }.padding(10)
                     }
@@ -78,9 +81,19 @@ struct NokoRootView: View {
                 SettingsLink { Label("Settings", systemImage: "gearshape") }.help("Settings")
             }.labelStyle(.iconOnly).controlSize(.large)
         }.buttonStyle(.borderless).padding(.horizontal, 18).padding(.vertical, 10)
-            .modifier(NokoSurface(cornerRadius: 0))
+            .modifier(WorkspaceBarSurface())
     }
 
+}
+
+private struct WorkspaceBarSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        if EditionIdentity.current?.id == "maomao" {
+            content.background(Color(nsColor: .controlBackgroundColor))
+        } else {
+            content.modifier(NokoSurface(cornerRadius: 0))
+        }
+    }
 }
 
 private struct BrowserHostView: NSViewRepresentable {

@@ -229,6 +229,7 @@ extension FocusedValues {
 
 private struct NokoCordCommands: Commands {
     let browser: ActiveBrowserEngine
+    @AppStorage(MaomaoWorkspaceAppearance.barPreferenceKey) private var showNokoBar = true
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.nokoCordQuickSwitcher) private var quickSwitcher
     @FocusedValue(\.nokoCordHome) private var goHome
@@ -259,6 +260,10 @@ private struct NokoCordCommands: Commands {
                 .disabled(quickSwitcher == nil)
         }
         CommandGroup(after: .toolbar) {
+            if EditionIdentity.current?.id == "maomao" {
+                Button("Show Noko-Bar") { showNokoBar = true }
+                    .keyboardShortcut("n", modifiers: [.control, .command])
+            }
             Button("Open Discord") { openWindow(id: "main"); browser.openDiscord() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             Button("Home") {

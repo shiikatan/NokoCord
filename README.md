@@ -23,12 +23,21 @@ redirect `http://127.0.0.1/callback`. Credentials are scoped to that application
 A distributed app requires a positive application ID for OAuth and registered
 artwork assets.
 
-Run `sh scripts/verify.sh` for tests, Debug/Release builds, and bundle checks.
-The verification script uses local ad-hoc signatures while keeping hardened
-runtime enabled. Its `--allow-ad-hoc` check is source validation only. The
-separate `--ad-hoc-release` check validates the hardened signature layout used
-for a direct, non-notarized distribution; it does not claim Developer ID trust
-or notarization.
+Build a local validation app without creating distribution archives:
+
+```sh
+xcodebuild -project NokoCord.xcodeproj -scheme NokoCord -configuration Release \
+  -destination 'platform=macOS' -derivedDataPath /tmp/NokoCord-build \
+  CODE_SIGN_IDENTITY=- build
+python3 scripts/verify-release.py /tmp/NokoCord-build/Build/Products/Release/NokoCord.app \
+  --edition maomao --ad-hoc-release
+```
+
+The release verifier checks the hardened ad-hoc signature layout, bundle
+identity, embedded helpers, required resources, and shipped-byte privacy
+patterns. It does not claim Developer ID trust or notarization.
+`scripts/package-release.py` creates matching ZIP/DMG copies and SHA-256 checksums
+from a verified Release app. The updater accepts a ZIP containing `NokoCord.app`.
 
 Maomao's main app uses the approved
 `com.apple.security.cs.disable-library-validation` entitlement to load the
@@ -55,8 +64,8 @@ resolver queries Apple using track title, artist, and album metadata while
 enabled, then uses the registered generic artwork asset on a miss. Album text
 is not shown in presence. Disabling the Tan clears its owned activity.
 
-Maomao M1.3 uses a manual ZIP updater. Updater source, test, and build verification
-passed; live updater validation remains deferred to M1.3.5.
+Maomao M1.4.0 uses a manual ZIP updater. Keep an installed copy until an
+update has been validated. Credentials remain in Keychain across updates.
 
 ## License and attribution
 

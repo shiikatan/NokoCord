@@ -120,11 +120,11 @@ def require_hardened_runtime(signature, label):
 EDITIONS = {
     "maomao": {
         "CFBundleIdentifier": "com.shiikatan.nokocord.maomao",
-        "CFBundleShortVersionString": "1.3.1",
-        "CFBundleVersion": "5",
+        "CFBundleShortVersionString": "1.4.0",
+        "CFBundleVersion": "6",
         "NokoEditionID": "maomao",
         "NokoEditionName": "Maomao",
-        "NokoPublicVersion": "M1.3.1",
+        "NokoPublicVersion": "M1.4.0",
         "NokoMaintainer": "Shiikatan",
     },
     "chiaki": {
@@ -201,7 +201,7 @@ def verify(app, edition=None, allow_unconfigured=False, allow_ad_hoc=False, ad_h
         if entitlements.get(key) is not True:
             raise ValueError(f"Required entitlement is absent: {key}")
     if entitlements.get("com.apple.security.app-sandbox") not in (None, False):
-        raise ValueError("Maomao M1.3 must use the reviewed unsandboxed presence configuration")
+        raise ValueError("Maomao must use the reviewed unsandboxed presence configuration")
     # Signing identity metadata is allowed only when it matches the signature.
     identity_keys = {"com.apple.application-identifier", "com.apple.developer.team-identifier"}
     allowed = required | identity_keys | {"com.apple.security.app-sandbox"}

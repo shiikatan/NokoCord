@@ -107,7 +107,7 @@ struct NokoSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        if !useLiquidGlass || reduceTransparency || contrast == .increased {
+        if (EditionIdentity.current?.id != "maomao" && !useLiquidGlass) || reduceTransparency || contrast == .increased {
             content.background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: cornerRadius))
                 .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(Color.primary.opacity(contrast == .increased ? 0.5 : 0.12)))
         } else {
@@ -121,7 +121,7 @@ struct NokoPrimaryAction: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        if useLiquidGlass && !reduceTransparency && contrast != .increased {
+        if (EditionIdentity.current?.id == "maomao" || useLiquidGlass) && !reduceTransparency && contrast != .increased {
             content.buttonStyle(.glassProminent)
         } else {
             content.buttonStyle(.borderedProminent)
@@ -191,6 +191,10 @@ struct KeyboardShortcutsView: View {
                     shortcut("Settings", keys: ["⌘", ","], spoken: "Command comma")
                     Divider()
                     shortcut("Reload Discord", keys: ["⌘", "R"], spoken: "Command R")
+                    if EditionIdentity.current?.id == "maomao" {
+                        Divider()
+                        shortcut("Show Noko-Bar", keys: ["⌃", "⌘", "N"], spoken: "Control Command N")
+                    }
                 }.padding(.horizontal, 20)
                     .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 16))
                 Text("Reloading Discord interrupts active calls and playback.")
@@ -237,8 +241,14 @@ struct SettingsView: View {
                         Text("Light").tag("light")
                         Text("Dark").tag("dark")
                     }.pickerStyle(.radioGroup)
-                    Toggle("Liquid Glass", isOn: $useLiquidGlass)
-                    Text("Use translucent controls and surfaces. Accessibility settings take priority.").font(.caption).foregroundStyle(.secondary)
+                    if EditionIdentity.current?.id != "maomao" {
+                        Toggle("Liquid Glass", isOn: $useLiquidGlass)
+                        Text("Use translucent controls and surfaces. Accessibility settings take priority.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if EditionIdentity.current?.id == "maomao" {
+                        MaomaoDiscordAppearanceSettings()
+                        MaomaoBarAppearanceSettings()
+                    }
                     Toggle("Show NokoCord in menu bar", isOn: $showMenuBar)
                 }
                 Section("Startup") {

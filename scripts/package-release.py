@@ -41,7 +41,7 @@ def package(app, output):
     verify(app)
     original = manifest(app)
     output.mkdir(parents=True, exist_ok=True)
-    names = ["NokoCord-Maomao-M1.3.1.zip", "NokoCord-Maomao-M1.3.1.dmg", "SHA256SUMS"]
+    names = ["NokoCord-Maomao-M1.4.0.zip", "NokoCord-Maomao-M1.4.0.dmg", "SHA256SUMS"]
     if any((output / name).exists() for name in names):
         raise ValueError("Release output already exists; choose a fresh directory")
     archive, image, checksums = [output / name for name in names]
@@ -60,7 +60,7 @@ def package(app, output):
         staging.mkdir()
         run("ditto", "--norsrc", "--noextattr", str(app), str(staging / "NokoCord.app"))
         (staging / "Applications").symlink_to("/Applications")
-        run("hdiutil", "create", "-srcfolder", str(staging), "-volname", "NokoCord Maomao M1.3.1",
+        run("hdiutil", "create", "-srcfolder", str(staging), "-volname", "NokoCord Maomao M1.4.0",
             "-fs", "APFS", "-format", "UDZO", str(image))
         run("hdiutil", "verify", str(image))
         mount = work / "mounted"

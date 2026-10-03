@@ -33,7 +33,16 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         super.init()
         if let tans {
             tanRuntime = TanRuntime(manager: tans)
-            tans.onChange = { [weak self] in self?.tanRuntime?.configurationChanged() }
+            tans.onChange = { [weak self, weak tans] in
+                guard let self else { return }
+                self.tanRuntime?.configurationChanged()
+                // Tan reconfiguration rebuilds the controller's user scripts.
+                if let view = self.browserView {
+                    let safeMode = tans?.safeMode ?? false
+                    MaomaoDiscordPresentation.install(on: view.configuration.userContentController, safeMode: safeMode)
+                    MaomaoDiscordPresentation.apply(to: view, safeMode: safeMode)
+                }
+            }
         }
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers = [
@@ -55,8 +64,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         if let browserView { return browserView }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
-        // No enabled local Tans means no injected scripts or handlers.
+        MaomaoWebCompatibility.configure(configuration)
         tanRuntime?.prepare(configuration.userContentController)
+        MaomaoDiscordPresentation.install(on: configuration.userContentController,
+                                         safeMode: tanRuntime?.manager.safeMode ?? false)
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
@@ -116,6 +127,13 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         else { openDiscord() }
     }
     func goBack() { guard canGoBack else { return }; browserView?.goBack() }
+    func setNokoGlassEnabled(_ enabled: Bool) {
+        guard EditionIdentity.current?.id == "maomao", let view = browserView else { return }
+        let safeMode = tanRuntime?.manager.safeMode ?? false
+        MaomaoDiscordPresentation.install(on: view.configuration.userContentController,
+                                         safeMode: safeMode, enabled: enabled)
+        MaomaoDiscordPresentation.apply(to: view, safeMode: safeMode, enabled: enabled)
+    }
     func dismissNotice() { notice = nil }
     func clearProfile() async {
         guard lifecycle.phase != .clearing else { return }
@@ -170,6 +188,9 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing, self.navigation === navigation else { return }
         lifecycle.ready()
         tanRuntime?.pageDidLoad()
+        // WebKit may have captured the document's user scripts before an
+        // appearance change during loading. Honor the latest saved preference.
+        MaomaoDiscordPresentation.apply(to: webView, safeMode: tanRuntime?.manager.safeMode ?? false)
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         failed(navigation, error: error)

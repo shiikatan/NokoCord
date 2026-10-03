@@ -1,0 +1,302 @@
+/* Maomao's Discord workspace. The guild navigation sentinel excludes login,
+ * OAuth and marketing. Discord class adapters use complete class-name stems
+ * (never generated suffixes) and are localized by surface below.
+ * No row-height changes: Discord retains its virtualized lists and text scaling.
+ */
+html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
+    --maomao-stage: #202123;
+    --maomao-surface: #292b2e;
+    --maomao-chat: #242629;
+    --maomao-raised: #33363b;
+    --maomao-line: rgb(255 255 255 / 9%);
+    --maomao-hover: rgb(255 255 255 / 6%);
+    --maomao-selected: rgb(151 177 224 / 16%);
+    --maomao-focus: #a6c7ff;
+    --maomao-wash: rgb(32 33 35 / 86%);
+    --maomao-backdrop-wash: rgb(32 33 35 / 60%);
+    --maomao-stage-background: var(--maomao-stage);
+    --maomao-pane-background: var(--maomao-surface);
+    --maomao-chat-background: var(--maomao-chat);
+    --maomao-glass-background: rgb(242 248 255 / 6%);
+    --maomao-glass-line: rgb(255 255 255 / 16%);
+    --maomao-glass-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+    --maomao-glass-filter: blur(12px) saturate(1.12);
+    --maomao-composer-background: rgb(41 43 46 / 72%);
+    --maomao-composer-wash: rgb(32 33 35 / 72%);
+    --maomao-composer-focus: rgb(255 255 255 / 38%);
+    --font-primary: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --font-display: var(--font-primary);
+    --focus-primary: var(--maomao-focus);
+
+    &.theme-light {
+        --maomao-stage: #e9eaed;
+        --maomao-surface: #f6f7f9;
+        --maomao-chat: #ffffff;
+        --maomao-raised: #f0f2f5;
+        --maomao-line: rgb(25 32 46 / 13%);
+        --maomao-hover: rgb(25 32 46 / 5%);
+        --maomao-selected: rgb(75 111 172 / 13%);
+        --maomao-focus: #3567a8;
+        --maomao-wash: rgb(246 247 249 / 86%);
+        --maomao-backdrop-wash: rgb(246 247 249 / 78%);
+        --maomao-glass-background: rgb(255 255 255 / 12%);
+        --maomao-glass-line: rgb(35 45 65 / 18%);
+        --maomao-glass-shadow: 0 8px 24px rgb(30 40 65 / 10%);
+        --maomao-composer-background: rgb(246 247 249 / 76%);
+        --maomao-composer-wash: rgb(246 247 249 / 76%);
+        --maomao-composer-focus: rgb(35 45 65 / 42%);
+    }
+
+    /* Nitro's selected theme remains a live input to the material. Never reset
+     * custom-theme/profile/role/status/name-effect tokens or their artwork.
+     */
+    &.custom-theme-background {
+        --maomao-stage-background: linear-gradient(var(--maomao-backdrop-wash), var(--maomao-backdrop-wash)), var(--custom-theme-background);
+        --maomao-pane-background: linear-gradient(var(--maomao-wash), var(--maomao-wash)), var(--custom-theme-background);
+        --maomao-chat-background: linear-gradient(var(--maomao-wash), var(--maomao-wash)), var(--custom-theme-background);
+        --maomao-composer-background: linear-gradient(var(--maomao-composer-wash), var(--maomao-composer-wash)), var(--custom-theme-background);
+        /* One viewport-aligned theme across the rail, gutters and panels.
+         * Discord otherwise paints a separate, stronger gradient on the rail.
+         */
+        [data-list-id="guildsnav"] {
+            background: var(--maomao-stage-background);
+            background-attachment: fixed;
+        }
+    }
+
+    #app-mount { background: var(--maomao-stage-background); background-attachment: fixed; }
+    :is([class^="bg_"], [class*=" bg_"]) {
+        background: var(--maomao-stage-background) !important;
+        background-attachment: fixed !important;
+    }
+    :is([class^="guilds_"], [class*=" guilds_"]):has([data-list-id="guildsnav"]) { background: transparent; }
+
+    /* Fold Discord's global actions into the main header without reparenting
+     * React-owned nodes. Anchors follow channel/Friends headers and notices.
+     * Empty routes keep the actions at the upper right of the workspace.
+     * Older WebKit versions retain Discord's original strip and controls.
+     */
+    @supports (top: anchor(--maomao-header center)) {
+        &:has(:is([class^="bar_"], [class*=" bar_"]) > :is([class^="trailing_"], [class*=" trailing_"])) {
+            --custom-app-top-bar-height: 0px;
+
+            :is([class^="base_"], [class*=" base_"]):has(> :is([class^="bar_"], [class*=" bar_"])) {
+                padding-top: 8px;
+                box-sizing: border-box;
+            }
+            :is([class^="bar_"], [class*=" bar_"]):has(> :is([class^="trailing_"], [class*=" trailing_"])) {
+                display: contents;
+                > :not(:is([class^="trailing_"], [class*=" trailing_"])) { display: none; }
+                > :is([class^="trailing_"], [class*=" trailing_"]) {
+                    position: absolute;
+                    top: anchor(--maomao-header center, 33px);
+                    right: calc(anchor(--maomao-header right, 10px) + 8px);
+                    transform: translateY(-50%);
+                    width: 72px;
+                    height: 32px;
+                    gap: 8px;
+                    /* Discord's channel header sits at z-index 100. Floating
+                     * dialogs/popouts remain in their existing higher layer.
+                     */
+                    z-index: 101;
+                    > * {
+                        width: 32px;
+                        height: 32px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                }
+            }
+            /* Shared public header structure covers channels, Friends, Nitro
+             * and Shop. Secondary thread/search headers must not take the anchor.
+             */
+            :is([class^="base_"], [class*=" base_"])
+            :is([class^="container_"], [class*=" container_"]):has(> :is([class^="upperContainer_"], [class*=" upperContainer_"]) > :is([class^="toolbar_"], [class*=" toolbar_"])):not(:is([class^="threadSidebar_"], [class*=" threadSidebar_"], [class^="searchResultsWrap_"], [class*=" searchResultsWrap_"]) *) {
+                anchor-name: --maomao-header;
+                padding-right: 96px;
+                background: var(--maomao-glass-background);
+                border-bottom: 1px solid var(--maomao-line);
+                box-shadow: none;
+            }
+        }
+    }
+
+    /* Frame: Discord still owns flex sizing, sidebar resize, threads and member
+     * visibility. Insets create separation from the surrounding native shell.
+     */
+    :is([class^="chat_"], [class*=" chat_"]) {
+        margin: 0 10px 10px 0;
+        border: 1px solid var(--maomao-line);
+        border-radius: 18px;
+        background: var(--maomao-stage-background);
+        background-attachment: fixed;
+        overflow: hidden;
+    }
+    :is([class^="sidebarList_"], [class*=" sidebarList_"]) {
+        margin: 0 10px 10px 0;
+        border: 1px solid var(--maomao-line);
+        border-radius: 18px;
+        background: var(--maomao-surface);
+        overflow: hidden;
+    }
+    :is([class^="sidebarList_"], [class*=" sidebarList_"]) > :first-child {
+        background: transparent;
+    }
+    :is([class^="privateChannels_"], [class*=" privateChannels_"]) > :is([class^="scroller_"], [class*=" scroller_"]) {
+        background: transparent;
+    }
+    :is([class^="chatContent_"], [class*=" chatContent_"]) {
+        background: var(--maomao-chat-background);
+        background-attachment: fixed;
+    }
+    /* Friends uses a different outer shell from text channels. */
+    :is([class^="container_"], [class*=" container_"]):has(> :is([class^="tabBody_"], [class*=" tabBody_"])) {
+        margin: 0 10px 10px 0;
+        border: 1px solid var(--maomao-line);
+        border-radius: 18px;
+        background: var(--maomao-chat-background);
+        background-attachment: fixed;
+        overflow: hidden;
+    }
+    :is([class^="subtitleContainer_"], [class*=" subtitleContainer_"]) > :is([class^="title_"], [class*=" title_"]) {
+        background: var(--maomao-pane-background);
+        background-attachment: fixed;
+        border-bottom: 1px solid var(--maomao-line);
+        box-shadow: none;
+    }
+
+    /* Navigation: do not change icon masks, guild artwork or unread indicators. */
+    :is([data-list-item-id^="channels___"], [data-list-id^="private-channels-"] a) { border-radius: 9px; }
+    [data-list-id^="private-channels-"] a:hover { background-color: var(--maomao-hover); }
+    :is([data-list-item-id^="channels___"], [data-list-id^="private-channels-"] a)[aria-selected="true"] {
+        background-color: var(--maomao-selected);
+    }
+    /* Channel selection lives on the link's wrapper; avoid styling categories. */
+    :is([class^="link_"], [class*=" link_"]):has(> [data-list-item-id^="channels___"][aria-selected="true"]) {
+        background-color: var(--maomao-selected);
+    }
+    :is([class^="sidebarList_"], [class*=" sidebarList_"]) :is([class^="sectionDivider_"], [class*=" sectionDivider_"]) {
+        background: var(--maomao-line);
+    }
+
+    /* Members/activity: a quieter inset sheet. Row geometry stays untouched. */
+    :is([class^="membersWrap_"], [class*=" membersWrap_"], [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"]) {
+        margin: 10px;
+        border: 1px solid var(--maomao-line);
+        border-radius: 12px;
+        background: var(--maomao-pane-background);
+        background-attachment: fixed;
+        overflow: hidden;
+    }
+    :is([class^="members_"], [class*=" members_"]) { background: transparent; }
+    [data-list-item-id^="members-"] :is([class^="layout_"], [class*=" layout_"]) { border-radius: 9px; }
+    [data-list-id="people"] > :is([class^="peopleListItem_"], [class*=" peopleListItem_"]) { border-radius: 10px; }
+
+    /* User/voice panels: keep Nitro's custom user-panel banner and decorations
+     * visible inside the rounded frame. Never style the banner descendants.
+     */
+    :is([class^="panels_"], [class*=" panels_"]) {
+        border: 1px solid var(--maomao-line);
+        border-radius: 14px;
+        background: var(--maomao-pane-background);
+        background-attachment: fixed;
+        box-shadow: 0 4px 16px rgb(0 0 0 / 10%);
+    }
+
+    /* Composer: lift the whole real control, including attachments/reply state.
+     * Picker buttons keep Discord's hit targets, labels and handlers.
+     */
+    :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
+        border: 1px solid var(--maomao-line);
+        border-radius: 14px;
+        background: var(--maomao-raised);
+        box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+    }
+    :is([class^="channelTextArea_"], [class*=" channelTextArea_"]):focus-within {
+        border-color: var(--maomao-composer-focus);
+        box-shadow: var(--maomao-glass-shadow), 0 0 0 1px var(--maomao-composer-focus);
+    }
+    :is([class^="scrollableContainer_"], [class*=" scrollableContainer_"]) {
+        background: transparent;
+        border-radius: inherit;
+    }
+    /* Discord paints a separate dark Nitro gradient on the stacked-bars
+     * wrapper. Reply state shares the composer's material and focus frame;
+     * clear that backing fill as well as the reply strip itself.
+     */
+    :is([class^="channelTextArea_"], [class*=" channelTextArea_"])
+    :is([class^="stackedBars_"], [class*=" stackedBars_"]):has(:is([class^="replyBar_"], [class*=" replyBar_"])) {
+        background: transparent;
+    }
+    :is([class^="channelTextArea_"], [class*=" channelTextArea_"])
+    :is([class^="replyBar_"], [class*=" replyBar_"]) {
+        background: transparent;
+        border-radius: 13px 13px 0 0;
+        border-bottom: 1px solid var(--maomao-glass-line);
+    }
+    :is([class^="form_"], [class*=" form_"]):has([role="textbox"]) { background: transparent; }
+
+    /* Messages retain grouping, unread dividers, reply and attachment geometry. */
+    [id^="chat-messages-"] > :is([class^="message_"], [class*=" message_"]) { border-radius: 8px; }
+    [id^="chat-messages-"] > :is([class^="message_"], [class*=" message_"]):hover { background-color: var(--maomao-hover); }
+
+    /* Floating surfaces: style shells and menu items, preserve profile gradients,
+     * animated banners, avatar decorations, effects and interactive tabs.
+     */
+    :is([role="menu"], [class^="messagesPopoutWrap_"], [class*=" messagesPopoutWrap_"], [class^="emojiPicker_"], [class*=" emojiPicker_"]) {
+        border: 1px solid var(--maomao-line);
+        border-radius: 14px;
+        box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+    }
+    [role="menu"] { background: var(--maomao-pane-background); }
+    :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) { border-radius: 7px; }
+    :is([class^="userProfileOuter_"], [class*=" userProfileOuter_"]) {
+        border-radius: 16px;
+        box-shadow: 0 12px 40px rgb(0 0 0 / 25%), 0 0 0 1px var(--maomao-line);
+    }
+
+    /* Elevated glass sheets. Keep blur on a few stationary shells, never on
+     * messages, list rows, media or Nitro artwork. No extra overlay/hit targets.
+     */
+    :is(
+        [class^="sidebarList_"], [class*=" sidebarList_"],
+        [class^="membersWrap_"], [class*=" membersWrap_"],
+        [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"],
+        [class^="panels_"], [class*=" panels_"],
+        [class^="channelTextArea_"], [class*=" channelTextArea_"],
+        [role="menu"],
+        [class^="messagesPopoutWrap_"], [class*=" messagesPopoutWrap_"],
+        [class^="emojiPicker_"], [class*=" emojiPicker_"]
+    ) {
+        background: var(--maomao-glass-background);
+        border-color: var(--maomao-glass-line);
+        box-shadow: var(--maomao-glass-shadow);
+        -webkit-backdrop-filter: var(--maomao-glass-filter);
+        backdrop-filter: var(--maomao-glass-filter);
+    }
+
+    /* A denser typing surface carries the same viewport-aligned Nitro theme.
+     * Its neutral focus edge avoids introducing a separate blue/purple accent.
+     */
+    :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
+        background: var(--maomao-composer-background);
+        background-attachment: fixed;
+    }
+
+    @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+        --maomao-glass-background: var(--maomao-surface);
+        --maomao-glass-filter: none;
+        --maomao-composer-background: var(--maomao-surface);
+        --maomao-composer-focus: var(--maomao-focus);
+    }
+
+    @media (max-width: 850px) {
+        :is([class^="chat_"], [class*=" chat_"], [class^="sidebarList_"], [class*=" sidebarList_"]) {
+            margin-right: 5px;
+            margin-bottom: 5px;
+            border-radius: 12px;
+        }
+        :is([class^="membersWrap_"], [class*=" membersWrap_"], [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"]) { margin: 5px; }
+    }
+}
