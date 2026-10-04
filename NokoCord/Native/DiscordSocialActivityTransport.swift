@@ -8,9 +8,18 @@ private struct DiscordSocialTransportError: Error, LocalizedError {
 private final class DiscordCompletionGate: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, any Error>?
+    private var timeoutTask: Task<Void, Never>?
 
     init(_ continuation: CheckedContinuation<Void, any Error>) {
         self.continuation = continuation
+    }
+
+    func installTimeout(_ task: Task<Void, Never>) {
+        lock.lock()
+        let completed = continuation == nil
+        if !completed { timeoutTask = task }
+        lock.unlock()
+        if completed { task.cancel() }
     }
 
     @discardableResult
@@ -18,7 +27,10 @@ private final class DiscordCompletionGate: @unchecked Sendable {
         lock.lock()
         let pending = continuation
         continuation = nil
+        let timeout = timeoutTask
+        timeoutTask = nil
         lock.unlock()
+        timeout?.cancel()
         guard let pending else { return false }
         pending.resume(with: result)
         return true
@@ -30,11 +42,14 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
     private let client: NokoDiscordSocialClient
     private let publicationGate: DiscordSocialPublicationGate
     private let isConfigured: Bool
+    private let optimizesMaomao: Bool
 
-    init(client: NokoDiscordSocialClient, publicationGate: DiscordSocialPublicationGate, isConfigured: Bool = true) {
+    init(client: NokoDiscordSocialClient, publicationGate: DiscordSocialPublicationGate, isConfigured: Bool = true,
+         editionID: String? = EditionIdentity.current?.id) {
         self.client = client
         self.publicationGate = publicationGate
         self.isConfigured = isConfigured
+        optimizesMaomao = editionID == "maomao"
     }
 
     func update(activity: NokoActivity) async throws {
@@ -64,11 +79,7 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
                     self.publicationGate.endPublication()
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                if gate.complete(.failure(DiscordSocialTransportError(message: "Rich Presence callback timed out."))) {
-                    self.publicationGate.endPublication()
-                }
-            }
+            scheduleTimeout(gate, message: "Rich Presence callback timed out.") { self.publicationGate.endPublication() }
         }
     }
 
@@ -98,10 +109,21 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
                     : .failure(DiscordSocialTransportError(message: result.message))
                 if gate.complete(clearResult) { onFinished(result.isSuccessful) }
             }
+            scheduleTimeout(gate, message: "Rich Presence clear timed out.") { onFinished(false) }
+        }
+    }
+
+    private func scheduleTimeout(_ gate: DiscordCompletionGate, message: String, onTimeout: @escaping () -> Void) {
+        if optimizesMaomao {
+            // A successful callback cancels its deadline immediately, releasing
+            // the captured operation instead of retaining it for eight seconds.
+            gate.installTimeout(Task { @MainActor in
+                do { try await Task.sleep(for: .seconds(8), clock: .suspending) } catch { return }
+                if gate.complete(.failure(DiscordSocialTransportError(message: message))) { onTimeout() }
+            })
+        } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                if gate.complete(.failure(DiscordSocialTransportError(message: "Rich Presence clear timed out."))) {
-                    onFinished(false)
-                }
+                if gate.complete(.failure(DiscordSocialTransportError(message: message))) { onTimeout() }
             }
         }
     }
@@ -143,6 +165,11 @@ final class NokoActivityRuntime {
     private var authenticatedSmokeTestActive: Bool { false }
     #endif
     private var shutdownClearActive = false
+    private let optimizesMaomao: Bool
+
+    init(editionID: String? = EditionIdentity.current?.id) {
+        optimizesMaomao = editionID == "maomao"
+    }
 
     func start(tanManager: TanManager) {
         stopping = false
@@ -160,8 +187,16 @@ final class NokoActivityRuntime {
         if authenticatedSmokeTestActive || appleMusicCallbackDemand ||
             discordAccountCallbackDemand || shutdownClearActive {
             guard callbackTimer == nil else { return }
+            let optimizesMaomao = optimizesMaomao
             callbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.client.runCallbacks() }
+                if optimizesMaomao {
+                    // This timer is installed on the main run loop by the main
+                    // actor. The adapter already dispatches SDK work to its
+                    // serial queue; another Swift task per tick adds no work.
+                    MainActor.assumeIsolated { self?.client.runCallbacks() }
+                } else {
+                    Task { @MainActor [weak self] in self?.client.runCallbacks() }
+                }
             }
         } else {
             callbackTimer?.invalidate()

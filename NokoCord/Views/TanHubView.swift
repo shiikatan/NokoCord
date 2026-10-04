@@ -10,9 +10,12 @@ struct TanHubView: View {
     @State private var search = ""
     @State private var hoveredTanID: String?
     @FocusState private var searchFocused: Bool
+    @State private var searchBounds = CGRect.zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
     @AppStorage("hideNokoTans") private var hideNokoTans = false
+    @AppStorage("maomaoHideInstalledTans") private var hideInstalledTans = false
+    @State private var installedVisibleCount = 5
     @State private var enabledFilter = "All"
     @State private var pendingEnable: TanPackage?
     @State private var presentation: TanPresentation?
@@ -27,8 +30,12 @@ struct TanHubView: View {
         let decision: TanImportDecision
     }
 
+    private var isMaomao: Bool { EditionIdentity.current?.id == "maomao" }
+    private var searchQuery: String {
+        isMaomao ? search.trimmingCharacters(in: .whitespacesAndNewlines) : search
+    }
     private func matches(_ package: TanPackage) -> Bool {
-        search.isEmpty || (package.manifest.name + " " + package.manifest.description + " " + package.manifest.authors.joined(separator: " ")).localizedStandardContains(search)
+        searchQuery.isEmpty || (package.manifest.name + " " + package.manifest.description + " " + package.manifest.authors.joined(separator: " ")).localizedStandardContains(searchQuery)
     }
     var body: some View {
         ScrollView {
@@ -53,6 +60,9 @@ struct TanHubView: View {
                     if !search.isEmpty { Button("Clear search", systemImage: "xmark.circle.fill") { search = "" }.labelStyle(.iconOnly).buttonStyle(.plain) }
                 }.padding(15).modifier(NokoSurface(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(searchFocused ? Color.accentColor : .clear, lineWidth: contrast == .increased ? 3 : 2))
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .named("tanHub"))
+                    } action: { searchBounds = $0 }
                 if tans.safeMode || tans.reloadRequired {
                     HStack(spacing: 14) {
                         Image(systemName: tans.safeMode ? "shield.lefthalf.filled" : "arrow.clockwise").font(.title2)
@@ -69,55 +79,87 @@ struct TanHubView: View {
                     HStack {
                         Text("Your Tans").font(.title2.bold())
                         Text("\(tans.installed.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                        if isMaomao {
+                            let canShow = hideInstalledTans && searchQuery.isEmpty
+                            Button(canShow ? "Show Tans" : "Hide Tans", systemImage: canShow ? "chevron.down" : "chevron.up") {
+                                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.16)) {
+                                    hideInstalledTans = !canShow
+                                    if !canShow { search = "" }
+                                    installedVisibleCount = 5
+                                }
+                            }
+                            .accessibilityHint("Hide or show the collection. Fast Find can still reveal matching Tans.")
+                        }
                         Spacer()
                         Button("Translate Tan…", systemImage: "wand.and.stars") { presentation = .translator }
                         Button("Import Tan…", systemImage: "plus") { importTan() }
                     }
-                    Picker("Show", selection: $enabledFilter) {
-                        Text("All").tag("All")
-                        Text("Enabled").tag("Enabled")
-                        Text("Disabled").tag("Disabled")
-                    }.pickerStyle(.segmented).frame(maxWidth: 300)
-                    let installed = tans.installed.filter(matches).filter { enabledFilter == "All" || tans.enabledIDs.contains($0.id) == (enabledFilter == "Enabled") }
-                    if installed.isEmpty {
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(tans.installed.isEmpty ? "Start with something small." : "No matching Tans").font(.headline)
-                            Text(tans.installed.isEmpty ? "Choose a Noko-Tan, or import a Tan of your own." :
-                                 search.isEmpty ? "No Tans match this filter. Choose All to see your collection." : "Try another name, author, or feature.")
-                                .foregroundStyle(.secondary)
-                            if !tans.installed.isEmpty && enabledFilter != "All" {
-                                Button("Show all Tans") { enabledFilter = "All"; search = "" }
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(22)
-                            .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 16))
-                    } else {
-                        LazyVStack(spacing: 8) { ForEach(installed) { package in
-                            HStack(spacing: 16) {
-                                tanIcon(package)
-                                Button { presentation = .details(package) } label: {
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(package.manifest.name).font(.headline)
-                                        Text(package.manifest.description).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(2)
-                                        Text((tans.enabledIDs.contains(package.id) ? "Enabled" : "Disabled") + " · " + (package.origin == "Noko Original" ? "Noko-Tan" : package.origin)).font(.caption).foregroundStyle(.secondary)
-                                        if package.id == NokoNativeTanID.appleMusicPresence {
-                                            let status = appleMusicStatus
-                                            Label(status.title, systemImage: status.symbol)
-                                                .font(.caption.weight(.medium))
-                                            Text(status.detail).font(.caption).foregroundStyle(.secondary)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }.frame(maxWidth: .infinity, alignment: .leading)
-                                }.buttonStyle(.plain)
-                                if tans.availableOriginalUpdate(package) != nil {
-                                    Text("Update available").font(.caption).foregroundStyle(.tint)
+                    if !isMaomao || !hideInstalledTans || !searchQuery.isEmpty {
+                        Picker("Show", selection: $enabledFilter) {
+                            Text("All").tag("All")
+                            Text("Enabled").tag("Enabled")
+                            Text("Disabled").tag("Disabled")
+                        }.pickerStyle(.segmented).frame(maxWidth: 300)
+                        let installed = tans.installed.filter(matches).filter { enabledFilter == "All" || tans.enabledIDs.contains($0.id) == (enabledFilter == "Enabled") }
+                        if installed.isEmpty {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(tans.installed.isEmpty ? "Start with something small." : "No matching Tans").font(.headline)
+                                Text(tans.installed.isEmpty ? "Choose a Noko-Tan, or import a Tan of your own." :
+                                     search.isEmpty ? "No Tans match this filter. Choose All to see your collection." : "Try another name, author, or feature.")
+                                    .foregroundStyle(.secondary)
+                                if !tans.installed.isEmpty && enabledFilter != "All" {
+                                    Button("Show all Tans") {
+                                        enabledFilter = "All"; search = ""
+                                        if isMaomao { hideInstalledTans = false }
+                                    }
                                 }
-                                Toggle(package.manifest.name, isOn: Binding(get: { tans.enabledIDs.contains(package.id) }, set: { enabled in
-                                    if enabled { pendingEnable = package } else { tans.setEnabled(package.id, false) }
-                                })).labelsHidden().toggleStyle(.switch).disabled(tans.safeMode)
-                            }.padding(14).background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 12))
-                                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(hoveredTanID == package.id ? Color.primary.opacity(contrast == .increased ? 0.6 : 0.18) : .clear))
-                                .onHover { hoveredTanID = $0 ? package.id : (hoveredTanID == package.id ? nil : hoveredTanID) }
-                        } }
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(22)
+                                .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 16))
+                        } else {
+                            let visible = isMaomao && searchQuery.isEmpty ? Array(installed.prefix(installedVisibleCount)) : installed
+                            LazyVStack(spacing: 8) { ForEach(visible) { package in
+                                HStack(spacing: 16) {
+                                    tanIcon(package)
+                                    Button { presentation = .details(package) } label: {
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(package.manifest.name).font(.headline)
+                                            Text(package.manifest.description).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(2)
+                                            Text((tans.enabledIDs.contains(package.id) ? "Enabled" : "Disabled") + " · " + (package.origin == "Noko Original" ? "Noko-Tan" : package.origin)).font(.caption).foregroundStyle(.secondary)
+                                            if package.id == NokoNativeTanID.appleMusicPresence {
+                                                let status = appleMusicStatus
+                                                Label(status.title, systemImage: status.symbol)
+                                                    .font(.caption.weight(.medium))
+                                                Text(status.detail).font(.caption).foregroundStyle(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                        }.frame(maxWidth: .infinity, alignment: .leading)
+                                    }.buttonStyle(.plain)
+                                    if tans.availableOriginalUpdate(package) != nil {
+                                        Text("Update available").font(.caption).foregroundStyle(.tint)
+                                    }
+                                    Toggle(package.manifest.name, isOn: Binding(get: { tans.enabledIDs.contains(package.id) }, set: { enabled in
+                                        if enabled { pendingEnable = package } else { tans.setEnabled(package.id, false) }
+                                    })).labelsHidden().toggleStyle(.switch).disabled(tans.safeMode)
+                                }.padding(14).background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 12))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(hoveredTanID == package.id ? Color.primary.opacity(contrast == .increased ? 0.6 : 0.18) : .clear))
+                                    .onHover { hoveredTanID = $0 ? package.id : (hoveredTanID == package.id ? nil : hoveredTanID) }
+                            } }
+                            if isMaomao && searchQuery.isEmpty && installed.count > 5 {
+                                HStack {
+                                    Text("Showing \(visible.count) of \(installed.count)").font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                    if visible.count < installed.count {
+                                        Button("Show more", systemImage: "chevron.down") { installedVisibleCount += 5 }
+                                    }
+                                    if installedVisibleCount > 5 {
+                                        Button("Show fewer", systemImage: "chevron.up") { installedVisibleCount = 5 }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text("Your Tans are hidden. Use Fast Find above to look them up, or choose Show Tans.")
+                            .font(.callout).foregroundStyle(.secondary)
                     }
                 }
                 let originals = tans.availableOriginals.filter(matches)
@@ -212,6 +254,13 @@ struct TanHubView: View {
                 .padding(18).background(.quaternary.opacity(translationInfoHovered ? 0.42 : 0.3), in: .rect(cornerRadius: 14))
             }.frame(maxWidth: 900, alignment: .leading).padding(36).frame(maxWidth: .infinity)
         }
+        .coordinateSpace(name: "tanHub")
+        .contentShape(Rectangle())
+        .simultaneousGesture(SpatialTapGesture(coordinateSpace: .named("tanHub")).onEnded { event in
+            if isMaomao && searchFocused && !searchBounds.contains(event.location) {
+                searchFocused = false
+            }
+        })
         .confirmationDialog("Enable \(pendingEnable?.manifest.name ?? "Tan")?", isPresented: Binding(get: { pendingEnable != nil }, set: { if !$0 { pendingEnable = nil } }), titleVisibility: .visible) {
             if let package = pendingEnable { Button("Enable Tan") { tans.setEnabled(package.id, true); pendingEnable = nil } }
             Button("Cancel", role: .cancel) { pendingEnable = nil }
@@ -242,7 +291,13 @@ struct TanHubView: View {
             pendingImport = nil
             importError = nil
         }.frame(width: 0, height: 0))
-        .onDisappear { filePanel?.cancel(nil); filePanel = nil; presentation = nil; pendingEnable = nil; pendingImport = nil }
+        .onChange(of: enabledFilter) { _, _ in
+            if isMaomao { installedVisibleCount = 5 }
+        }
+        .onChange(of: searchQuery) { _, _ in
+            if isMaomao { installedVisibleCount = 5 }
+        }
+        .onDisappear { searchFocused = false; filePanel?.cancel(nil); filePanel = nil; presentation = nil; pendingEnable = nil; pendingImport = nil }
     }
     private var importTitle: String {
         guard let pendingImport else { return "Import Tan?" }

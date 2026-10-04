@@ -183,6 +183,15 @@ actor ManualUpdateService {
         candidates.removeAll()
     }
 
+    /// Acquisition cleanup must not discard a later manual selection when a
+    /// cancelled fetch or a closed Settings view finishes asynchronously.
+    func discardCandidate(_ candidate: ManualUpdateCandidate) throws {
+        guard candidates[candidate.id]?.candidate == candidate else { return }
+        let directory = paths.candidateRoot.appendingPathComponent(candidate.id.uuidString, isDirectory: true)
+        try ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(directory)
+        candidates.removeValue(forKey: candidate.id)
+    }
+
     func inspect(zipURL: URL) async throws -> ManualUpdateCandidate {
         emit(.inspecting)
         let accessStarted = zipURL.startAccessingSecurityScopedResource()

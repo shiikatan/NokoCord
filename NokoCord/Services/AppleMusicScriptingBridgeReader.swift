@@ -16,24 +16,35 @@ actor ScriptingBridgeMusicReader: AppleMusicNowPlayingReading {
     }
 
     private var cachedMetadata: TrackMetadata?
+    private struct ApplicationContext {
+        let pid: pid_t
+        let application: SBApplication
+        let delegate: AppleMusicScriptErrorDelegate
+    }
+    private let reusesMaomaoApplication: Bool
+    private var cachedApplication: ApplicationContext?
+
+    init(editionID: String? = EditionIdentity.current?.id) {
+        reusesMaomaoApplication = editionID == "maomao"
+    }
 
     func readSnapshot() async throws -> AppleMusicReadResult {
         guard let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music")
             .first(where: { !$0.isTerminated }) else {
             cachedMetadata = nil
+            cachedApplication = nil
             return .notRunning
         }
         let pid = running.processIdentifier
         guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music")
             .contains(where: { $0.processIdentifier == pid && !$0.isTerminated }),
-              let application = SBApplication(processIdentifier: pid) else {
+              let context = applicationContext(for: pid) else {
             cachedMetadata = nil
+            cachedApplication = nil
             return .notRunning
         }
-
-        let errorDelegate = AppleMusicScriptErrorDelegate()
-        application.delegate = errorDelegate
-        application.timeout = 8
+        let application = context.application
+        let errorDelegate = context.delegate
 
         guard let rawState = try value(code: 0x70506C53, from: application, delegate: errorDelegate) else {
             throw AppleMusicReaderError.unavailable
@@ -85,6 +96,25 @@ actor ScriptingBridgeMusicReader: AppleMusicNowPlayingReading {
             position: max(0, position),
             playbackState: playbackState
         ))
+    }
+
+    private func applicationContext(for pid: pid_t) -> ApplicationContext? {
+        if reusesMaomaoApplication, let cachedApplication, cachedApplication.pid == pid {
+            return cachedApplication
+        }
+        guard let application = SBApplication(processIdentifier: pid) else { return nil }
+        let delegate = AppleMusicScriptErrorDelegate()
+        application.delegate = delegate
+        application.timeout = 8
+        let context = ApplicationContext(pid: pid, application: application, delegate: delegate)
+        if reusesMaomaoApplication {
+            // Rebuilding the ScriptingBridge proxy reparses Music's scripting
+            // definitions. Reuse it for this PID, never a track proxy; every
+            // poll still reads current playback and verifies process lifetime.
+            cachedMetadata = nil
+            cachedApplication = context
+        }
+        return context
     }
 
     private func readMetadata(

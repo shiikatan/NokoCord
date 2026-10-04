@@ -1,10 +1,13 @@
 // Maomao's identity is independent of Chiaki's.
 NOKO_BUNDLE_ID = com.shiikatan.nokocord.maomao
-NOKO_APPLE_VERSION = 1.4.0
+NOKO_APPLE_VERSION = 1.5.0
 NOKO_EDITION_ID = maomao
 NOKO_EDITION_NAME = Maomao
-NOKO_PUBLIC_VERSION = M1.4.0
+NOKO_PUBLIC_VERSION = M1.5.0
 NOKO_MAINTAINER = Shiikatan
+
+// Maomao uses native appearance-aware icons; other editions keep AppIcon.
+ASSETCATALOG_COMPILER_APPICON_NAME = MaomaoAppIcon
 
 // Public OAuth client identifier, not a client secret. Source and distribution
 // builds use the same application and application-scoped Keychain service.

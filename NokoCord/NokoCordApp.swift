@@ -99,6 +99,11 @@ private final class NokoStartupCoordinator {
         errorMessage = nil
         do {
             let paths = try ManualUpdateStartupRecovery.currentPaths()
+            if Bundle.main.bundleIdentifier == MaomaoDataPaths.bundleIdentifier {
+                await Task.detached(priority: .utility) {
+                    NokoFetchService.removeStaleDownloads(paths: paths)
+                }.value
+            }
             let readyContext = try await ManualUpdateStartupRecovery.createRuntimeAfterPreparation(
                 prepare: {
                     try await ManualUpdateStartupRecovery.prepare(

@@ -7,6 +7,7 @@ enum TanCapability: String, Codable { case appearanceRead = "appearance.read" }
 
 enum NokoNativeTanID {
     static let appleMusicPresence = "noko.apple-music-presence"
+    static let nokonymise = "noko.nokonymise"
 }
 
 struct TanManifest: Codable, Equatable, Identifiable {
@@ -32,8 +33,8 @@ struct TanManifest: Codable, Equatable, Identifiable {
         guard schemaVersion == 1 else { throw TanError.invalid("Unsupported manifest version") }
         guard id.range(of: "^[a-z0-9][a-z0-9.-]{2,79}$", options: .regularExpression) != nil,
               !id.contains(".."), !id.hasSuffix(".") else { throw TanError.invalid("Invalid Tan identifier") }
-        guard id != NokoNativeTanID.appleMusicPresence || target == .native else {
-            throw TanError.invalid("The Apple Music Presence identifier is reserved for its bundled native Tan")
+        guard ![NokoNativeTanID.appleMusicPresence, NokoNativeTanID.nokonymise].contains(id) || target == .native else {
+            throw TanError.invalid("This identifier is reserved for its bundled native Tan")
         }
         guard safeDisplayText(name), name.count <= 80, description.count <= 1000,
               version.range(of: "^[0-9]+\\.[0-9]+\\.[0-9]+$", options: .regularExpression) != nil,
@@ -51,7 +52,7 @@ struct TanManifest: Codable, Equatable, Identifiable {
         case .isolated, .page:
             guard entry?.hasSuffix(".js") == true else { throw TanError.invalid("Missing Tan entry file") }
         case .native:
-            guard id == NokoNativeTanID.appleMusicPresence, entry == nil, stylesheet == nil, capabilities.isEmpty else {
+            guard [NokoNativeTanID.appleMusicPresence, NokoNativeTanID.nokonymise].contains(id), entry == nil, stylesheet == nil, capabilities.isEmpty else {
                 throw TanError.invalid("Invalid native Tan declaration")
             }
         }
@@ -251,8 +252,13 @@ NokoTan.register({
             css: nil,
             origin: "Noko Original"
         )
-        return packagedOriginals + [appleMusic]
+        return packagedOriginals + [appleMusic] + (EditionIdentity.current?.id == "maomao" ? [nokonymise] : [])
     }()
+
+    static let nokonymise = TanPackage(
+        manifest: TanManifest(id: NokoNativeTanID.nokonymise, name: "Nokonymise", version: "1.0.0",
+            description: "Privately prepare Discord attachments with random filenames and lossless metadata removal for supported images. Clean known tracking parameters from sent message links. Processing stays local; originals are untouched. HEIC, video, PDF and unsafe image variants receive filename protection only.",
+            authors: ["NokoCord"], target: .native), javascript: nil, css: nil, origin: "Noko Original")
 }
 
 extension TanManifest {

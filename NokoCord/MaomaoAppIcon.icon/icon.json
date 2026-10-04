@@ -1,0 +1,149 @@
+{
+  "fill": {
+    "solid": "srgb:0.16,0.16,0.16,1.0"
+  },
+  "fill-specializations": [
+    {
+      "appearance": "tinted",
+      "value": "automatic"
+    }
+  ],
+  "groups": [
+    {
+      "name": "Original artwork",
+      "layers": [
+        {
+          "name": "Noko original colors",
+          "image-name": "noko2.png",
+          "glass": false,
+          "position": {
+            "scale": 0.8165869218500797,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          },
+          "opacity-specializations": [
+            {
+              "value": 1
+            },
+            {
+              "appearance": "tinted",
+              "value": 0
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular": false
+    },
+    {
+      "name": "Antlers \u2014 mono",
+      "layers": [
+        {
+          "name": "Antlers",
+          "image-name": "Antlers.svg",
+          "fill": {
+            "solid": "extended-gray:0.88000,1.00000"
+          },
+          "glass": true,
+          "opacity-specializations": [
+            {
+              "value": 0
+            },
+            {
+              "appearance": "tinted",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "lighting": "individual",
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.15
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.12
+      }
+    },
+    {
+      "name": "Hair \u2014 mono",
+      "layers": [
+        {
+          "name": "Hair",
+          "image-name": "Hair.svg",
+          "fill": {
+            "solid": "extended-gray:0.34000,1.00000"
+          },
+          "glass": true,
+          "opacity-specializations": [
+            {
+              "value": 0
+            },
+            {
+              "appearance": "tinted",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "lighting": "individual",
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.15
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.12
+      }
+    },
+    {
+      "name": "Face \u2014 mono",
+      "layers": [
+        {
+          "name": "Face",
+          "image-name": "Face.svg",
+          "fill": {
+            "solid": "extended-gray:0.90000,1.00000"
+          },
+          "glass": true,
+          "opacity-specializations": [
+            {
+              "value": 0
+            },
+            {
+              "appearance": "tinted",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "lighting": "individual",
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.15
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.12
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

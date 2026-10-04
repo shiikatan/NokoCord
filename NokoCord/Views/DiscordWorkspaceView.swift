@@ -168,6 +168,13 @@ struct DiscordSocialAccountSection: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
+                if EditionIdentity.current?.id == "maomao" {
+                    Label("Your Discord authorization is saved in macOS Keychain. After an update, macOS may ask permission to restore it. Any password requested in that dialog is handled by macOS.", systemImage: "lock.shield")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 if let warning = account.warning {
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .font(.callout)

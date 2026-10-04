@@ -300,13 +300,19 @@ private struct ManualUpdatesSettingsView: View {
     @State private var helperFailure: ManualUpdateHelperFailureResult?
     @State private var helperFailureError: String?
     @State private var dismissingHelperFailure = false
+    @State private var fetcher = NokoFetchService()
+    @State private var fetchTask: Task<Void, Never>?
+    @State private var fetchID: UUID?
+    @State private var fetchProgress: NokoFetchProgress?
+    @State private var fetchStatus = "Check GitHub Releases for the latest stable Maomao ZIP."
+    @State private var fetchedCandidate = false
 
     private enum Phase {
         case empty, inspecting, ready, error(String), applying, waitingForRelaunch
     }
 
     private var isBusy: Bool {
-        if legacyImporting { return true }
+        if legacyImporting || fetchTask != nil { return true }
         return switch phase {
         case .inspecting, .applying, .waitingForRelaunch: true
         default: false
@@ -371,6 +377,33 @@ private struct ManualUpdatesSettingsView: View {
                 }
             }
 
+            if EditionIdentity.current?.id == MaomaoDataPaths.editionID {
+                Section("Noko-Fetch · GitHub") {
+                    Text("Fetch a verified update ZIP from GitHub, then review it below. Local ZIP updates remain available offline.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Noko-Fetch", systemImage: "arrow.down.app") { fetchFromGitHub() }
+                            .disabled(isBusy)
+                        if fetchTask != nil {
+                            Button("Cancel", role: .cancel) { fetchTask?.cancel() }
+                        }
+                    }
+                    if let fetchProgress {
+                        switch fetchProgress {
+                        case .checking: ProgressView("Checking GitHub…")
+                        case .downloading(let version, let received, let total):
+                            ProgressView(value: Double(received), total: Double(total)) {
+                                Text("Downloading \(version) · \(Int(Double(received) / Double(total) * 100))%")
+                            }
+                        case .verifying: ProgressView("Verifying SHA-256…")
+                        case .inspecting: ProgressView("Checking downloaded ZIP…")
+                        }
+                    } else {
+                        Text(fetchStatus).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section("Inspection") {
                 inspectionContent
                 if let candidate, case .ready = phase {
@@ -384,11 +417,13 @@ private struct ManualUpdatesSettingsView: View {
                             showUpdateConfirmation = true
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(isBusy)
                     } else if candidate.permits(.cleanReinstall) {
                         Button("Clean Reinstall…", role: .destructive) {
                             pendingCandidate = candidate
                             showCleanFirstConfirmation = true
                         }
+                        .disabled(isBusy)
                     }
                 }
             }
@@ -454,6 +489,15 @@ private struct ManualUpdatesSettingsView: View {
         }
         .task { refreshLegacyAvailability() }
         .onAppear { refreshHelperFailure() }
+        .onDisappear {
+            fetchTask?.cancel()
+            if fetchedCandidate, let discarded = candidate, !isBusy {
+                candidate = nil
+                fetchedCandidate = false
+                phase = .empty
+                Task { try? await updater.discardCandidate(discarded) }
+            }
+        }
     }
 
     @ViewBuilder private var legacyImportContent: some View {
@@ -679,7 +723,7 @@ private struct ManualUpdatesSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("About Manual Updates").font(.title2.bold())
-                Text("Choose a local Maomao app ZIP or drop it into Updates. Selection inspects the ZIP only. NokoCord does not check for, download, or schedule app updates.")
+                Text("Choose a local Maomao app ZIP or drop it into Updates. Selection inspects the ZIP only. Noko-Fetch is an optional way to download a verified ZIP from GitHub when you request it. There are no background update checks. Both paths use the same inspection and installation process.")
                 Text("Update").font(.headline)
                 Text("Update is offered only for a newer version or build. After you confirm, Maomao closes and relaunches. Your Discord session, Maomao settings and customizations, and scoped Tans are preserved. The old shared build-3 Tan folder is left untouched; import from it separately after reviewing its provenance warning.")
                 Text("Clean Reinstall").font(.headline)
@@ -720,6 +764,7 @@ private struct ManualUpdatesSettingsView: View {
 
     private func inspectSelection(_ url: URL) {
         guard !isBusy else { return }
+        fetchedCandidate = false
         selectedFileName = url.lastPathComponent
         candidate = nil
         pendingCandidate = nil
@@ -737,6 +782,52 @@ private struct ManualUpdatesSettingsView: View {
                 candidate = nil
                 phase = .error(error.localizedDescription)
             }
+        }
+    }
+
+    private func fetchFromGitHub() {
+        guard !isBusy, EditionIdentity.current?.id == MaomaoDataPaths.editionID,
+              Bundle.main.bundleIdentifier == MaomaoDataPaths.bundleIdentifier,
+              let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              let version = try? ManualUpdateVersion(value) else { return }
+        let id = UUID()
+        fetchID = id
+        candidate = nil
+        pendingCandidate = nil
+        fetchedCandidate = false
+        selectedFileName = nil
+        phase = .empty
+        fetchProgress = .checking
+        fetchTask = Task {
+            defer { fetchTask = nil; fetchProgress = nil }
+            do {
+                try await updater.discardCandidates()
+                let result = try await fetcher.fetch(currentVersion: version, updater: updater) { update in
+                    Task { @MainActor in
+                        guard fetchID == id, fetchTask != nil else { return }
+                        fetchProgress = update
+                    }
+                }
+                if Task.isCancelled {
+                    if case .ready(let discarded, _) = result { try? await updater.discardCandidate(discarded) }
+                    throw CancellationError()
+                }
+                switch result {
+                case .upToDate(let remote):
+                    fetchStatus = remote == version ? "Up to date · M\(version)" : "Up to date · this Mac has a newer Maomao version than GitHub."
+                case .ready(let inspected, let filename):
+                    candidate = inspected
+                    selectedFileName = filename
+                    fetchedCandidate = true
+                    phase = .ready
+                    fetchStatus = "SHA-256 verified · review M\(version) → M\(inspected.marketingVersion) below."
+                }
+            } catch is CancellationError {
+                fetchStatus = "Cancelled. Nothing was installed."
+            } catch {
+                fetchStatus = (error as? NokoFetchError)?.errorDescription ?? NokoFetchError.storage.errorDescription!
+            }
+            fetchID = nil
         }
     }
 

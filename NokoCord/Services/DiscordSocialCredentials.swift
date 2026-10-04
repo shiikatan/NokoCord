@@ -97,6 +97,8 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
     private let account: String
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private var promptNameMigrationAttempted = false
+    private static let promptName = "NokoCord Discord activity"
 
     init(
         service: String = KeychainDiscordSocialCredentialStore.productionService,
@@ -110,6 +112,8 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let needsPromptNameCheck = !displayAttributes.isEmpty
+        if needsPromptNameCheck { query[kSecReturnRef as String] = true }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -117,28 +121,48 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
         guard status == errSecSuccess else {
             throw DiscordSocialCredentialStoreError.keychainStatus(status)
         }
-        guard let data = result as? Data else {
+        // Fetch the item reference with its data in the same authorized read.
+        // A second lookup must not consume another one-time Allow approval.
+        let values = result as? [String: Any]
+        let data = needsPromptNameCheck ? values?[kSecValueData as String] as? Data : result as? Data
+        guard let data else {
             throw DiscordSocialCredentialStoreError.invalidCredentialData
         }
+        let credentials: DiscordSocialCredentials
         do {
-            return try decoder.decode(DiscordSocialCredentials.self, from: data)
+            credentials = try decoder.decode(DiscordSocialCredentials.self, from: data)
         } catch {
             throw DiscordSocialCredentialStoreError.invalidCredentialData
         }
+        if let item = values?[kSecValueRef as String],
+           CFGetTypeID(item as CFTypeRef) == SecKeychainItemGetTypeID() {
+            adoptFriendlyPromptNameIfNeeded(item as! SecKeychainItem)
+        }
+        return credentials
     }
 
     func save(_ credentials: DiscordSocialCredentials) async throws {
         let data = try encoder.encode(credentials)
-        let update = [kSecValueData as String: data] as CFDictionary
-        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, update)
+        var update = displayAttributes
+        update[kSecValueData as String] = data
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, update as CFDictionary)
 
         if updateStatus == errSecSuccess { return }
         guard updateStatus == errSecItemNotFound else {
             throw DiscordSocialCredentialStoreError.keychainStatus(updateStatus)
         }
 
-        var item = baseQuery
+        var item = baseQuery.merging(displayAttributes) { _, displayValue in displayValue }
         item[kSecValueData as String] = data
+        if !displayAttributes.isEmpty {
+            var access: SecAccess?
+            let status = SecAccessCreate(Self.promptName as CFString, nil, &access)
+            guard status == errSecSuccess, let access else {
+                throw DiscordSocialCredentialStoreError.keychainStatus(status)
+            }
+            // nil preserves the native default: trust only the creating app.
+            item[kSecAttrAccess as String] = access
+        }
         let addStatus = SecItemAdd(item as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw DiscordSocialCredentialStoreError.keychainStatus(addStatus)
@@ -150,6 +174,48 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw DiscordSocialCredentialStoreError.keychainStatus(status)
         }
+    }
+
+    /// Traditional macOS Keychain prompts use the decrypt ACL's description,
+    /// independently of kSecAttrLabel. Preserve every existing authorization,
+    /// trusted-app list and prompt flag; never rebuild an existing access object.
+    private func adoptFriendlyPromptNameIfNeeded(_ item: SecKeychainItem) {
+        guard !promptNameMigrationAttempted, !displayAttributes.isEmpty else { return }
+        promptNameMigrationAttempted = true
+        var access: SecAccess?
+        guard SecKeychainItemCopyAccess(item, &access) == errSecSuccess, let access else { return }
+        var list: CFArray?
+        guard SecAccessCopyACLList(access, &list) == errSecSuccess,
+              let entries = list as? [SecACL] else { return }
+        var changed = false
+        for entry in entries {
+            // Partition-list and owner ACL descriptions carry separate meanings.
+            // Only the secret-read entry supplies the user-facing permission name.
+            guard let authorizations = SecACLCopyAuthorizations(entry) as? [String],
+                  authorizations.contains(kSecACLAuthorizationDecrypt as String) else { continue }
+            var apps: CFArray?
+            var description: CFString?
+            var selector = SecKeychainPromptSelector(rawValue: 0)
+            guard SecACLCopyContents(entry, &apps, &description, &selector) == errSecSuccess,
+                  let description else { return }
+            let oldName = description as String
+            guard oldName == service || oldName == Self.productionService else { continue }
+            guard SecACLSetContents(entry, apps, Self.promptName as CFString, selector) == errSecSuccess else { return }
+            changed = true
+        }
+        if changed {
+            // macOS may request owner approval for this cosmetic change. A denial
+            // leaves the saved authorization and original access rules untouched.
+            _ = SecKeychainItemSetAccess(item, access)
+        }
+    }
+
+    private var displayAttributes: [String: Any] {
+        guard DiscordSocialCredentialReset.isOwnedAuthorizationService(service) else { return [:] }
+        return [
+            kSecAttrLabel as String: Self.promptName,
+            kSecAttrDescription as String: "Saved Discord authorization for NokoCord activity sharing"
+        ]
     }
 
     private var baseQuery: [String: Any] {

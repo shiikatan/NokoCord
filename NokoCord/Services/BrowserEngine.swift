@@ -27,15 +27,36 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
     @ObservationIgnored private var tanRuntime: TanRuntime?
+    @ObservationIgnored private var nokonymise: MaomaoNokonymise?
+    @ObservationIgnored private var mediaDownloads: MaomaoMediaDownloads?
 
     init(dataStore: WKWebsiteDataStore? = nil, tans: TanManager? = nil) {
         self.dataStore = dataStore ?? .default()
         super.init()
+        if EditionIdentity.current?.id == "maomao" {
+            let mediaDownloads = MaomaoMediaDownloads()
+            self.mediaDownloads = mediaDownloads
+            mediaDownloads.onRequest = { [weak self] url in
+                guard let self, let view = self.browserView, self.lifecycle.phase != .clearing,
+                      BrowserPolicy.isDiscordOrigin(view.url) else { return }
+                self.startDownload(URLRequest(url: url), from: view)
+            }
+            mediaDownloads.onUnavailable = { [weak self] in
+                self?.notice = String(localized: "This image is no longer available. Open it again in Discord and retry the download.")
+            }
+        }
         if let tans {
             tanRuntime = TanRuntime(manager: tans)
+            if EditionIdentity.current?.id == "maomao" { nokonymise = MaomaoNokonymise(manager: tans) }
             tans.onChange = { [weak self, weak tans] in
                 guard let self else { return }
-                self.tanRuntime?.configurationChanged()
+                let scriptsChanged = self.tanRuntime?.configurationChanged() != false
+                if let view = self.browserView {
+                    self.nokonymise?.install(on: view.configuration.userContentController)
+                    self.nokonymise?.apply(to: view)
+                    self.mediaDownloads?.install(on: view.configuration.userContentController)
+                }
+                guard scriptsChanged else { return }
                 // Tan reconfiguration rebuilds the controller's user scripts.
                 if let view = self.browserView {
                     let safeMode = tans?.safeMode ?? false
@@ -66,9 +87,21 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         configuration.websiteDataStore = dataStore
         MaomaoWebCompatibility.configure(configuration)
         tanRuntime?.prepare(configuration.userContentController)
+        nokonymise?.install(on: configuration.userContentController)
+        mediaDownloads?.install(on: configuration.userContentController)
         MaomaoDiscordPresentation.install(on: configuration.userContentController,
                                          safeMode: tanRuntime?.manager.safeMode ?? false)
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view: WKWebView
+        if mediaDownloads != nil {
+            let maomaoView = MaomaoWebView(frame: .zero, configuration: configuration)
+            maomaoView.onContextDownload = { [weak self] kind, point in
+                self?.mediaDownloads?.requestContextDownload(kind: kind, point: point)
+            }
+            view = maomaoView
+        } else {
+            view = WKWebView(frame: .zero, configuration: configuration)
+        }
+        mediaDownloads?.attach(view)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -83,6 +116,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 Task { @MainActor [weak self] in
                     guard let self, self.browserView === view else { return }
                     self.tanRuntime?.locationChanged()
+                    self.nokonymise?.locationChanged(view)
                 }
             },
             view.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
@@ -172,6 +206,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         browserView?.uiDelegate = nil
         observations.removeAll()
         tanRuntime?.detach()
+        nokonymise?.detach()
+        mediaDownloads?.detach()
         browserView = nil
         navigation = nil
         canGoBack = false
@@ -181,6 +217,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing else { return }
         self.navigation = navigation
         tanRuntime?.documentNavigationStarted()
+        nokonymise?.documentNavigationStarted()
         notice = nil
         lifecycle.loading()
     }
@@ -188,6 +225,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard webView === browserView, lifecycle.phase != .clearing, self.navigation === navigation else { return }
         lifecycle.ready()
         tanRuntime?.pageDidLoad()
+        nokonymise?.pageDidLoad(webView)
+        mediaDownloads?.pageDidLoad()
         // WebKit may have captured the document's user scripts before an
         // appearance change during loading. Honor the latest saved preference.
         MaomaoDiscordPresentation.apply(to: webView, safeMode: tanRuntime?.manager.safeMode ?? false)
@@ -222,11 +261,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             // Discord opens ordinary attachment files in a new window, even
             // from its Download link. Keep the one Discord view in place and
             // use WebKit's download machinery with its existing data store.
-            webView.startDownload(using: action.request) { [weak self, weak webView] download in
-                guard let self, let webView, self.browserView === webView,
-                      self.lifecycle.phase != .clearing else { download.cancel { _ in }; return }
-                self.downloads.attach(download)
-            }
+            startDownload(action.request, from: webView)
             decisionHandler(.cancel)
             return
         }
@@ -257,6 +292,13 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         guard webView === browserView, lifecycle.phase != .clearing else { download.cancel { _ in }; return }
         downloads.attach(download)
+    }
+    private func startDownload(_ request: URLRequest, from webView: WKWebView) {
+        webView.startDownload(using: request) { [weak self, weak webView] download in
+            guard let self, let webView, self.browserView === webView,
+                  self.lifecycle.phase != .clearing else { download.cancel { _ in }; return }
+            self.downloads.attach(download)
+        }
     }
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,

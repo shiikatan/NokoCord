@@ -668,18 +668,17 @@ enum ManualUpdateDigest {
                 throw ManualUpdateError.invalidArchive("selected ZIP grew beyond its inspected size")
             }
             copiedBytes = nextCount.partialValue
-            let bytes = Data(buffer.prefix(count))
-            hasher.update(data: bytes)
-            var offset = 0
-            while offset < count {
-                let written = bytes.withUnsafeBytes { raw in
-                    Darwin.write(destination, raw.baseAddress!.advanced(by: offset), count - offset)
+            try buffer.withUnsafeBytes { raw in
+                hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: raw.prefix(count)))
+                var offset = 0
+                while offset < count {
+                    let written = Darwin.write(destination, raw.baseAddress!.advanced(by: offset), count - offset)
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        throw ManualUpdateError.invalidArchive("could not write private ZIP snapshot")
+                    }
+                    offset += written
                 }
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    throw ManualUpdateError.invalidArchive("could not write private ZIP snapshot")
-                }
-                offset += written
             }
         }
         var after = stat()
@@ -713,7 +712,9 @@ enum ManualUpdateDigest {
                 if errno == EINTR { continue }
                 throw ManualUpdateError.unsafePath("could not read digest source")
             }
-            hasher.update(data: Data(buffer.prefix(count)))
+            buffer.withUnsafeBytes { raw in
+                hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: raw.prefix(count)))
+            }
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
@@ -741,6 +742,9 @@ enum ManualUpdateDigest {
         }
         frame(Data("NokoCord application tree v1".utf8))
         record(path: "", kind: 1, mode: rootInfo.st_mode, length: 0, digest: Data(SHA256.hash(data: Data())))
+        // Reuse one read buffer across Maomao's entire integrity walk. The
+        // synchronous hash consumes each slice before the next file is read.
+        var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
         func walk(_ directory: URL, relative: String) throws {
             let children = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -770,7 +774,6 @@ enum ManualUpdateDigest {
                     }
                     var contentHasher = SHA256()
                     var bytesRead: UInt64 = 0
-                    var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
                     while true {
                         let count = read(descriptor, &buffer, buffer.count)
                         if count == 0 { break }
@@ -779,7 +782,9 @@ enum ManualUpdateDigest {
                             throw ManualUpdateError.unsafePath("could not read application file")
                         }
                         bytesRead += UInt64(count)
-                        contentHasher.update(data: Data(buffer.prefix(count)))
+                        buffer.withUnsafeBytes { raw in
+                            contentHasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: raw.prefix(count)))
+                        }
                     }
                     var after = stat()
                     guard fstat(descriptor, &after) == 0,

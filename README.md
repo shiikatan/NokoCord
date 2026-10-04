@@ -64,8 +64,11 @@ resolver queries Apple using track title, artist, and album metadata while
 enabled, then uses the registered generic artwork asset on a miss. Album text
 is not shown in presence. Disabling the Tan clears its owned activity.
 
-Maomao M1.4.0 uses a manual ZIP updater. Keep an installed copy until an
-update has been validated. Credentials remain in Keychain across updates.
+Maomao M1.5.0 keeps local ZIP updates as the primary update method. Noko-Fetch
+optionally downloads the latest stable Maomao ZIP from GitHub Releases when you
+request it, verifies its published SHA-256, and uses the same updater. There are
+no background update checks. Same-version Clean Reinstall remains a local ZIP
+action. Credentials remain in Keychain across normal updates.
 
 ## License and attribution
 

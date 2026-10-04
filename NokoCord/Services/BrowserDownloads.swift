@@ -22,8 +22,11 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
         var observation: NSKeyValueObservation?
         var destination: URL?
         var scoped = false
+        var stagingDirectory: URL?
+        var stagedFile: URL?
     }
     func attach(_ download: WKDownload) {
+        guard transfers[ObjectIdentifier(download)] == nil else { return }
         guard transfers.count < 3 else {
             download.cancel { _ in }
             error = String(localized: "Finish or cancel a download before starting another.")
@@ -61,6 +64,7 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
         }
         let save = NSSavePanel()
         save.nameFieldStringValue = BrowserPolicy.filename(suggestedFilename)
+        update(transfer.id) { $0.name = save.nameFieldStringValue }
         save.title = String(localized: "Save Discord download")
         save.canCreateDirectories = true
         panel = save
@@ -71,13 +75,28 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
                 completionHandler(nil); self.finish(key, status: .cancelled); return
             }
             let scoped = url.startAccessingSecurityScopedResource()
-            guard !FileManager.default.fileExists(atPath: url.path) else {
-                if scoped { url.stopAccessingSecurityScopedResource() }
-                self.error = String(localized: "Choose a new filename. This download cannot overwrite an existing file.")
-                completionHandler(nil); self.finish(key, status: .failed); return
-            }
             self.transfers[key]?.destination = url
             self.transfers[key]?.scoped = scoped
+            var downloadURL = url
+            if FileManager.default.fileExists(atPath: url.path) {
+                guard EditionIdentity.current?.id == "maomao" else {
+                    self.error = String(localized: "Choose a new filename. This download cannot overwrite an existing file.")
+                    completionHandler(nil); self.finish(key, status: .failed); return
+                }
+                // NSSavePanel has already obtained replacement approval. WKDownload
+                // requires a nonexistent destination, so preserve the old file until
+                // the new download completes, then replace it on the same volume.
+                do {
+                    let directory = try FileManager.default.url(for: .itemReplacementDirectory,
+                        in: .userDomainMask, appropriateFor: url, create: true)
+                    downloadURL = directory.appendingPathComponent(url.lastPathComponent)
+                    self.transfers[key]?.stagingDirectory = directory
+                    self.transfers[key]?.stagedFile = downloadURL
+                } catch {
+                    self.error = String(localized: "The replacement could not be prepared. Choose another save location and retry.")
+                    completionHandler(nil); self.finish(key, status: .failed); return
+                }
+            }
             self.update(transfer.id) { $0.name = url.lastPathComponent; $0.status = .downloading }
             self.transfers[key]?.observation = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
                 let fraction = progress.fractionCompleted
@@ -86,10 +105,27 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
                     self.update(transfer.id) { $0.fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0 }
                 }
             }
-            completionHandler(url)
+            completionHandler(downloadURL)
         }
     }
-    func downloadDidFinish(_ download: WKDownload) { finish(ObjectIdentifier(download), status: .complete) }
+    func downloadDidFinish(_ download: WKDownload) {
+        let key = ObjectIdentifier(download)
+        guard let transfer = transfers[key] else { return }
+        if let staged = transfer.stagedFile, let destination = transfer.destination {
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    _ = try FileManager.default.replaceItemAt(destination, withItemAt: staged)
+                } else {
+                    try FileManager.default.moveItem(at: staged, to: destination)
+                }
+            } catch {
+                self.error = String(localized: "The downloaded file could not replace the existing file. Choose another save location and retry.")
+                finish(key, status: .failed)
+                return
+            }
+        }
+        finish(key, status: .complete)
+    }
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         guard transfers[ObjectIdentifier(download)] != nil else { return }
         finish(ObjectIdentifier(download), status: .failed)
@@ -104,6 +140,7 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
     private func finish(_ key: ObjectIdentifier, status: BrowserDownloadRecord.Status) {
         guard let transfer = transfers.removeValue(forKey: key) else { return }
         transfer.observation?.invalidate()
+        if let directory = transfer.stagingDirectory { try? FileManager.default.removeItem(at: directory) }
         if transfer.scoped { transfer.destination?.stopAccessingSecurityScopedResource() }
         update(transfer.id) { $0.status = status; if status == .complete { $0.fraction = 1 } }
     }

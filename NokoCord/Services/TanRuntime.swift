@@ -8,6 +8,9 @@ final class TanRuntime {
     private weak var view: WKWebView?
     private var controller: WKUserContentController?
     private var configured: [TanPackage] = []
+    private let optimizesMaomao: Bool
+    private var configuredSafeMode: Bool?
+    private var preparedSources: [String: String] = [:]
     private var worlds: [String: WKContentWorld] = [:]
     private var activeHashes: [String: String] = [:]
     private var appliedReloadScripts: [String: String]?
@@ -20,10 +23,13 @@ final class TanRuntime {
     private var livePackages: [String: TanPackage] = [:]
     private let allowedOrigin: String
 
-    init(manager: TanManager, allowedOrigin: String = "https://discord.com") {
+    init(manager: TanManager, allowedOrigin: String = "https://discord.com",
+         editionID: String? = EditionIdentity.current?.id) {
         self.manager = manager; self.allowedOrigin = allowedOrigin
+        optimizesMaomao = editionID == "maomao"
     }
     func prepare(_ controller: WKUserContentController) {
+        if optimizesMaomao, self.controller !== controller { configuredSafeMode = nil }
         self.controller = controller
         configureScripts()
     }
@@ -35,13 +41,15 @@ final class TanRuntime {
         clearHandlers()
         controller?.removeAllUserScripts()
         controller = nil; view = nil; configured = []; livePackages = [:]
+        configuredSafeMode = nil; preparedSources.removeAll()
         worlds.removeAll(); activeHashes.removeAll()
         appliedReloadScripts = nil; pendingReloadScripts = nil
         manager.reloadRequired = false
     }
-    func configurationChanged() {
+    @discardableResult
+    func configurationChanged() -> Bool {
         let old = configured
-        configureScripts()
+        guard configureScripts() else { return false }
         updateReloadRequirement()
         if manager.safeMode, view?.url != nil {
             // Page-world code is trusted and may not be fully reversible. A new
@@ -50,9 +58,10 @@ final class TanRuntime {
             resumeTask?.cancel(); resumeTask = nil
             livePackages.removeAll(); worlds.removeAll()
             view?.reload()
-            return
+            return true
         }
         applyLive(stopping: old, starting: manager.scriptActive.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
+        return true
     }
     func documentNavigationStarted() {
         // WebKit captures these scripts for the new document. A later Tan change
@@ -107,18 +116,44 @@ final class TanRuntime {
               let appliedReloadScripts else { manager.reloadRequired = false; return }
         manager.reloadRequired = appliedReloadScripts != reloadScriptHashes()
     }
-    private func configureScripts() {
-        guard let controller else { return }
+    @discardableResult
+    private func configureScripts() -> Bool {
+        guard let controller else { return false }
+        let next = manager.scriptActive
+        // Native Maomao providers own their separate document lifecycle.
+        // Preserve script registrations and instances when their set is equal.
+        if optimizesMaomao, configuredSafeMode == manager.safeMode,
+           configured.count == next.count, zip(configured, next).allSatisfy({ MaomaoTanContent.matches($0, $1) }) { return false }
+        let previous = optimizesMaomao ? Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0) }) : [:]
+        let previousHashes = activeHashes
+        let previousSources = preparedSources
         clearHandlers(); controller.removeAllUserScripts()
-        configured = manager.scriptActive
-        activeHashes = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0.contentHash) })
+        configured = next
+        if optimizesMaomao {
+            configuredSafeMode = manager.safeMode
+            activeHashes.removeAll(keepingCapacity: true)
+            preparedSources.removeAll(keepingCapacity: true)
+            for package in configured {
+                let unchanged = previous[package.id].map { MaomaoTanContent.matches($0, package) } ?? false
+                activeHashes[package.id] = unchanged ? previousHashes[package.id] ?? package.contentHash : package.contentHash
+                preparedSources[package.id] = unchanged ? previousSources[package.id] ?? Self.source(package, allowedOrigin: allowedOrigin)
+                    : Self.source(package, allowedOrigin: allowedOrigin)
+            }
+        } else {
+            activeHashes = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0.contentHash) })
+        }
         for package in configured {
             let world = world(package)
-            let handler = TanMessageHandler(runtime: self, package: package)
+            let handler = TanMessageHandler(runtime: self, package: package,
+                                            fingerprint: optimizesMaomao ? activeHashes[package.id] : nil)
             controller.addScriptMessageHandler(handler, contentWorld: world, name: Self.handlerName(package))
             handlers.append(handler)
-            controller.addUserScript(WKUserScript(source: Self.source(package, allowedOrigin: allowedOrigin), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world))
+            controller.addUserScript(WKUserScript(source: preparedSource(package), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world))
         }
+        return true
+    }
+    private func preparedSource(_ package: TanPackage) -> String {
+        preparedSources[package.id] ?? Self.source(package, allowedOrigin: allowedOrigin)
     }
     private func clearHandlers() {
         for package in configured { controller?.removeScriptMessageHandler(forName: Self.handlerName(package), contentWorld: world(package)) }
@@ -148,7 +183,7 @@ final class TanRuntime {
                 guard self.generation == current, !self.manager.safeMode,
                       let url = view.url, Self.accepts(url, origin: self.allowedOrigin) else { return }
                 self.livePackages[package.id] = package
-                do { try await self.evaluate(Self.source(package, allowedOrigin: self.allowedOrigin), view: view, world: self.world(package)) }
+                do { try await self.evaluate(self.preparedSource(package), view: view, world: self.world(package)) }
                 catch { self.manager.record(package.id, event: .failed) }
             }
             guard self.generation == current else { return }
@@ -291,7 +326,9 @@ private final class TanMessageHandler: NSObject, WKScriptMessageHandlerWithReply
     let fingerprint: String
     private var interval = Date()
     private var count = 0
-    init(runtime: TanRuntime, package: TanPackage) { self.runtime = runtime; self.package = package; self.fingerprint = package.contentHash }
+    init(runtime: TanRuntime, package: TanPackage, fingerprint: String? = nil) {
+        self.runtime = runtime; self.package = package; self.fingerprint = fingerprint ?? package.contentHash
+    }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
         if Date().timeIntervalSince(interval) > 1 { interval = Date(); count = 0 }
         count += 1

@@ -15,11 +15,17 @@ final class TanManager {
     private(set) var enabledIDs: Set<String> = []
     private(set) var safeMode = false
     private(set) var error: String?
-    var reloadRequired = false
+    private var scriptReloadRequired = false
+    private var maomaoNativeReloads: Set<String> = []
+    var reloadRequired: Bool {
+        get { scriptReloadRequired || !maomaoNativeReloads.isEmpty }
+        set { scriptReloadRequired = newValue }
+    }
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let root: URL
     @ObservationIgnored private let usesEditionScopedStorage: Bool
     @ObservationIgnored private let launchSafeMode: Bool
+    @ObservationIgnored private let usesMaomaoValueComparison: Bool
     @ObservationIgnored private var changeObservers: [UUID: () -> Void] = [:]
     @ObservationIgnored private var enableLog: [String] = []
     @ObservationIgnored private var failures: [String: Int] = [:]
@@ -29,10 +35,12 @@ final class TanManager {
         var safeMode: Bool
         var enableLog: [String]
     }
-    init(root: URL? = nil, launchSafeMode: Bool = ProcessInfo.processInfo.arguments.contains("--safe-mode")) {
+    init(root: URL? = nil, launchSafeMode: Bool = ProcessInfo.processInfo.arguments.contains("--safe-mode"),
+         editionID: String? = EditionIdentity.current?.id) {
         let editionPaths = try? MaomaoDataPaths.current()
         usesEditionScopedStorage = root == nil && editionPaths != nil
         self.launchSafeMode = launchSafeMode
+        usesMaomaoValueComparison = editionID == "maomao"
         self.root = root ?? editionPaths?.tanStorage ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NokoCord/Tans", isDirectory: true)
         do {
@@ -85,6 +93,13 @@ final class TanManager {
     }
     var active: [TanPackage] { safeMode ? [] : installed.filter { enabledIDs.contains($0.id) } }
     var scriptActive: [TanPackage] { active.filter { $0.manifest.target != .native } }
+    // Native Maomao providers own their document-start lifecycle. Keep their
+    // notice separate so script Tan changes cannot clear a pending reload.
+    func setMaomaoNativeReloadRequired(_ required: Bool, for id: String) {
+        guard usesMaomaoValueComparison else { return }
+        if required { maomaoNativeReloads.insert(id) }
+        else { maomaoNativeReloads.remove(id) }
+    }
     var availableOriginals: [TanPackage] { TanPackage.originals.filter { original in !installed.contains { $0.id == original.id } } }
     @discardableResult
     func addChangeObserver(_ observer: @escaping () -> Void) -> UUID {
@@ -145,8 +160,12 @@ final class TanManager {
             let order = $0.manifest.version.compare(package.manifest.version, options: .numeric)
             // A local package with the same ID may explicitly opt into a newer
             // bundled release, but cannot silently inherit official trust.
-            return official ? (order != .orderedAscending && $0.contentHash != package.contentHash)
-                : order == .orderedDescending
+            guard official else { return order == .orderedDescending }
+            guard order != .orderedAscending else { return false }
+            // These immutable, validated values contain every field included
+            // in the canonical hash. Maomao's UI does not need to serialize
+            // and hash both packages on every update-badge recomputation.
+            return usesMaomaoValueComparison ? !MaomaoTanContent.matches($0, package) : $0.contentHash != package.contentHash
         }
     }
     func updateOriginal(_ id: String) throws {
