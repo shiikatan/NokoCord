@@ -121,7 +121,7 @@ EDITIONS = {
     "maomao": {
         "CFBundleIdentifier": "com.shiikatan.nokocord.maomao",
         "CFBundleShortVersionString": "1.5.0",
-        "CFBundleVersion": "7",
+        "CFBundleVersion": "8",
         "NokoEditionID": "maomao",
         "NokoEditionName": "Maomao",
         "NokoPublicVersion": "M1.5.0",

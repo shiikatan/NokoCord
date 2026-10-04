@@ -485,7 +485,9 @@ actor ManualUpdateService {
                 helperProcess.terminate()
                 helperProcess.waitUntilExit()
             }
-            try? ManualUpdateTransactionFiles.removeOwnedPath(transactionDirectory)
+            // Staging contains an app's legitimate framework symlinks. Unlink
+            // those entries without following them, as transaction recovery does.
+            try? ManualUpdateTransactionFiles.removeApplicationBundleNoFollow(transactionDirectory)
             emit(.failed(error.localizedDescription))
             throw error
         }

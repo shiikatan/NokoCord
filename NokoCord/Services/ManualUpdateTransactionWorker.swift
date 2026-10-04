@@ -335,9 +335,7 @@ enum ManualUpdateTransactionWorker {
         try MaomaoDataPaths.validateNoSymlinkComponents(at: URL(fileURLWithPath: manifest.stagedApplicationPath))
         let helper = URL(fileURLWithPath: manifest.helperPath)
         if requireRunningHelper {
-            guard CommandLine.arguments.first.map({ URL(fileURLWithPath: $0).path }) == helper.path else {
-                throw ManualUpdateError.unsafePath("helper executable does not match transaction manifest")
-            }
+            try validateRunningHelper(at: helper)
         }
         var helperInfo = stat()
         guard lstat(helper.path, &helperInfo) == 0, (helperInfo.st_mode & S_IFMT) == S_IFREG,
@@ -350,6 +348,18 @@ enum ManualUpdateTransactionWorker {
         try validateSameSignature(installed: manifest.installedSignature, candidate: signatureString(helperValidation.signature))
         guard helperValidation.architectures.contains(currentArchitecture) else {
             throw ManualUpdateError.invalidApplication("updater helper does not support this Mac's architecture")
+        }
+    }
+
+    static func validateRunningHelper(at helper: URL) throws {
+        // Foundation's Process rewrites argv[0] through aliases such as /tmp
+        // even when the transaction uses the physical /private/tmp path.
+        // The kernel reports the actual executable path, independently of argv.
+        var buffer = [CChar](repeating: 0, count: Int(4 * MAXPATHLEN))
+        let length = proc_pidpath(getpid(), &buffer, UInt32(buffer.count))
+        guard length > 0, Int(length) < buffer.count,
+              String(cString: buffer) == helper.path else {
+            throw ManualUpdateError.unsafePath("helper executable does not match transaction manifest")
         }
     }
 
