@@ -20,6 +20,7 @@ struct NokoCordApp: App {
                     NokoRootView()
                         .environment(context.browser)
                         .environment(context.tans)
+                        .environment(context.maolist)
                         .environment(context.activityRuntime.appleMusicPresence)
                         .task { startup.openDiscordOnLaunchIfNeeded(context) }
                 } else {
@@ -55,6 +56,7 @@ struct NokoCordApp: App {
                     SettingsView()
                         .environment(context.browser)
                         .environment(context.tans)
+                        .environment(context.maolist)
                         .environment(context.activityRuntime.appleMusicPresence)
                         .environment(context.activityRuntime.discordAccount)
                 } else {
@@ -74,6 +76,7 @@ private final class NokoAppContext {
     let tans: TanManager
     let browser: ActiveBrowserEngine
     let activityRuntime: NokoActivityRuntime
+    let maolist = MaoListModule()
     var handledInitialDiscordOpen = false
 
     init(tans: TanManager, browser: ActiveBrowserEngine, activityRuntime: NokoActivityRuntime) {
@@ -217,11 +220,17 @@ private struct QuickSwitcherFocusKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+private struct AppSwitchActionFocusKey: FocusedValueKey { typealias Value = () -> Void }
+
 private struct HomeActionFocusKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
 extension FocusedValues {
+    var nokoCordSwitchApp: (() -> Void)? {
+        get { self[AppSwitchActionFocusKey.self] }
+        set { self[AppSwitchActionFocusKey.self] = newValue }
+    }
     var nokoCordHome: (() -> Void)? {
         get { self[HomeActionFocusKey.self] }
         set { self[HomeActionFocusKey.self] = newValue }
@@ -238,6 +247,7 @@ private struct NokoCordCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.nokoCordQuickSwitcher) private var quickSwitcher
     @FocusedValue(\.nokoCordHome) private var goHome
+    @FocusedValue(\.nokoCordSwitchApp) private var switchApp
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -266,6 +276,8 @@ private struct NokoCordCommands: Commands {
         }
         CommandGroup(after: .toolbar) {
             if EditionIdentity.current?.id == "maomao" {
+                Button("Switch between NokoCord and MaoList") { switchApp?() }
+                    .keyboardShortcut("m", modifiers: [.command, .shift]).disabled(switchApp == nil)
                 Button("Show Noko-Bar") { showNokoBar = true }
                     .keyboardShortcut("n", modifiers: [.control, .command])
             }

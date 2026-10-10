@@ -39,3 +39,17 @@ node_modules/
 AGENTS.md
 *.pem
 *.key
+
+# Distribution binaries and potentially private diagnostic captures stay local.
+*.app/
+*.dSYM/
+*.zip
+*.dmg
+*.crash
+*.ips
+*.har
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.keychain
+*.keychain-db

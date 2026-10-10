@@ -50,7 +50,7 @@ struct TanDetailsView: View {
                 LabeledContent("Runtime", value: package.manifest.target == .native ? "NokoCord native" : package.manifest.target.rawValue)
                 if package.id == NokoNativeTanID.appleMusicPresence {
                     LabeledContent("Music access", value: "Current song and playback state while enabled")
-                    Text("NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art.")
+                    Text("NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art. Only if no cover is found, it looks up album and artist details with Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title for a track lookup.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     LabeledContent("Capabilities", value: package.manifest.capabilities.isEmpty ? "None" : package.manifest.capabilities.map(\.rawValue).joined(separator: ", "))

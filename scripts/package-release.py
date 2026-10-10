@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import pathlib
+import plistlib
 import subprocess
 import tempfile
 
@@ -39,9 +40,11 @@ def verify(app):
 
 def package(app, output):
     verify(app)
+    with (app / "Contents/Info.plist").open("rb") as source:
+        version = plistlib.load(source)["NokoPublicVersion"]
     original = manifest(app)
     output.mkdir(parents=True, exist_ok=True)
-    names = ["NokoCord-Maomao-M1.5.0.zip", "NokoCord-Maomao-M1.5.0.dmg", "SHA256SUMS"]
+    names = [f"NokoCord-Maomao-{version}.zip", f"NokoCord-Maomao-{version}.dmg", "SHA256SUMS"]
     if any((output / name).exists() for name in names):
         raise ValueError("Release output already exists; choose a fresh directory")
     archive, image, checksums = [output / name for name in names]
@@ -60,7 +63,7 @@ def package(app, output):
         staging.mkdir()
         run("ditto", "--norsrc", "--noextattr", str(app), str(staging / "NokoCord.app"))
         (staging / "Applications").symlink_to("/Applications")
-        run("hdiutil", "create", "-srcfolder", str(staging), "-volname", "NokoCord Maomao M1.5.0",
+        run("hdiutil", "create", "-srcfolder", str(staging), "-volname", f"NokoCord Maomao {version}",
             "-fs", "APFS", "-format", "UDZO", str(image))
         run("hdiutil", "verify", str(image))
         mount = work / "mounted"

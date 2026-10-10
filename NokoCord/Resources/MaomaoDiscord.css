@@ -92,7 +92,7 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
                     top: anchor(--maomao-header center, 33px);
                     right: calc(anchor(--maomao-header right, 10px) + 8px);
                     transform: translateY(-50%);
-                    width: 72px;
+                    width: calc(72px + var(--maomao-app-switch-width, 0px));
                     height: 32px;
                     gap: 8px;
                     /* Discord's channel header sits at z-index 100. Floating
@@ -114,7 +114,7 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
             :is([class^="base_"], [class*=" base_"])
             :is([class^="container_"], [class*=" container_"]):has(> :is([class^="upperContainer_"], [class*=" upperContainer_"]) > :is([class^="toolbar_"], [class*=" toolbar_"])):not(:is([class^="threadSidebar_"], [class*=" threadSidebar_"], [class^="searchResultsWrap_"], [class*=" searchResultsWrap_"]) *) {
                 anchor-name: --maomao-header;
-                padding-right: 96px;
+                padding-right: calc(96px + var(--maomao-app-switch-width, 0px));
                 background: var(--maomao-glass-background);
                 border-bottom: 1px solid var(--maomao-line);
                 box-shadow: none;
@@ -207,17 +207,17 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
     /* Composer: lift the whole real control, including attachments/reply state.
      * Picker buttons keep Discord's hit targets, labels and handlers.
      */
-    :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
         border: 1px solid var(--maomao-line);
         border-radius: 14px;
         background: var(--maomao-raised);
         box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
     }
-    :is([class^="channelTextArea_"], [class*=" channelTextArea_"]):focus-within {
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"]):focus-within {
         border-color: var(--maomao-composer-focus);
         box-shadow: var(--maomao-glass-shadow), 0 0 0 1px var(--maomao-composer-focus);
     }
-    :is([class^="scrollableContainer_"], [class*=" scrollableContainer_"]) {
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :where([class^="channelTextArea_"], [class*=" channelTextArea_"]) :is([class^="scrollableContainer_"], [class*=" scrollableContainer_"]) {
         background: transparent;
         border-radius: inherit;
     }
@@ -225,17 +225,17 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
      * wrapper. Reply state shares the composer's material and focus frame;
      * clear that backing fill as well as the reply strip itself.
      */
-    :is([class^="channelTextArea_"], [class*=" channelTextArea_"])
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"])
     :is([class^="stackedBars_"], [class*=" stackedBars_"]):has(:is([class^="replyBar_"], [class*=" replyBar_"])) {
         background: transparent;
     }
-    :is([class^="channelTextArea_"], [class*=" channelTextArea_"])
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"])
     :is([class^="replyBar_"], [class*=" replyBar_"]) {
         background: transparent;
         border-radius: 13px 13px 0 0;
         border-bottom: 1px solid var(--maomao-glass-line);
     }
-    :is([class^="form_"], [class*=" form_"]):has([role="textbox"]) { background: transparent; }
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="form_"], [class*=" form_"]):has([role="textbox"]) { background: transparent; }
 
     /* Messages retain grouping, unread dividers, reply and attachment geometry. */
     [id^="chat-messages-"] > :is([class^="message_"], [class*=" message_"]) { border-radius: 8px; }
@@ -256,7 +256,9 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
         box-shadow: 0 12px 40px rgb(0 0 0 / 25%), 0 0 0 1px var(--maomao-line);
     }
 
-    /* Elevated glass sheets. Keep blur on a few stationary shells, never on
+    /* Composer rules are scoped to chatContent above and below: profile
+     * popouts reuse channelTextArea but own their light/dark palette.
+     * Elevated glass sheets. Keep blur on a few stationary shells, never on
      * messages, list rows, media or Nitro artwork. No extra overlay/hit targets.
      */
     :is(
@@ -264,7 +266,7 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
         [class^="membersWrap_"], [class*=" membersWrap_"],
         [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"],
         [class^="panels_"], [class*=" panels_"],
-        [class^="channelTextArea_"], [class*=" channelTextArea_"],
+        :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"]),
         [role="menu"],
         [class^="messagesPopoutWrap_"], [class*=" messagesPopoutWrap_"],
         [class^="emojiPicker_"], [class*=" emojiPicker_"]
@@ -279,9 +281,69 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
     /* A denser typing surface carries the same viewport-aligned Nitro theme.
      * Its neutral focus edge avoids introducing a separate blue/purple accent.
      */
-    :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
         background: var(--maomao-composer-background);
         background-attachment: fixed;
+    }
+
+    /* Standard themes keep Discord's selected neutral palette. Unlike Nitro's
+     * artwork-backed material, these sheets use mostly solid tonal elevation
+     * so Light, Ash, Dark and Onyx retain their own contrast and character.
+     * This gate never changes the custom-theme material above.
+     */
+    &:not(.custom-theme-background) {
+        --maomao-stage: var(--background-base-lowest, var(--background-tertiary, #202123));
+        --maomao-surface: var(--background-base-low, var(--background-secondary, #292b2e));
+        --maomao-chat: var(--background-base-lower, var(--background-primary, #242629));
+        --maomao-raised: var(--chat-background-default, var(--channeltextarea-background, var(--background-surface-high, #33363b)));
+        --maomao-line: var(--border-subtle, rgb(128 128 128 / 18%));
+        --maomao-hover: var(--background-mod-muted, var(--background-modifier-hover, rgb(128 128 128 / 8%)));
+        --maomao-selected: var(--background-mod-subtle, var(--background-modifier-selected, rgb(128 128 128 / 12%)));
+        --maomao-glass-background: color-mix(in srgb, var(--maomao-surface) 94%, transparent);
+        --maomao-glass-line: var(--maomao-line);
+        --maomao-glass-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+        --maomao-glass-filter: blur(8px);
+        --maomao-composer-background: var(--maomao-raised);
+        --maomao-composer-focus: color-mix(in srgb, var(--text-default, var(--text-normal, #808080)) 36%, transparent);
+
+        /* Keep the confirmed header fade fix. Its old token paints a separate
+         * edge over the rounded header rather than this pane's material.
+         */
+        :is([class^="container_"], [class*=" container_"]):has(> :is([class^="upperContainer_"], [class*=" upperContainer_"]) > :is([class^="toolbar_"], [class*=" toolbar_"]))
+        > :is([class^="upperContainer_"], [class*=" upperContainer_"])
+        > :is([class^="children_"], [class*=" children_"])::after {
+            background: none;
+        }
+
+        :is([class^="app_"], [class*=" app_"]):has([data-list-id="guildsnav"]) {
+            background: var(--maomao-stage-background);
+        }
+        :is([class^="sidebar_"], [class*=" sidebar_"]):has(:is([class^="sidebarList_"], [class*=" sidebarList_"])) {
+            background: transparent;
+        }
+        /* Onyx draws a full-height border on the square page behind our chat
+         * frame. Make that backing border invisible without changing sizing.
+         */
+        :is([class^="page_"], [class*=" page_"]):has(> :is([class^="chat_"], [class*=" chat_"])) {
+            border-inline-start-color: transparent;
+        }
+        /* These native decorations are also suppressed by Discord for Nitro.
+         * Neither pseudo-element contains controls or typing-indicator text.
+         */
+        :is([class^="formWithLoadedChatInput_"], [class*=" formWithLoadedChatInput_"])::before,
+        :is([class^="sidebar_"], [class*=" sidebar_"]):has(:is([class^="sidebarList_"], [class*=" sidebarList_"]))::after {
+            content: none;
+            display: none;
+        }
+        /* Match this gate's specificity so accessibility preferences also
+         * override the standard material, including Discord's Light theme.
+         */
+        @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+            --maomao-glass-background: var(--maomao-surface);
+            --maomao-glass-filter: none;
+            --maomao-composer-background: var(--maomao-surface);
+            --maomao-composer-focus: var(--maomao-focus);
+        }
     }
 
     @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {

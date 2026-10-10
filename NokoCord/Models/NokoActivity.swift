@@ -22,7 +22,7 @@ public struct NokoActivity: Codable, Equatable, Hashable, Sendable {
     public let state: String?
     public let startedAt: Date?
     public let endsAt: Date?
-    /// Apple-hosted image URL used for track-specific artwork.
+    /// Vetted provider image URL used for track-specific artwork.
     public let largeImageURL: String?
     /// A registered Discord application asset used when no track art is available.
     public let largeImageAssetKey: String?

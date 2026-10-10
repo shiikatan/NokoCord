@@ -120,11 +120,11 @@ def require_hardened_runtime(signature, label):
 EDITIONS = {
     "maomao": {
         "CFBundleIdentifier": "com.shiikatan.nokocord.maomao",
-        "CFBundleShortVersionString": "1.5.0",
-        "CFBundleVersion": "8",
+        "CFBundleShortVersionString": "2.0.0",
+        "CFBundleVersion": "9",
         "NokoEditionID": "maomao",
         "NokoEditionName": "Maomao",
-        "NokoPublicVersion": "M1.5.0",
+        "NokoPublicVersion": "M2.0.0",
         "NokoMaintainer": "Shiikatan",
     },
     "chiaki": {
@@ -165,8 +165,13 @@ def verify(app, edition=None, allow_unconfigured=False, allow_ad_hoc=False, ad_h
     if not configured and not allow_unconfigured:
         raise ValueError("A configured Discord application ID is required for a presence-capable release")
     schemes = [scheme for item in info.get("CFBundleURLTypes", []) for scheme in item.get("CFBundleURLSchemes", [])]
-    if schemes != ["nokocord"]:
+    expected_schemes = ["nokocord", "nokocord-maolist"] if edition == "maomao" else ["nokocord"]
+    if schemes != expected_schemes:
         raise ValueError("Unexpected OAuth callback schemes")
+    if edition == "maomao":
+        anilist_client = info.get("NokoAniListClientID", "")
+        if not isinstance(anilist_client, str) or not anilist_client.isascii() or not anilist_client.isdigit() or not 0 < int(anilist_client) < 2**63:
+            raise ValueError("A configured public AniList client ID is required for MaoList")
     run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(app))
     signature, team = signature_details(app)
     ad_hoc = "Signature=adhoc" in signature

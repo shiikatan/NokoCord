@@ -3,6 +3,7 @@ import AppKit
 
 /// Home owns discovery and controls; execution belongs to TanRuntime.
 struct TanHubView: View {
+    var showsHomeMusicCard = true
     @Environment(TanManager.self) private var tans
     @Environment(ActiveBrowserEngine.self) private var browser
     @Environment(AppleMusicPresenceService.self) private var appleMusicPresence
@@ -52,6 +53,9 @@ struct TanHubView: View {
                     Button(browser.view == nil ? "Open Discord" : "Continue to Discord", systemImage: "arrow.up.right") { browser.openDiscord() }
                         .modifier(NokoPrimaryAction()).controlSize(.large)
                         .disabled(browser.lifecycle.phase == .clearing)
+                }
+                if isMaomao && showsHomeMusicCard {
+                    HomeMusicPresenceView()
                 }
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -182,7 +186,7 @@ struct TanHubView: View {
                                     Text(package.manifest.name).font(.headline)
                                     Text(package.manifest.description).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                                     if package.id == NokoNativeTanID.appleMusicPresence {
-                                        Text("When enabled, NokoCord reads Music through Apple Events. On a song change, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art.")
+                                        Text("When enabled, NokoCord reads Music through Apple Events. It looks up cover art using Apple’s iTunes Search service. Only if no cover is found, album and artist details go to Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title.")
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
                                     Button("Install", systemImage: "plus") {
@@ -266,7 +270,7 @@ struct TanHubView: View {
             Button("Cancel", role: .cancel) { pendingEnable = nil }
         } message: {
             if pendingEnable?.id == NokoNativeTanID.appleMusicPresence {
-                Text("While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. When the song changes, NokoCord sends artist, title, and album details to Apple’s iTunes Search service to find cover art.")
+                Text("While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. Cover lookup sends artist, title, and album details to Apple’s iTunes Search service. Only if no cover is found, album and artist details go to Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title.")
             } else {
                 Text((pendingEnable?.manifest.target == .css ? "This Tan changes the appearance of Discord. Enable only Tans you trust." : "This Tan runs code inside Discord and can interact with content in your session. Enable only code you trust.") + (pendingEnable?.manifest.capabilities.contains(.appearanceRead) == true ? " It can also read your app appearance setting." : ""))
             }

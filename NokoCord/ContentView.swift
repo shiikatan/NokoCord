@@ -3,12 +3,13 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum NokoDestination: String, CaseIterable, Identifiable {
-    case home, discord, downloads, shortcuts, privacy, settings
+    case home, discord, maolist, downloads, shortcuts, privacy, settings
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .home: String(localized: "Home")
+        case .home: EditionIdentity.current?.id == "maomao" ? "NokoCord" : String(localized: "Home")
         case .discord: String(localized: "Discord")
+        case .maolist: "MaoList"
         case .downloads: String(localized: "Downloads")
         case .shortcuts: String(localized: "Keyboard shortcuts")
         case .privacy: String(localized: "Privacy")
@@ -19,6 +20,7 @@ enum NokoDestination: String, CaseIterable, Identifiable {
         switch self {
         case .home: "house"
         case .discord: "bubble.left.and.bubble.right"
+        case .maolist: "books.vertical"
         case .downloads: "arrow.down.circle"
         case .shortcuts: "command"
         case .privacy: "hand.raised"
@@ -27,15 +29,36 @@ enum NokoDestination: String, CaseIterable, Identifiable {
     }
 }
 
+private struct NokoDestinationLabel: View {
+    let destination: NokoDestination
+    var body: some View {
+        if (destination == .home || destination == .maolist), EditionIdentity.current?.id == "maomao" {
+            Label {
+                Text(destination.title)
+            } icon: {
+                Image(destination == .maolist ? "MaoListMark" : "NokoMark").renderingMode(.original).resizable().scaledToFit()
+                    .frame(width: 24, height: 24).clipShape(.rect(cornerRadius: 6))
+                    .accessibilityHidden(true)
+            }
+        } else {
+            Label(destination.title, systemImage: destination.symbol)
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
+    @Environment(MaoListModule.self) private var maolist
     @Binding var selection: NokoDestination
     @Binding var showQuickSwitcher: Bool
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Label("Home", systemImage: "house").tag(NokoDestination.home)
-                Label("Discord", systemImage: "bubble.left.and.bubble.right").tag(NokoDestination.discord)
+                NokoDestinationLabel(destination: .home).tag(NokoDestination.home)
+                if EditionIdentity.current?.id != "maomao" {
+                    Label("Discord", systemImage: "bubble.left.and.bubble.right").tag(NokoDestination.discord)
+                }
+                if maolist.enabled { NokoDestinationLabel(destination: .maolist).tag(NokoDestination.maolist) }
                 Section {
                     Label("Downloads", systemImage: "arrow.down.circle").tag(NokoDestination.downloads)
                     Label("Shortcuts", systemImage: "command").tag(NokoDestination.shortcuts)
@@ -54,6 +77,8 @@ struct ContentView: View {
         } detail: {
             Group {
                 switch selection {
+                case .maolist:
+                    if let runtime = maolist.runtime { MaoListView().environment(runtime).id(ObjectIdentifier(runtime)) }
                 case .downloads: BrowserSettingsView()
                 case .privacy: PrivacyPage()
                 case .shortcuts: KeyboardShortcutsView()
@@ -62,12 +87,16 @@ struct ContentView: View {
             }.navigationTitle(selection == .home ? "" : selection.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .toolbar(removing: browser.lifecycle.isVisible ? .sidebarToggle : nil)
+        .onChange(of: maolist.enabled) { _, enabled in
+            if !enabled && selection == .maolist { selection = .home }
+        }
         .onChange(of: selection) { _, destination in
             if destination == .discord { browser.openDiscord() }
         }
         .nokoCordAppearance()
     }
-    private var home: some View { TanHubView() }
+    private var home: some View { TanHubView(showsHomeMusicCard: selection == .home) }
 }
 
 struct NokoPageHeader: View {
@@ -130,13 +159,20 @@ struct NokoPrimaryAction: ViewModifier {
 }
 
 struct NokoQuickSwitcher: View {
+    @Environment(MaoListModule.self) private var maolist
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var selected: NokoDestination? = .home
     @FocusState private var focused: Bool
     let navigate: (NokoDestination) -> Void
     private var matches: [NokoDestination] {
-        NokoDestination.allCases.filter { query.isEmpty || $0.title.localizedStandardContains(query) }
+        NokoDestination.allCases.filter {
+            ($0 != .maolist || maolist.enabled) &&
+            ($0 != .discord || EditionIdentity.current?.id != "maomao") &&
+            (query.isEmpty || $0.title.localizedStandardContains(query) ||
+             ($0 == .home && ("Home".localizedStandardContains(query) ||
+                             (EditionIdentity.current?.id == "maomao" && "Discord".localizedStandardContains(query)))))
+        }
     }
     var body: some View {
         VStack(spacing: 12) {
@@ -154,7 +190,7 @@ struct NokoQuickSwitcher: View {
                 Button {
                     dismiss(); navigate(destination)
                 } label: {
-                    HStack { Label(destination.title, systemImage: destination.symbol); Spacer(); if selected == destination { Image(systemName: "return") } }
+                    HStack { NokoDestinationLabel(destination: destination); Spacer(); if selected == destination { Image(systemName: "return") } }
                         .padding(12).contentShape(Rectangle())
                         .background(selected == destination ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 8))
                 }.buttonStyle(.plain)
@@ -183,6 +219,9 @@ struct KeyboardShortcutsView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     shortcut("Quick switcher", keys: ["⌘", "K"], spoken: "Command K")
+                    if EditionIdentity.current?.id == "maomao" {
+                        shortcut("Switch between NokoCord and MaoList", keys: ["⌘", "⇧", "M"], spoken: "Command Shift M; requires MaoList enabled")
+                    }
                     Divider()
                     shortcut("Open Discord", keys: ["⌘", "⇧", "D"], spoken: "Command Shift D")
                     Divider()
@@ -218,6 +257,7 @@ struct KeyboardShortcutsView: View {
 }
 
 struct SettingsView: View {
+    @AppStorage("maomaoShowMusicOnHome") private var showMusicOnHome = true
     @AppStorage("useLiquidGlass") private var useLiquidGlass = true
     @AppStorage("openDiscordOnLaunch") private var openDiscordOnLaunch = false
     @AppStorage("showMenuBar") private var showMenuBar = false
@@ -251,9 +291,17 @@ struct SettingsView: View {
                     }
                     Toggle("Show NokoCord in menu bar", isOn: $showMenuBar)
                 }
+                if EditionIdentity.current?.id == "maomao" { MaoListSettingsSection() }
                 Section("Startup") {
                     Toggle("Open Discord on Launch", isOn: $openDiscordOnLaunch)
                     Text("Safe Mode always opens Home so you can review your Tans.").font(.caption).foregroundStyle(.secondary)
+                }
+                if EditionIdentity.current?.id == "maomao" {
+                    Section("Apple Music") {
+                        Toggle("Show Apple Music card on Home", isOn: $showMusicOnHome)
+                        Text("Appears while Apple Music Presence is enabled. Hiding the card keeps your Discord activity on.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Section("About") {
                     if let edition = EditionIdentity.current {
@@ -267,6 +315,7 @@ struct SettingsView: View {
             }.formStyle(.grouped).tabItem { Label("General", systemImage: "gearshape") }
             Form {
                 DiscordSocialAccountSection()
+                if EditionIdentity.current?.id == "maomao" { MaoListAccountSection() }
                 DiscordSessionPrivacySection()
                 Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }

@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ of %@" : {
+
+    },
     "%@, %@" : {
       "localizations" : {
         "en" : {
@@ -23,6 +26,24 @@
           }
         }
       }
+    },
+    "Appears while Apple Music Presence is enabled. Hiding the card keeps your Discord activity on." : {
+
+    },
+    "Hide Apple Music card" : {
+
+    },
+    "Hide this card. Restore it in Settings → General → Apple Music." : {
+
+    },
+    "Listening to Apple Music" : {
+
+    },
+    "Paused in Apple Music" : {
+
+    },
+    "Show Apple Music card on Home" : {
+
     },
     "• Discord login, WebKit data, and cookies" : {
 
@@ -567,7 +588,7 @@
     "NokoCord understands the supported functionality and converts it into Noko-Tan equivalents. Automatic conversion does not make arbitrary third-party code safe." : {
 
     },
-    "NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art." : {
+    "NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art. Only if no cover is found, it looks up album and artist details with Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title for a track lookup." : {
 
     },
     "Not Supported" : {
@@ -977,13 +998,13 @@
     "Version" : {
 
     },
-    "When enabled, NokoCord reads Music through Apple Events. On a song change, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art." : {
+    "When enabled, NokoCord reads Music through Apple Events. It looks up cover art using Apple’s iTunes Search service. Only if no cover is found, album and artist details go to Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title." : {
 
     },
     "When names may be confusing, NokoCord shows “Two Tans have similar names.” Check each Tan’s package ID, author, and source before installing. Install Anyway keeps both Tans; it does not replace one based on its name." : {
 
     },
-    "While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. When the song changes, NokoCord sends artist, title, and album details to Apple’s iTunes Search service to find cover art." : {
+    "While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. Cover lookup sends artist, title, and album details to Apple’s iTunes Search service. Only if no cover is found, album and artist details go to Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title." : {
 
     },
     "You will need to sign in and set up again. Two separate confirmations are required." : {

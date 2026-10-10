@@ -3,12 +3,22 @@ import WebKit
 
 struct NokoRootView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
+    @Environment(MaoListModule.self) private var maolist
     @AppStorage(MaomaoWorkspaceAppearance.barPreferenceKey) private var showNokoBar = true
     @State private var selection: NokoDestination = .home
     @State private var showQuickSwitcher = false
     @Environment(\.openSettings) private var openSettings
     var body: some View {
         ZStack {
+            // Keep MaoList's view state and scroll position while Discord covers it.
+            // Its tasks and artwork are gated by workspace visibility below.
+            if !browser.lifecycle.isVisible || selection == .maolist {
+                ContentView(selection: $selection, showQuickSwitcher: $showQuickSwitcher)
+                    .environment(\.nokoWorkspaceVisible, !browser.lifecycle.isVisible)
+                    .opacity(browser.lifecycle.isVisible ? 0 : 1)
+                    .allowsHitTesting(!browser.lifecycle.isVisible)
+                    .accessibilityHidden(browser.lifecycle.isVisible)
+            }
             if let view = browser.view {
                 VStack(spacing: 0) {
                     if EditionIdentity.current?.id != "maomao" || showNokoBar {
@@ -27,16 +37,25 @@ struct NokoRootView: View {
                     BrowserHostView(view: view, visible: browser.lifecycle.isVisible)
                         .id(ObjectIdentifier(view))
                 }
+                .environment(\.nokoWorkspaceVisible, browser.lifecycle.isVisible)
                 .opacity(browser.lifecycle.isVisible ? 1 : 0)
                 .allowsHitTesting(browser.lifecycle.isVisible)
                 .accessibilityHidden(!browser.lifecycle.isVisible)
             }
-            if !browser.lifecycle.isVisible {
-                ContentView(selection: $selection, showQuickSwitcher: $showQuickSwitcher)
-
-            }
         }
+        .onAppear { [browser, maolist, workspaceSelection = $selection] in
+            browser.onSwitchToMaoList = { [weak browser, weak maolist, workspaceSelection] in
+                guard maolist?.enabled == true else { return }
+                workspaceSelection.wrappedValue = .maolist; browser?.showHome()
+            }
+            browser.setMaoListSwitchEnabled(maolist.enabled)
+        }
+        .onChange(of: maolist.enabled) { _, enabled in browser.setMaoListSwitchEnabled(enabled) }
         .focusedSceneValue(\.nokoCordQuickSwitcher, $showQuickSwitcher)
+        .focusedSceneValue(\.nokoCordSwitchApp, maolist.enabled ? {
+            if !browser.lifecycle.isVisible && selection == .maolist { browser.openDiscord() }
+            else { selection = .maolist; browser.showHome() }
+        } : nil)
         .focusedSceneValue(\.nokoCordHome, { selection = .home; browser.showHome() })
         .background(WindowLifetimeObserver { showQuickSwitcher = false }.frame(width: 0, height: 0))
         .sheet(isPresented: $showQuickSwitcher) {
@@ -48,8 +67,16 @@ struct NokoRootView: View {
                 }
             }
         }
+        .navigationTitle(browser.lifecycle.isVisible ? "NokoCord" : selection == .home ? "" : selection.title)
+        .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .title : nil)
+        .toolbar(removing: browser.lifecycle.isVisible ? .sidebarToggle : nil)
+        .background(WorkspaceWindowToolbarVisibility(
+            hidden: browser.lifecycle.isVisible || selection == .maolist
+        ).frame(width: 0, height: 0))
         .nokoCordAppearance()
     }
+    // NokoBar is a flat content row. The native toolbar stays hidden throughout
+    // Discord so NavigationSplitView cannot add a second row or sidebar button.
     private var workspaceBar: some View {
         HStack(spacing: 16) {
             HStack(spacing: 8) {
@@ -61,13 +88,11 @@ struct NokoRootView: View {
                     .accessibilityHint("Returns to the previous Discord page")
             }.labelStyle(.iconOnly).controlSize(.large)
             Divider().frame(height: 20)
-            HStack(spacing: 9) {
-                Image("NokoMark").renderingMode(.original).resizable().scaledToFit()
-                    .frame(width: 24, height: 24).clipShape(.rect(cornerRadius: 6)).accessibilityHidden(true)
-                Text("Discord").font(.headline)
-                if browser.lifecycle.phase == .loading {
-                    ProgressView(value: browser.progress).frame(width: 72).accessibilityLabel("Discord loading")
-                }
+            Image("NokoMark").renderingMode(.original).resizable().scaledToFit()
+                .frame(width: 24, height: 24).clipShape(.rect(cornerRadius: 6)).accessibilityHidden(true)
+            Text("NokoCord").font(.headline)
+            if browser.lifecycle.phase == .loading {
+                ProgressView(value: browser.progress).frame(width: 72).accessibilityLabel("Discord loading")
             }
             Spacer(minLength: 16)
             HStack(spacing: 12) {
@@ -83,7 +108,6 @@ struct NokoRootView: View {
         }.buttonStyle(.borderless).padding(.horizontal, 18).padding(.vertical, 10)
             .modifier(WorkspaceBarSurface())
     }
-
 }
 
 private struct WorkspaceBarSurface: ViewModifier {

@@ -34,11 +34,21 @@ protocol AppleMusicNowPlayingReading: Sendable {
 }
 
 protocol AppleMusicArtworkLookingUp: Sendable {
+    func cachedArtwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork?
     func artwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork?
 }
 
+extension AppleMusicArtworkLookingUp {
+    func cachedArtwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork? { nil }
+}
+
 protocol AppleMusicArtworkSource: Sendable {
+    func cachedArtworkURL(for track: AppleMusicTrackSnapshot) async -> URL?
     func artworkURL(for track: AppleMusicTrackSnapshot) async -> URL?
+}
+
+extension AppleMusicArtworkSource {
+    func cachedArtworkURL(for track: AppleMusicTrackSnapshot) async -> URL? { nil }
 }
 
 enum AppleMusicArtwork: Equatable, Sendable {
@@ -50,7 +60,7 @@ enum AppleMusicArtwork: Equatable, Sendable {
     var richPresenceURL: String? {
         switch self {
         case .url(let url):
-            return AppleMusicArtworkURL.validAppleArtworkURL(url)?.absoluteString
+            return AppleMusicArtworkURL.validArtworkURL(url)?.absoluteString
         default:
             return nil
         }
@@ -67,6 +77,36 @@ enum AppleMusicArtwork: Equatable, Sendable {
 }
 
 enum AppleMusicArtworkURL {
+    static func validArtworkURL(_ url: URL) -> URL? {
+        validAppleArtworkURL(url) ?? validFallbackArtworkURL(url)
+    }
+
+    static func validFallbackArtworkURL(_ url: URL) -> URL? {
+        validLastFMArtworkURL(url) ?? validCoverArtArchiveURL(url)
+    }
+
+    static func validLastFMArtworkURL(_ url: URL) -> URL? {
+        let hosts = ["lastfm-img.freetls.fastly.net", "lastfm.freetls.fastly.net",
+                     "lastfm-img2.akamaized.net", "lastfm-img.akamaized.net"]
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), hosts.contains(host),
+              url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil,
+              url.path.hasPrefix("/i/u/"), url.absoluteString.utf8.count <= 300,
+              !url.path.contains("2a96cbd8b46e442fc41c2b86b821562f"),
+              url.path.range(of: #"/[a-fA-F0-9]{32}\.(jpg|jpeg|png|webp)$"#, options: .regularExpression) != nil else { return nil }
+        return url
+    }
+
+    static func validCoverArtArchiveURL(_ url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == "coverartarchive.org",
+              url.user == nil, url.password == nil, url.port == nil,
+              url.query == nil, url.fragment == nil, url.absoluteString.utf8.count <= 300 else { return nil }
+        let parts = url.path.split(separator: "/")
+        guard parts.count == 3, parts[0] == "release", UUID(uuidString: String(parts[1])) != nil,
+              String(parts[2]).range(of: #"^\d+(-(?:250|500|1200))?\.(jpg|jpeg|png|webp)$"#,
+                                     options: .regularExpression) != nil else { return nil }
+        return url
+    }
+
     static func validAppleArtworkURL(_ url: URL) -> URL? {
         guard url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased(),
@@ -84,6 +124,30 @@ enum AppleMusicPresenceStatus: String, Equatable, Sendable {
     case paused
     case permissionDenied
     case unavailable
+}
+
+struct AppleMusicHomeSnapshot: Equatable {
+    let title: String
+    let artist: String?
+    let album: String?
+    let artworkURL: URL?
+    let playbackState: AppleMusicPlaybackState
+    let position: Int
+    let duration: Int
+
+    init(track: AppleMusicTrackSnapshot, artwork: AppleMusicArtwork?) {
+        title = track.title
+        artist = track.artist
+        album = track.album
+        artworkURL = artwork?.richPresenceURL.flatMap(URL.init(string:))
+        playbackState = track.playbackState
+        position = Self.seconds(track.position)
+        duration = Self.seconds(track.duration)
+    }
+
+    private static func seconds(_ value: TimeInterval) -> Int {
+        value.isFinite && value >= 0 && value < Double(Int.max) ? Int(value) : 0
+    }
 }
 
 /// Converts Music's sampled position to the absolute timestamps understood by
@@ -196,6 +260,9 @@ struct AppleMusicActivityMapper {
 @MainActor @Observable
 final class AppleMusicPresenceService {
     private(set) var status: AppleMusicPresenceStatus = .disabled
+    private(set) var hasHomePlayback = false
+    private(set) var homeSnapshot: AppleMusicHomeSnapshot?
+    @ObservationIgnored private var homeConsumers: Set<UUID> = []
 
     private let bridge: NokoActivityBridge
     private let reader: any AppleMusicNowPlayingReading
@@ -206,6 +273,9 @@ final class AppleMusicPresenceService {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var pollTask: Task<Void, Never>?
     private var artworkTask: Task<Void, Never>?
+    private var publicationTask: Task<Void, Never>?
+    private var publicationID = UUID()
+    private var desiredActivity: NokoActivity?
     private var generation = UUID()
     private var monitoring = false
     private var pollInFlight = false
@@ -239,6 +309,25 @@ final class AppleMusicPresenceService {
         syncEnabledState()
     }
 
+    /// Home opts into existing samples only while its card is visible/focused.
+    /// This never changes polling or starts an artwork lookup.
+    func setHomeConsumer(_ id: UUID, active: Bool) {
+        if active { homeConsumers.insert(id) } else { homeConsumers.remove(id) }
+        refreshHomeSnapshot()
+    }
+
+    private func refreshHomeSnapshot() {
+        let hasPlayback = monitoring && (status == .playing || status == .paused) && currentTrack != nil
+        if hasHomePlayback != hasPlayback { hasHomePlayback = hasPlayback }
+        guard !homeConsumers.isEmpty, hasPlayback,
+              let currentTrack else {
+            if homeSnapshot != nil { homeSnapshot = nil }
+            return
+        }
+        let sample = AppleMusicHomeSnapshot(track: currentTrack, artwork: resolvedArtwork)
+        if homeSnapshot != sample { homeSnapshot = sample }
+    }
+
     func stop() async {
         if let managerObserver { manager?.removeChangeObserver(managerObserver) }
         managerObserver = nil
@@ -247,6 +336,7 @@ final class AppleMusicPresenceService {
         monitoring = false
         pollTask?.cancel(); pollTask = nil
         artworkTask?.cancel(); artworkTask = nil
+        cancelPublication()
         removeMusicLifecycleObservers()
         mapper.reset()
         currentIdentity = nil
@@ -255,6 +345,7 @@ final class AppleMusicPresenceService {
         currentActivity = nil
         currentTrack = nil
         status = .disabled
+        refreshHomeSnapshot()
         scheduleBridgeStop()
         await waitForPendingBridgeStops()
     }
@@ -293,12 +384,14 @@ final class AppleMusicPresenceService {
         artworkTask?.cancel()
         artworkTask = nil
         status = newStatus
+        refreshHomeSnapshot()
         if enabled {
             updateCallbackPumpDemand()
             observeMusicLifecycle()
             pollTask = Task { [weak self] in await self?.pollLoop(generation: currentGeneration) }
         } else {
             removeMusicLifecycleObservers()
+            cancelPublication()
             mapper.reset()
             currentIdentity = nil
             lastArtworkLookupIdentity = nil
@@ -377,6 +470,7 @@ final class AppleMusicPresenceService {
             await clearCurrentActivity(generation: generation)
         } catch {
             status = .unavailable
+            refreshHomeSnapshot()
         }
     }
 
@@ -391,49 +485,107 @@ final class AppleMusicPresenceService {
         }
         currentTrack = track
         status = track.playbackState == .playing ? .playing : .paused
+        refreshHomeSnapshot()
 
-        let activity = mapper.activity(for: track, artwork: resolvedArtwork, sampledAt: Date())
-        if let activity { await publishIfChanged(activity, generation: generation) }
+        let activity = mapper.activity(for: track, artwork: resolvedArtwork ?? .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey), sampledAt: Date())
+        if let activity { publishIfChanged(activity, generation: generation) }
         scheduleArtworkLookup(for: track, generation: generation)
     }
 
-    private func publishIfChanged(_ activity: NokoActivity, generation: UUID) async {
+    private func publishIfChanged(_ activity: NokoActivity, generation: UUID) {
         guard self.generation == generation, monitoring else { return }
-        await waitForPendingBridgeStops()
-        guard self.generation == generation, monitoring else { return }
-        guard currentActivity != activity else { return }
-        do {
-            let result = try await bridge.publish(activity, ownedBy: owner)
-            guard self.generation == generation, monitoring else { return }
-            guard result == .published || result == .unchanged else { return }
-            currentActivity = activity
-        } catch {
-            // Leave currentActivity unchanged so the next sampled state retries.
+        desiredActivity = activity
+        guard publicationTask == nil, currentActivity != activity else { return }
+        let requestID = UUID()
+        publicationID = requestID
+        publicationTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.publicationID == requestID { self.publicationTask = nil }
+            }
+            await self.publishLatestActivity(generation: generation)
         }
+    }
+
+    /// SDK callbacks can take seconds. Keep Music sampling independent, and
+    /// coalesce changes into the latest song/state instead of queuing every poll.
+    private func publishLatestActivity(generation: UUID) async {
+        while !Task.isCancelled, self.generation == generation, monitoring {
+            guard let activity = desiredActivity, currentActivity != activity else { return }
+            await waitForPendingBridgeStops()
+            guard !Task.isCancelled, self.generation == generation, monitoring else { return }
+            guard desiredActivity == activity else { continue }
+            do {
+                let result = try await bridge.publish(activity, ownedBy: owner)
+                guard !Task.isCancelled, self.generation == generation, monitoring else { return }
+                if result == .published || result == .unchanged {
+                    currentActivity = activity
+                } else if desiredActivity == activity {
+                    return
+                }
+            } catch {
+                guard !Task.isCancelled, self.generation == generation, monitoring else { return }
+                guard desiredActivity == activity else { continue }
+                // A failed external image must not prevent the song itself
+                // from appearing. Retry this state once with the known asset.
+                if activity.largeImageURL != nil, let track = currentTrack {
+                    currentActivity = nil
+                    resolvedArtwork = .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey)
+                    refreshHomeSnapshot()
+                    desiredActivity = mapper.activity(for: track, artwork: resolvedArtwork,
+                                                      sampledAt: mapper.lastSampleTime ?? Date())
+                    continue
+                }
+                // Connection failures retry on the next sample without
+                // blocking playback reads or building an SDK request backlog.
+                return
+            }
+        }
+    }
+
+    private func cancelPublication() {
+        publicationTask?.cancel()
+        publicationTask = nil
+        publicationID = UUID()
+        desiredActivity = nil
     }
 
     private func scheduleArtworkLookup(for track: AppleMusicTrackSnapshot, generation: UUID) {
         guard lastArtworkLookupIdentity != track.identity else { return }
         lastArtworkLookupIdentity = track.identity
         artworkTask = Task { [weak self, artworkLookup] in
-            let artwork = await artworkLookup.artwork(for: track)
-            guard let self, self.generation == generation, self.monitoring,
-                  self.currentIdentity == track.identity, let currentTrack = self.currentTrack else { return }
-            self.resolvedArtwork = artwork
-            let sampleTime = self.mapper.lastSampleTime ?? Date()
-            if let updated = self.mapper.activity(for: currentTrack, artwork: artwork, sampledAt: sampleTime) {
-                await self.publishIfChanged(updated, generation: generation)
+            // Reuse an already-fetched album cover without another backup
+            // request. The normal lookup still gives fresh primary art priority.
+            if let cached = await artworkLookup.cachedArtwork(for: track) {
+                guard !Task.isCancelled else { return }
+                self?.applyArtwork(cached, identity: track.identity, generation: generation)
             }
+            let artwork = await artworkLookup.artwork(for: track)
+            guard !Task.isCancelled else { return }
+            self?.applyArtwork(artwork, identity: track.identity, generation: generation)
+        }
+    }
+
+    private func applyArtwork(_ artwork: AppleMusicArtwork?, identity: String, generation: UUID) {
+        guard self.generation == generation, monitoring, currentIdentity == identity,
+              let currentTrack else { return }
+        resolvedArtwork = artwork
+        refreshHomeSnapshot()
+        let sampleTime = mapper.lastSampleTime ?? Date()
+        if let updated = mapper.activity(for: currentTrack, artwork: artwork, sampledAt: sampleTime) {
+            publishIfChanged(updated, generation: generation)
         }
     }
 
     private func clearCurrentActivity(generation: UUID) async {
+        cancelPublication()
         artworkTask?.cancel()
         artworkTask = nil
         currentIdentity = nil
         lastArtworkLookupIdentity = nil
         resolvedArtwork = nil
         currentTrack = nil
+        refreshHomeSnapshot()
         currentActivity = nil
         mapper.reset()
         guard self.generation == generation else { return }
@@ -487,6 +639,7 @@ final class AppleMusicPresenceService {
 
 actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
     private let primarySource: any AppleMusicArtworkSource
+    private let fallbackSource: any AppleMusicArtworkSource
     private let fallbackAssetKey: String
     private var successfulArtwork: [String: AppleMusicArtwork] = [:]
     private var successOrder: [String] = []
@@ -496,23 +649,50 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
 
     init(
         primarySource: any AppleMusicArtworkSource = AppleMusicCurrentArtworkSource(),
+        fallbackSource: any AppleMusicArtworkSource = AppleMusicFallbackArtworkSource(),
         fallbackAssetKey: String = AppleMusicArtwork.genericDiscordAssetKey
     ) {
         self.primarySource = primarySource
+        self.fallbackSource = fallbackSource
         self.fallbackAssetKey = fallbackAssetKey
     }
 
+    func cachedArtwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork? {
+        guard !Task.isCancelled else { return nil }
+        if let cached = successfulArtwork[Self.cacheKey(for: track)] { return cached }
+        guard let url = await fallbackSource.cachedArtworkURL(for: track), !Task.isCancelled,
+              let valid = AppleMusicArtworkURL.validFallbackArtworkURL(url) else { return nil }
+        return .url(valid)
+    }
+
     func artwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork? {
+        guard !Task.isCancelled else { return nil }
         let key = Self.cacheKey(for: track)
         if let cached = successfulArtwork[key] { return cached }
         if let expiry = missExpiry[key], expiry > Date() {
+            // Another song may have populated the album cache since this miss.
+            if let cached = await cachedArtwork(for: track) {
+                cacheSuccess(cached, for: key)
+                return cached
+            }
             return .discordAssetKey(fallbackAssetKey)
         }
         missExpiry.removeValue(forKey: key)
 
         // Preserve the current, working source as the authoritative first choice.
-        if let url = await primarySource.artworkURL(for: track),
+        let primaryURL = await primarySource.artworkURL(for: track)
+        guard !Task.isCancelled else { return nil }
+        if let url = primaryURL,
            let valid = AppleMusicArtworkURL.validAppleArtworkURL(url) {
+            let artwork = AppleMusicArtwork.url(valid)
+            cacheSuccess(artwork, for: key)
+            return artwork
+        }
+
+        // Third-party metadata lookup runs only after the current source misses.
+        let fallbackURL = await fallbackSource.artworkURL(for: track)
+        guard !Task.isCancelled else { return nil }
+        if let url = fallbackURL, let valid = AppleMusicArtworkURL.validFallbackArtworkURL(url) {
             let artwork = AppleMusicArtwork.url(valid)
             cacheSuccess(artwork, for: key)
             return artwork
@@ -556,6 +736,12 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
 }
 
 actor AppleMusicCurrentArtworkSource: AppleMusicArtworkSource {
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 3
+        configuration.timeoutIntervalForResource = 4
+        return URLSession(configuration: configuration)
+    }()
     private struct SearchResponse: Decodable {
         struct Result: Decodable {
             let trackName: String?
@@ -571,9 +757,9 @@ actor AppleMusicCurrentArtworkSource: AppleMusicArtworkSource {
 
         do {
             var request = URLRequest(url: requestURL)
-            request.timeoutInterval = 8
+            request.timeoutInterval = 3
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200,
                   data.count <= 2 * 1024 * 1024 else { return nil }
             let decoded = try JSONDecoder().decode(SearchResponse.self, from: data)

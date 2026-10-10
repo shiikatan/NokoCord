@@ -29,6 +29,24 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var tanRuntime: TanRuntime?
     @ObservationIgnored private var nokonymise: MaomaoNokonymise?
     @ObservationIgnored private var mediaDownloads: MaomaoMediaDownloads?
+    @ObservationIgnored private var appSwitching: MaomaoAppSwitching?
+    @ObservationIgnored var onSwitchToMaoList: (() -> Void)?
+    private var maoListSwitchEnabled = false
+    func setMaoListSwitchEnabled(_ enabled: Bool) {
+        guard EditionIdentity.current?.id == "maomao" else { return }
+        maoListSwitchEnabled = enabled
+        if enabled {
+            if appSwitching == nil {
+                let switching = MaomaoAppSwitching()
+                switching.onSelect = { [weak self] in self?.onSwitchToMaoList?() }
+                appSwitching = switching
+            }
+            if let view = browserView {
+                appSwitching?.install(on: view.configuration.userContentController)
+                appSwitching?.attach(view, visible: lifecycle.isVisible)
+            }
+        } else { appSwitching?.detach(); appSwitching = nil }
+    }
 
     init(dataStore: WKWebsiteDataStore? = nil, tans: TanManager? = nil) {
         self.dataStore = dataStore ?? .default()
@@ -55,6 +73,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                     self.nokonymise?.install(on: view.configuration.userContentController)
                     self.nokonymise?.apply(to: view)
                     self.mediaDownloads?.install(on: view.configuration.userContentController)
+                    self.appSwitching?.install(on: view.configuration.userContentController)
                 }
                 guard scriptsChanged else { return }
                 // Tan reconfiguration rebuilds the controller's user scripts.
@@ -89,6 +108,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         tanRuntime?.prepare(configuration.userContentController)
         nokonymise?.install(on: configuration.userContentController)
         mediaDownloads?.install(on: configuration.userContentController)
+        appSwitching?.install(on: configuration.userContentController)
         MaomaoDiscordPresentation.install(on: configuration.userContentController,
                                          safeMode: tanRuntime?.manager.safeMode ?? false)
         let view: WKWebView
@@ -138,13 +158,14 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     func openDiscord() {
         guard lifecycle.phase != .clearing else { return }
         lifecycle.show()
+        appSwitching?.setVisible(true)
         if browserView == nil {
             _ = prepareBrowser()
             lifecycle.loading()
             navigation = browserView?.load(URLRequest(url: BrowserPolicy.home))
         }
     }
-    func showHome() { lifecycle.hide() }
+    func showHome() { appSwitching?.setVisible(false); lifecycle.hide() }
     func openGuild(_ id: String) {
         guard !id.isEmpty, id.utf8.count <= 20,
               id.utf8.allSatisfy({ (48...57).contains($0) }), lifecycle.phase != .clearing else { return }
@@ -208,6 +229,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         tanRuntime?.detach()
         nokonymise?.detach()
         mediaDownloads?.detach()
+        appSwitching?.detach()
         browserView = nil
         navigation = nil
         canGoBack = false
@@ -227,6 +249,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         tanRuntime?.pageDidLoad()
         nokonymise?.pageDidLoad(webView)
         mediaDownloads?.pageDidLoad()
+        if maoListSwitchEnabled { appSwitching?.attach(webView, visible: lifecycle.isVisible) }
         // WebKit may have captured the document's user scripts before an
         // appearance change during loading. Honor the latest saved preference.
         MaomaoDiscordPresentation.apply(to: webView, safeMode: tanRuntime?.manager.safeMode ?? false)

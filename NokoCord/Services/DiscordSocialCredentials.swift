@@ -97,7 +97,6 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
     private let account: String
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private var promptNameMigrationAttempted = false
     private static let promptName = "NokoCord Discord activity"
 
     init(
@@ -112,8 +111,6 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        let needsPromptNameCheck = !displayAttributes.isEmpty
-        if needsPromptNameCheck { query[kSecReturnRef as String] = true }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -121,11 +118,9 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
         guard status == errSecSuccess else {
             throw DiscordSocialCredentialStoreError.keychainStatus(status)
         }
-        // Fetch the item reference with its data in the same authorized read.
-        // A second lookup must not consume another one-time Allow approval.
-        let values = result as? [String: Any]
-        let data = needsPromptNameCheck ? values?[kSecValueData as String] as? Data : result as? Data
-        guard let data else {
+        // One secret read only. Cosmetic ACL migration can ask for another
+        // password even after one-time Allow; new items already use the friendly name.
+        guard let data = result as? Data else {
             throw DiscordSocialCredentialStoreError.invalidCredentialData
         }
         let credentials: DiscordSocialCredentials
@@ -133,10 +128,6 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
             credentials = try decoder.decode(DiscordSocialCredentials.self, from: data)
         } catch {
             throw DiscordSocialCredentialStoreError.invalidCredentialData
-        }
-        if let item = values?[kSecValueRef as String],
-           CFGetTypeID(item as CFTypeRef) == SecKeychainItemGetTypeID() {
-            adoptFriendlyPromptNameIfNeeded(item as! SecKeychainItem)
         }
         return credentials
     }
@@ -173,40 +164,6 @@ actor KeychainDiscordSocialCredentialStore: DiscordSocialCredentialStoring {
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw DiscordSocialCredentialStoreError.keychainStatus(status)
-        }
-    }
-
-    /// Traditional macOS Keychain prompts use the decrypt ACL's description,
-    /// independently of kSecAttrLabel. Preserve every existing authorization,
-    /// trusted-app list and prompt flag; never rebuild an existing access object.
-    private func adoptFriendlyPromptNameIfNeeded(_ item: SecKeychainItem) {
-        guard !promptNameMigrationAttempted, !displayAttributes.isEmpty else { return }
-        promptNameMigrationAttempted = true
-        var access: SecAccess?
-        guard SecKeychainItemCopyAccess(item, &access) == errSecSuccess, let access else { return }
-        var list: CFArray?
-        guard SecAccessCopyACLList(access, &list) == errSecSuccess,
-              let entries = list as? [SecACL] else { return }
-        var changed = false
-        for entry in entries {
-            // Partition-list and owner ACL descriptions carry separate meanings.
-            // Only the secret-read entry supplies the user-facing permission name.
-            guard let authorizations = SecACLCopyAuthorizations(entry) as? [String],
-                  authorizations.contains(kSecACLAuthorizationDecrypt as String) else { continue }
-            var apps: CFArray?
-            var description: CFString?
-            var selector = SecKeychainPromptSelector(rawValue: 0)
-            guard SecACLCopyContents(entry, &apps, &description, &selector) == errSecSuccess,
-                  let description else { return }
-            let oldName = description as String
-            guard oldName == service || oldName == Self.productionService else { continue }
-            guard SecACLSetContents(entry, apps, Self.promptName as CFString, selector) == errSecSuccess else { return }
-            changed = true
-        }
-        if changed {
-            // macOS may request owner approval for this cosmetic change. A denial
-            // leaves the saved authorization and original access rules untouched.
-            _ = SecKeychainItemSetAccess(item, access)
         }
     }
 

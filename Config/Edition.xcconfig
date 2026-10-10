@@ -1,9 +1,9 @@
 // Maomao's identity is independent of Chiaki's.
 NOKO_BUNDLE_ID = com.shiikatan.nokocord.maomao
-NOKO_APPLE_VERSION = 1.5.0
+NOKO_APPLE_VERSION = 2.0.0
 NOKO_EDITION_ID = maomao
 NOKO_EDITION_NAME = Maomao
-NOKO_PUBLIC_VERSION = M1.5.0
+NOKO_PUBLIC_VERSION = M2.0.0
 NOKO_MAINTAINER = Shiikatan
 
 // Maomao uses native appearance-aware icons; other editions keep AppIcon.
@@ -12,4 +12,9 @@ ASSETCATALOG_COMPILER_APPICON_NAME = MaomaoAppIcon
 // Public OAuth client identifier, not a client secret. Source and distribution
 // builds use the same application and application-scoped Keychain service.
 NOKO_DISCORD_APPLICATION_ID = 1554328279756972092
+// Optional Last.fm artwork fallback. Override in ignored Local.xcconfig.
+// Only the application API key is needed, never the shared secret.
+NOKO_LASTFM_API_KEY =
+// Public AniList application identifier; desktop implicit OAuth uses no secret.
+NOKO_ANILIST_CLIENT_ID = 53017
 #include? "Local.xcconfig"
