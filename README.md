@@ -8,7 +8,7 @@ Maintainer contact: [shiikatan@proton.me](mailto:shiikatan@proton.me).
 
 ## Install and update
 
-Maomao M2.0.0 requires Apple Silicon and macOS 26.6 or later. Release downloads
+Maomao M2.5.0 requires Apple Silicon and macOS 26.6 or later. Release downloads
 provide a ZIP, DMG and SHA-256 checksums. The ZIP contains `NokoCord.app` and works
 with the built-in local updater. Optional Noko-Fetch downloads the latest stable
 Maomao ZIP from GitHub only when requested, verifies its published checksum and
@@ -21,7 +21,7 @@ does not mean Apple notarized or checked the app for malware.
 
 ## MaoList
 
-MaoList ML1.0.0 is an optional native AniList workspace. Enable it in Settings,
+MaoList ML2.0.0 is an optional native AniList workspace. Enable it in Settings,
 then connect AniList for libraries, progress tracking, list editing and account
 features. Public discovery and title details also work without an account.
 Personal ratings follow your AniList score format; community averages remain
@@ -70,35 +70,26 @@ SDK **1.10.19337** from Discord and install its macOS package locally:
 ./scripts/install-discord-social-sdk.sh /path/to/discord_social_sdk
 xcodebuild -project NokoCord.xcodeproj -scheme NokoCord -configuration Release \
   -destination 'platform=macOS' -derivedDataPath /tmp/NokoCord-build \
-  CODE_SIGN_IDENTITY=- build
-python3 scripts/verify-release.py /tmp/NokoCord-build/Build/Products/Release/NokoCord.app \
-  --edition maomao --ad-hoc-release
+  CODE_SIGN_IDENTITY=- NOKO_LASTFM_API_KEY= build
 ```
 
 The SDK is ignored by Git and must include arm64 and x86_64 slices. Public Discord
 and AniList client IDs are in `Config/Edition.xcconfig`; no client secret is used.
 Their redirects are `http://127.0.0.1/callback` and `nokocord-maolist://oauth`.
-Private overrides belong in ignored `Config/Local.xcconfig`. Optional
-`NOKO_LASTFM_API_KEY` is embedded in the app's Info.plist; never include a shared
-secret or user session token. Without a key, artwork uses the keyless backup.
+Private overrides belong in ignored `Config/Local.xcconfig`. Keep the empty
+`NOKO_LASTFM_API_KEY=` override for distribution builds so local keys are excluded.
+Without a key, artwork uses the keyless backup.
 
-The verifier checks signatures, bundle identity, helpers, runtime configuration
-and shipped-byte privacy patterns. `scripts/package-release.py` creates matching
-ZIP/DMG copies and checksums. The main app's reviewed library-validation exception
-allows the bundled Discord SDK to load; macOS cannot scope that exception to one
-framework. Translator and updater helpers do not receive it.
+The app uses ad hoc signing for local builds. Its library-validation exception
+allows the bundled Discord SDK to load; translator and updater helpers do not
+receive that exception.
 
-Run the regression checks with:
+To regenerate the bundled translator after editing its engine, install the pinned
+TypeScript dependency in `Tools/TanTranslator` and run:
 
 ```sh
-sh scripts/check-maolist-core.sh
-sh scripts/check-maolist-lifecycle.sh
-sh scripts/check-maomao-app-switcher.sh
-sh scripts/check-workspace-toolbar.sh
+node Tools/TanTranslator/build-jsc.mjs NokoCord/Resources/TanTranslatorRuntime.js
 ```
-
-Fixtures use disposable data. Real account actions, OS approval prompts and
-visible fullscreen/layout behavior need separate live verification.
 
 ## License and attribution
 

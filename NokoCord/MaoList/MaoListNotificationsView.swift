@@ -45,7 +45,7 @@ struct MLNotificationsView: View {
         if store.error == nil { await runtime.refreshViewer() }
     }
     private func open(_ notification: MLNotification) {
-        if let media = notification.media { runtime.routes.append(.media(media.id)) }
+        if let media = notification.media { runtime.openMedia(media) }
         else if let id = notification.activityId { runtime.routes.append(.activity(id)) }
         else if let url = notification.thread?.siteUrl { external = url; confirmation = true }
         else if let user = notification.user { runtime.routes.append(.profile(user.id)) }

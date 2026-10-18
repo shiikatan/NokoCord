@@ -2,6 +2,10 @@ import Foundation
 import OSLog
 import CryptoKit
 
+enum MLRequestContext {
+    @TaskLocal static var background = false
+}
+
 enum MLValue: Encodable, Sendable {
     case string(String), int(Int), number(Double), bool(Bool), strings([String]), numbers([Double]), object([String: MLValue]), null
     func encode(to encoder: Encoder) throws {
@@ -34,6 +38,11 @@ actor MLDiskCache {
     private let root: URL
     private let limit: Int
     private var writable = true
+    // A conservative upper bound avoids enumerating/sorting the directory on
+    // every page or artwork write. Replacements intentionally overcount until
+    // the next scan; they can trigger an early trim, never an oversized cache.
+    private var estimatedBytes: Int?
+    private var lastTrim = Date.distantPast
     init(namespace: String, limit: Int, base: URL? = nil) {
         root = (base ?? Self.base).appendingPathComponent(namespace, isDirectory: true)
         self.limit = limit
@@ -46,9 +55,10 @@ actor MLDiskCache {
         root.appendingPathComponent(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined())
     }
     func read(_ key: String) -> Entry? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file(key).path),
+        let url = file(key)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               (attributes[.size] as? Int ?? 0) <= 8_000_000,
-              let data = try? Data(contentsOf: file(key)),
+              let data = try? Data(contentsOf: url),
               var entry = try? JSONDecoder().decode(Entry.self, from: data),
               Date().timeIntervalSince(entry.storedAt) < 7 * 86400 else { return nil }
         if let marker = try? String(contentsOf: root.appendingPathComponent(".invalidated"), encoding: .utf8),
@@ -60,13 +70,17 @@ actor MLDiskCache {
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let encoded = try JSONEncoder().encode(Entry(storedAt: Date(), data: data, prepared: prepared ? true : nil))
-            try encoded.write(to: file(key), options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file(key).path)
-            trim()
-        } catch { /* Cache failure must not prevent normal use. */ }
+            let url = file(key)
+            try encoded.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            if let estimatedBytes { self.estimatedBytes = estimatedBytes + encoded.count }
+            let overBudget = estimatedBytes.map { $0 > limit } ?? true
+            if overBudget || Date().timeIntervalSince(lastTrim) >= 60 { trim() }
+        } catch { estimatedBytes = nil /* A partial write must be accounted for by the next scan. */ }
     }
     func clear() {
         try? FileManager.default.removeItem(at: root)
+        estimatedBytes = nil
     }
     func remove(_ key: String, matching entry: Entry) {
         guard writable, !Task.isCancelled, read(key)?.storedAt == entry.storedAt else { return }
@@ -84,16 +98,29 @@ actor MLDiskCache {
     }
     private func trim() {
         let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys)) else { return }
+        // The invalidation marker is cache metadata, not an evictable response.
+        // Removing it could make an old account response appear fresh again.
+        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else {
+            estimatedBytes = nil
+            return
+        }
         let entries = files.compactMap { url -> (URL, Int, Date)? in
             guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { return nil }
             return (url, values.fileSize ?? 0, values.contentModificationDate ?? .distantPast)
         }.sorted { $0.2 < $1.2 }
         var total = entries.reduce(0) { $0 + $1.1 }
-        for item in entries where total > limit || Date().timeIntervalSince(item.2) > 7 * 86400 {
-            try? FileManager.default.removeItem(at: item.0)
-            total -= item.1
+        // Leave headroom only when over budget so full caches do not rescan
+        // after every new cover. Under-budget caches retain all fresh entries.
+        let target = total > limit ? limit - limit / 10 : limit
+        let now = Date()
+        for item in entries where total > target || now.timeIntervalSince(item.2) > 7 * 86400 {
+            do {
+                try FileManager.default.removeItem(at: item.0)
+                total -= item.1
+            } catch { /* Keep failed deletions in the accounting. */ }
         }
+        estimatedBytes = total
+        lastTrim = now
     }
     static func removeAccountData() throws {
         let privateRoot = base.appendingPathComponent("accounts", isDirectory: true)
@@ -130,8 +157,28 @@ actor MLGraphQLClient {
         let task: Task<Data, Error>
         let typingDelay: Task<Void, Never>?
         var consumers: Set<UUID>
+        var background: Bool
     }
     private var inFlight: [String: Flight] = [:]
+    private struct DecodedEntry {
+        let value: any Sendable
+        let partial: Bool
+        let storedAt: Date
+        let prepared: Bool
+        let cost: Int
+    }
+    // Small, account-scoped hot set. Disk remains the persistent/offline cache.
+    private var decodedCache: [String: DecodedEntry] = [:]
+    private var decodedOrder: [String] = []
+    private func clearDecodedCache() { decodedCache.removeAll(); decodedOrder.removeAll() }
+    private func remember<T: Sendable>(_ value: T, partial: Bool, key: String, storedAt: Date = Date(), prepared: Bool = false, cost: Int) {
+        guard cost <= 1_000_000 else { return }
+        decodedCache[key] = DecodedEntry(value: value, partial: partial, storedAt: storedAt, prepared: prepared, cost: cost)
+        decodedOrder.removeAll { $0 == key }; decodedOrder.append(key)
+        while decodedOrder.count > 48 || decodedCache.values.reduce(0, { $0 + $1.cost }) > 4_000_000 {
+            decodedCache.removeValue(forKey: decodedOrder.removeFirst())
+        }
+    }
     private var cacheEpoch = 0
     private var authorizationEpoch = 0
     private let gate = MLTransportGate()
@@ -156,6 +203,7 @@ actor MLGraphQLClient {
     func authorize(token: String?, accountID: Int?) async {
         guard !stopped else { return }
         cancelRequests()
+        clearDecodedCache()
         let oldCache = accountCache
         self.token = token
         accountCache = accountID.map { MLDiskCache(namespace: "accounts/\($0)", limit: 12_000_000, base: cacheBase) }
@@ -172,6 +220,7 @@ actor MLGraphQLClient {
     }
     func resetAccount() async {
         cancelRequests()
+        clearDecodedCache()
         authorizationEpoch += 1
         cacheEpoch += 1
         token = nil
@@ -185,6 +234,7 @@ actor MLGraphQLClient {
         inFlight.values.forEach { $0.typingDelay?.cancel(); $0.task.cancel() }
         inFlight.removeAll()
         token = nil
+        clearDecodedCache()
         accountCache = nil
         authenticationFailure = nil
         session.invalidateAndCancel()
@@ -201,11 +251,16 @@ actor MLGraphQLClient {
             inFlight[key] = nil
         } else { inFlight[key] = flight }
     }
-    private func permitRequest() async throws {
+    private func permitRequest(_ key: String) async throws {
         while true {
             try gate.check()
             try Task.checkCancellation()
             if blockedUntil > Date() { throw MLError.rateLimited(blockedUntil) }
+            // Queued foreground reads and writes go first. A click joining a
+            // speculative flight promotes that same transport instead of duplicating it.
+            if inFlight[key]?.background == true && inFlight.values.contains(where: { !$0.background }) {
+                try await Task.sleep(for: .milliseconds(25)); continue
+            }
             let wait = lastStartedAt.addingTimeInterval(effectiveSpacing).timeIntervalSinceNow
             if wait > 0 { try await Task.sleep(for: .seconds(wait)); continue }
             lastStartedAt = Date()
@@ -232,6 +287,11 @@ actor MLGraphQLClient {
         encoder.outputFormatting = .sortedKeys
         let body = try encoder.encode(Request(query: query, variables: variables))
         let key = String(decoding: body, as: UTF8.self)
+        if !mutation, cacheResponse, !refresh, let hot = decodedCache[key],
+           Date().timeIntervalSince(hot.storedAt) < (hot.prepared ? 1800 : 300), let value = hot.value as? T {
+            decodedOrder.removeAll { $0 == key }; decodedOrder.append(key)
+            return MLResult(value: value, cachedAt: Date().timeIntervalSince(hot.storedAt) >= 300 ? hot.storedAt : nil, isPartial: hot.partial)
+        }
         let epoch = cacheEpoch
         let authorization = authorizationEpoch
         let requestKey = key + "@\(epoch)"
@@ -250,6 +310,7 @@ actor MLGraphQLClient {
             catch { cached = nil }
         }
         if !refresh, let cached, let decoded = saved, cached.invalidated != true, Date().timeIntervalSince(cached.storedAt) < (cached.prepared == true ? 1800 : 300) {
+            if epoch == cacheEpoch { remember(decoded.value, partial: decoded.partial, key: key, storedAt: cached.storedAt, prepared: cached.prepared == true, cost: cached.data.count) }
             return MLResult(value: decoded.value, cachedAt: Date().timeIntervalSince(cached.storedAt) >= 300 ? cached.storedAt : nil, isPartial: decoded.partial)
         }
         do {
@@ -260,6 +321,7 @@ actor MLGraphQLClient {
                 // An explicit Submit joining a typing request wakes its debounce;
                 // the ordinary API pacing gate still applies.
                 if notBefore == nil { shared.typingDelay?.cancel() }
+                if !MLRequestContext.background { shared.background = false }
                 shared.consumers.insert(consumer)
                 inFlight[taskKey] = shared
                 flight = shared
@@ -279,7 +341,7 @@ actor MLGraphQLClient {
                         await typingDelay?.value
                     } onCancel: { typingDelay?.cancel() }
                     try Task.checkCancellation()
-                    try await self.permitRequest()
+                    try await self.permitRequest(taskKey)
                     var request = URLRequest(url: URL(string: "https://graphql.anilist.co")!)
                     request.httpMethod = "POST"
                     request.httpBody = body
@@ -299,7 +361,7 @@ actor MLGraphQLClient {
                     guard (200..<300).contains(http.statusCode) else { throw mutation ? MLError.rejected : MLError.invalidResponse }
                     return data
                 }
-                flight = Flight(id: UUID(), task: task, typingDelay: typingDelay, consumers: [consumer])
+                flight = Flight(id: UUID(), task: task, typingDelay: typingDelay, consumers: [consumer], background: MLRequestContext.background)
                 inFlight[taskKey] = flight
             }
             defer { releaseFlight(taskKey, id: flight.id, consumer: consumer) }
@@ -312,8 +374,12 @@ actor MLGraphQLClient {
             let value = try decode(data, as: T.self, allowPartial: !mutation)
             if mutation {
                 cacheEpoch += 1
+                clearDecodedCache()
                 await accountCache?.invalidate()
-            } else if cacheResponse, epoch == cacheEpoch { await cache?.write(data, key: key) }
+            } else if cacheResponse, epoch == cacheEpoch {
+                remember(value.value, partial: value.partial, key: key, cost: data.count)
+                await cache?.write(data, key: key)
+            }
             try gate.check(); try Task.checkCancellation()
             guard !stopped, authorization == authorizationEpoch else { throw CancellationError() }
             return MLResult(value: value.value, cachedAt: nil, isPartial: value.partial)
@@ -326,6 +392,7 @@ actor MLGraphQLClient {
             if error as? MLError == .authentication {
                 cancelRequests()
                 token = nil
+                clearDecodedCache()
                 authorizationEpoch += 1
                 authenticationFailure?()
                 throw error
@@ -345,19 +412,30 @@ actor MLGraphQLClient {
         let key = String(decoding: try encoder.encode(Request(query: query, variables: variables)), as: UTF8.self)
         let data = try encoder.encode(PreparedEnvelope(data: value))
         await cache.write(data, key: key, prepared: true)
+        guard !stopped, epoch == cacheEpoch, !Task.isCancelled else { return }
+        remember(value, partial: false, key: key, prepared: true, cost: data.count)
     }
     /// Cache-only foreground hydration must never silently start networking.
-    func cached<T: Decodable & Sendable>(_ query: String, variables: [String: MLValue], as: T.Type) async throws -> MLResult<T>? {
+    func cached<T: Decodable & Sendable>(_ query: String, variables: [String: MLValue], as: T.Type, allowStale: Bool = false) async throws -> MLResult<T>? {
         try gate.check(); try Task.checkCancellation()
-        guard !stopped, token != nil, let cache = accountCache else { return nil }
+        guard !stopped, let cache = token == nil ? publicCache : accountCache else { return nil }
         let epoch = cacheEpoch, authorization = authorizationEpoch
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         let key = String(decoding: try encoder.encode(Request(query: query, variables: variables)), as: UTF8.self)
-        guard let entry = await cache.read(key), entry.invalidated != true, Date().timeIntervalSince(entry.storedAt) < (entry.prepared == true ? 1800 : 300) else { return nil }
+        if let hot = decodedCache[key], let value = hot.value as? T,
+           Date().timeIntervalSince(hot.storedAt) < 7 * 86400 {
+            let age = Date().timeIntervalSince(hot.storedAt)
+            if allowStale || age < (hot.prepared ? 1800 : 300) {
+                return MLResult(value: value, cachedAt: age >= 300 ? hot.storedAt : nil, isPartial: hot.partial)
+            }
+        }
+        guard let entry = await cache.read(key) else { return nil }
+        let fresh = entry.invalidated != true && Date().timeIntervalSince(entry.storedAt) < (entry.prepared == true ? 1800 : 300)
+        guard allowStale || fresh else { return nil }
         try gate.check(); try Task.checkCancellation()
-        guard !stopped, token != nil, epoch == cacheEpoch, authorization == authorizationEpoch else { throw CancellationError() }
+        guard !stopped, epoch == cacheEpoch, authorization == authorizationEpoch else { throw CancellationError() }
         let value = try decode(entry.data, as: T.self)
-        return MLResult(value: value.value, cachedAt: Date().timeIntervalSince(entry.storedAt) >= 300 ? entry.storedAt : nil, isPartial: value.partial)
+        return MLResult(value: value.value, cachedAt: !fresh || Date().timeIntervalSince(entry.storedAt) >= 300 ? entry.storedAt : nil, isPartial: value.partial)
     }
     private func decode<T: Decodable>(_ data: Data, as: T.Type, allowPartial: Bool = true) throws -> (value: T, partial: Bool) {
         // Classify expired authorization before decoding potentially malformed

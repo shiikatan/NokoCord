@@ -5,6 +5,7 @@ struct MLPalette {
     var accent: Color
     var background: Color
     var surface: Color
+    var preset: MLThemePreset? = nil
     static func resolve(dark: Bool, custom: String, discord: MLDiscordPalette?) -> MLPalette {
         let base = MLRGB(hex: dark ? "141817" : "F6F8F6")!
         // Preserve macOS light/dark semantics even when Discord uses the other
@@ -70,9 +71,16 @@ struct MLAppearance: ViewModifier {
     @Environment(\.colorScheme) private var scheme
     @AppStorage("maolistAccent") private var accent = ""
     @AppStorage("maolistCopyDiscordColors") private var copyDiscord = false
+    @AppStorage("maolistThemePreset") private var presetID = ""
     func body(content: Content) -> some View {
-        let palette = MLPalette.resolve(dark: scheme == .dark, custom: accent, discord: copyDiscord ? runtime.discordPalette : nil)
-        content.environment(\.mlPalette, palette).tint(palette.accent).background(palette.background)
+        let preset = copyDiscord ? nil : MLThemePreset(rawValue: presetID)
+        var palette = MLPalette.resolve(dark: scheme == .dark, custom: preset?.hexColors.first ?? accent, discord: copyDiscord ? runtime.discordPalette : nil)
+        palette.preset = preset
+        return content.environment(\.mlPalette, palette).tint(palette.accent).background {
+            palette.background.overlay {
+                if let preset { MLShiftingGradient(preset: preset).opacity(scheme == .dark ? 0.16 : 0.10) }
+            }
+        }
     }
 }
 
@@ -81,7 +89,105 @@ struct MLPanel: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        content.background(reduceTransparency ? Color(nsColor: .controlBackgroundColor) : palette.surface, in: .rect(cornerRadius: 16))
+        content.background {
+            RoundedRectangle(cornerRadius: 16).fill(reduceTransparency ? Color(nsColor: .controlBackgroundColor) : palette.surface)
+                .overlay {
+                    if let preset = palette.preset, !reduceTransparency {
+                        MLShiftingGradient(preset: preset).opacity(0.12).clipShape(.rect(cornerRadius: 16))
+                    }
+                }
+        }
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(contrast == .increased ? 0.5 : 0.065)))
+    }
+}
+
+
+// Core Animation interpolates colors without rebuilding the list on every frame.
+struct MLShiftingGradient: View {
+    let preset: MLThemePreset
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.controlActiveState) private var active
+    @Environment(\.nokoWorkspaceVisible) private var visible
+    var body: some View {
+        MLGradientLayerView(preset: preset, animated: !reduceMotion && !reduceTransparency && active != .inactive && visible)
+            .allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+private struct MLGradientLayerView: NSViewRepresentable {
+    let preset: MLThemePreset
+    let animated: Bool
+    func makeNSView(context: Context) -> MLGradientNSView { MLGradientNSView() }
+    func updateNSView(_ view: MLGradientNSView, context: Context) { view.configure(preset: preset, animated: animated) }
+    static func dismantleNSView(_ view: MLGradientNSView, coordinator: ()) { view.gradient.removeAllAnimations() }
+}
+
+private final class MLGradientNSView: NSView {
+    let gradient = CAGradientLayer()
+    private var configuration: String?
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer = gradient
+        gradient.startPoint = CGPoint(x: 0, y: 0)
+        gradient.endPoint = CGPoint(x: 1, y: 1)
+    }
+    required init?(coder: NSCoder) { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    func configure(preset: MLThemePreset, animated: Bool) {
+        let key = preset.rawValue + String(animated)
+        guard configuration != key else { return }
+        configuration = key
+        let colors = preset.hexColors.map { NSColor(Color(mlHex: $0)!).cgColor }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.removeAllAnimations()
+        gradient.colors = colors
+        if animated {
+            let animation = CAKeyframeAnimation(keyPath: "colors")
+            animation.values = [colors, [colors[1], colors[2], colors[0]], [colors[2], colors[0], colors[1]], colors]
+            animation.keyTimes = [0, NSNumber(value: 1.0 / 3), NSNumber(value: 2.0 / 3), 1]
+            animation.duration = 18
+            animation.repeatCount = .infinity
+            animation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 3)
+            gradient.add(animation, forKey: "maolist.colors")
+        }
+        CATransaction.commit()
+    }
+}
+
+struct MLThemePresetPicker: View {
+    @Binding var selection: String
+    @Binding var copyDiscord: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Color presets").font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 10) {
+                ForEach(MLThemePreset.allCases) { preset in
+                    Button {
+                        selection = preset.rawValue
+                        copyDiscord = false
+                    } label: {
+                        VStack(alignment: .leading, spacing: 7) {
+                            MLShiftingGradient(preset: preset).frame(height: 38).clipShape(.rect(cornerRadius: 8))
+                            HStack {
+                                Text(preset.name)
+                                Spacer(minLength: 0)
+                                if selection == preset.rawValue && !copyDiscord {
+                                    Image(systemName: "checkmark.circle.fill")
+                                }
+                            }.font(.caption.weight(.semibold)).foregroundStyle(.primary)
+                        }.padding(8)
+                            .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selection == preset.rawValue && !copyDiscord ? Color.accentColor : .clear, lineWidth: 2))
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(preset.name + " color preset")
+                        .accessibilityAddTraits(selection == preset.rawValue && !copyDiscord ? .isSelected : [])
+                }
+            }
+            Text("Slowly shifting gradients across MaoList. Motion pauses when inactive and respects Reduce Motion.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 4)
     }
 }

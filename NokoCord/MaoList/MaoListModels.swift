@@ -59,23 +59,23 @@ enum MLPostTextKind {
 struct MLReadableText {
     let text: String
     let hasUnsupportedContent: Bool
+    private static let unsupportedRules: [(NSRegularExpression, String)] = [
+        ("(?s)~!.*?!~", "[Spoiler hidden]"),
+        ("(?s)~!.*$", "[Spoiler hidden]"),
+        ("(?i)!?(?:img[0-9]*|youtube|webm)\\((?:[^()]|\\([^()]*\\))*\\)", ""),
+        ("!\\[[^\\]\\n]*\\]\\((?:[^()]|\\([^()]*\\))*\\)", ""),
+        ("(?is)<(?:img|iframe|video|audio|embed|object)\\b[^>]*>(?:.*?</(?:iframe|video|audio|object)>)?", "")
+    ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
     init(_ source: String) {
-        var value = source
+        let buffer = NSMutableString(string: source)
         var unsupported = false
-        func replace(_ pattern: String, with replacement: String) {
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { return }
-            let range = NSRange(value.startIndex..., in: value)
-            if expression.firstMatch(in: value, range: range) != nil {
-                unsupported = true
-                value = expression.stringByReplacingMatches(in: value, range: range, withTemplate: replacement)
-            }
+        for (expression, replacement) in Self.unsupportedRules {
+            // replaceMatches reports its count, avoiding a separate firstMatch
+            // scan and compiling five expressions on every SwiftUI render.
+            let count = expression.replaceMatches(in: buffer, range: NSRange(location: 0, length: buffer.length), withTemplate: replacement)
+            unsupported = unsupported || count > 0
         }
-        replace("(?s)~!.*?!~", with: "[Spoiler hidden]")
-        replace("(?s)~!.*$", with: "[Spoiler hidden]")
-        // Accept balanced parentheses in resource URLs, as commonly used in titles.
-        replace("(?i)!?(?:img[0-9]*|youtube|webm)\\((?:[^()]|\\([^()]*\\))*\\)", with: "")
-        replace("!\\[[^\\]\\n]*\\]\\((?:[^()]|\\([^()]*\\))*\\)", with: "")
-        replace("(?is)<(?:img|iframe|video|audio|embed|object)\\b[^>]*>(?:.*?</(?:iframe|video|audio|object)>)?", with: "")
+        var value = buffer as String
         value = value.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
             .replacingOccurrences(of: "</p>", with: "\n\n")
             .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)

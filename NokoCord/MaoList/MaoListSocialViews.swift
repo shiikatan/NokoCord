@@ -254,7 +254,7 @@ struct MLActivityCard: View {
             HStack { if let user = activity.user { MLUserButton(user: user) }; Spacer(); if let created = activity.createdAt { Text(Date(timeIntervalSince1970: Double(created)), format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary) } }
             if let text = activity.text { MLRichText(text: text, fallbackURL: activity.siteUrl ?? URL(string: "https://anilist.co/activity/\(activity.id)")) }
             if let media = activity.media {
-                HStack { MLArtwork(url: media.coverImage?.medium, width: 44, height: 66); VStack(alignment: .leading, spacing: 6) { Text([activity.status, activity.progress].compactMap { $0 }.joined(separator: " ")).font(.callout).foregroundStyle(.secondary); Button(media.name) { runtime.routes.append(.media(media.id)) }.buttonStyle(.plain).font(.headline) } }
+                HStack { MLArtwork(url: media.coverImage?.medium, width: 44, height: 66); VStack(alignment: .leading, spacing: 6) { Text([activity.status, activity.progress].compactMap { $0 }.joined(separator: " ")).font(.callout).foregroundStyle(.secondary); Button(media.name) { runtime.openMedia(media) }.buttonStyle(.plain).font(.headline) } }
             }
             HStack {
                 Button { like() } label: { Label("\(likeCount)", systemImage: isLiked ? "heart.fill" : "heart") }

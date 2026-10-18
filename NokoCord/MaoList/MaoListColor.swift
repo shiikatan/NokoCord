@@ -38,3 +38,23 @@ struct MLRGB: Equatable, Sendable {
         return mixed(with: target, amount: upper)
     }
 }
+
+
+/// Stable identifiers are persisted independently of the custom accent.
+enum MLThemePreset: String, CaseIterable, Identifiable {
+    case aurora, sunset, nebula, ocean, sakura, ember, meadow, twilight
+    var id: String { rawValue }
+    var name: String { rawValue.capitalized }
+    var hexColors: [String] {
+        switch self {
+        case .aurora: ["60E3B5", "65B8F5", "B697FF"]
+        case .sunset: ["FFB36B", "F77DA7", "B58AFF"]
+        case .nebula: ["B99AFF", "EF83D5", "789FFF"]
+        case .ocean: ["5DDCD5", "68B9FF", "77E0B5"]
+        case .sakura: ["FF9FCB", "F7BCD9", "CAA2F5"]
+        case .ember: ["FF826C", "FFB354", "F4D878"]
+        case .meadow: ["94DB78", "55CDA8", "C8E58A"]
+        case .twilight: ["8294EF", "B680DA", "F29AB7"]
+        }
+    }
+}

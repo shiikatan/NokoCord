@@ -52,7 +52,7 @@ struct MLSearchView: View {
                 MLLoadMoreView(store: store) { await load() }
             }.padding(26).frame(maxWidth: 1200).frame(maxWidth: .infinity)
         }.mlTask(id: String(describing: filters) + "/\(runtime.searchSubmissionRevision)") {
-            await store.loadInitial(key: String(describing: filters)) {
+            await store.loadInitial(key: String(describing: filters), saved: { try await runtime.repository.savedSearch(filters) }) {
                 try await runtime.repository.search(filters, page: $0, notBefore: runtime.searchTypingDeadline)
             }
         }.mlReadActions(reads, id: String(describing: filters))
@@ -203,7 +203,7 @@ struct MLDiscoveryShelf: View {
                 LazyHStack(alignment: .top, spacing: 18) { ForEach(store.data.media?.compactMap { $0 }.prefix(12).map { $0 } ?? []) { MLMediaCard(media: $0) } }
             }.scrollIndicators(.hidden)
             if store.loading { ProgressView().controlSize(.small) }
-        }.mlTask(id: "\(type.rawValue)/\(sort)/\(seasonOffset ?? -1)") { await store.loadInitial(key: String(describing: filters)) { try await runtime.repository.search(filters, page: $0) } }
+        }.mlTask(id: "\(type.rawValue)/\(sort)/\(seasonOffset ?? -1)") { await store.loadInitial(key: String(describing: filters), saved: { try await runtime.repository.savedSearch(filters) }) { try await runtime.repository.search(filters, page: $0) } }
     }
 }
 
@@ -413,7 +413,9 @@ struct MLLibraryView: View {
         }
         }.mlTask(id: "\(type)/\(status?.rawValue ?? "all")/\(runtime.viewer?.id ?? 0)/\(runtime.mutationRevision)/\(runtime.preparedPageCount(type: type, status: status))") {
             if let id = runtime.viewer?.id {
-                await store.loadInitial(key: "\(type)/\(status?.rawValue ?? "all")/\(id)/\(runtime.mutationRevision)") {
+                await store.loadInitial(key: "\(type)/\(status?.rawValue ?? "all")/\(id)/\(runtime.mutationRevision)", saved: {
+                    try await runtime.repository.cachedLibrary(userID: id, type: type, status: status, page: 1, allowStale: true)
+                }) {
                     try await runtime.repository.library(userID: id, type: type, status: status, page: $0)
                 }
                 await store.hydratePreparedPages(count: runtime.preparedPageCount(type: type, status: status)) {

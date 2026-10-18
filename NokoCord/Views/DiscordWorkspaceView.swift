@@ -69,7 +69,7 @@ struct NokoRootView: View {
         }
         .navigationTitle(browser.lifecycle.isVisible ? "NokoCord" : selection == .home ? "" : selection.title)
         .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .title : nil)
-        .toolbar(removing: browser.lifecycle.isVisible ? .sidebarToggle : nil)
+        .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .sidebarToggle : nil)
         .background(WorkspaceWindowToolbarVisibility(
             hidden: browser.lifecycle.isVisible || selection == .maolist
         ).frame(width: 0, height: 0))

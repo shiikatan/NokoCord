@@ -51,8 +51,9 @@ struct ContentView: View {
     @Environment(MaoListModule.self) private var maolist
     @Binding var selection: NokoDestination
     @Binding var showQuickSwitcher: Bool
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
                 NokoDestinationLabel(destination: .home).tag(NokoDestination.home)
                 if EditionIdentity.current?.id != "maomao" {
@@ -78,7 +79,10 @@ struct ContentView: View {
             Group {
                 switch selection {
                 case .maolist:
-                    if let runtime = maolist.runtime { MaoListView().environment(runtime).id(ObjectIdentifier(runtime)) }
+                    if let runtime = maolist.runtime { MaoListView(sidebarVisible: Binding(
+                        get: { columnVisibility != .detailOnly },
+                        set: { columnVisibility = $0 ? .all : .detailOnly }
+                    )).environment(runtime).id(ObjectIdentifier(runtime)) }
                 case .downloads: BrowserSettingsView()
                 case .privacy: PrivacyPage()
                 case .shortcuts: KeyboardShortcutsView()
@@ -87,7 +91,10 @@ struct ContentView: View {
             }.navigationTitle(selection == .home ? "" : selection.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .toolbar(removing: browser.lifecycle.isVisible ? .sidebarToggle : nil)
+        .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .sidebarToggle : nil)
+        .onChange(of: selection, initial: true) { _, destination in
+            columnVisibility = destination == .maolist ? .detailOnly : .all
+        }
         .onChange(of: maolist.enabled) { _, enabled in
             if !enabled && selection == .maolist { selection = .home }
         }

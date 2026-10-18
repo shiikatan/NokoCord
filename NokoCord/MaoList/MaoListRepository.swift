@@ -93,20 +93,24 @@ struct MLRepository: Sendable {
     func viewer(refresh: Bool = false) async throws -> MLResult<MLViewerData> {
         try await client.execute("{ Viewer { \(Self.viewerFields) } }", as: MLViewerData.self, refresh: refresh, requiresAuth: true)
     }
-    func home(userID: Int, refresh: Bool = false) async throws -> MLResult<MLHomeData> {
-        let result = try await client.execute("""
+    static let homeQuery = """
             query ($user: Int!) {
                 Viewer { \(Self.viewerFields) }
                 watching: Page(page: 1, perPage: 6) { mediaList(userId: $user, type: ANIME, status: CURRENT, sort: UPDATED_TIME_DESC) { \(Self.libraryItem) } }
                 reading: Page(page: 1, perPage: 6) { mediaList(userId: $user, type: MANGA, status: CURRENT, sort: UPDATED_TIME_DESC) { \(Self.libraryItem) } }
                 discovery: Page(page: 1, perPage: 12) { media(type: ANIME, sort: TRENDING_DESC) { \(Self.card) } }
             }
-            """, variables: ["user": .int(userID)], as: MLHomeData.self, refresh: refresh, requiresAuth: true)
+            """
+    func home(userID: Int, refresh: Bool = false) async throws -> MLResult<MLHomeData> {
+        let result = try await client.execute(Self.homeQuery, variables: ["user": .int(userID)], as: MLHomeData.self, refresh: refresh, requiresAuth: true)
         if !result.isPartial {
             guard result.value.Viewer?.id == userID, result.value.watching?.mediaList != nil,
                   result.value.reading?.mediaList != nil, result.value.discovery?.media != nil else { throw MLError.invalidResponse }
         }
         return result
+    }
+    func savedHome(userID: Int) async throws -> MLResult<MLHomeData>? {
+        try await client.cached(Self.homeQuery, variables: ["user": .int(userID)], as: MLHomeData.self, allowStale: true)
     }
     static let searchQuery = """
             query ($type: MediaType, $search: String, $sort: [MediaSort], $page: Int, $season: MediaSeason, $year: Int, $start: FuzzyDateInt, $end: FuzzyDateInt, $format: MediaFormat, $status: MediaStatus, $genre: String, $tag: String, $source: MediaSource, $score: Int, $popularity: Int) {
@@ -120,14 +124,17 @@ struct MLRepository: Sendable {
         variables["page"] = .int(page)
         return try await client.execute(Self.searchQuery, variables: variables, as: MLPageData.self, refresh: refresh, notBefore: notBefore)
     }
+    func savedSearch(_ filters: MLSearchFilters) async throws -> MLResult<MLPageData>? {
+        var variables = filters.variables; variables["page"] = .int(1)
+        return try await client.cached(Self.searchQuery, variables: variables, as: MLPageData.self, allowStale: true)
+    }
     static let libraryQuery = "query ($user: Int, $type: MediaType, $status: MediaListStatus, $page: Int) { Page(page: $page, perPage: 40) { \(Self.pageInfo) mediaList(userId: $user, type: $type, status: $status, sort: UPDATED_TIME_DESC) { \(Self.libraryItem) } } }"
     func library(userID: Int, type: MLMediaType, status: MLListStatus?, page: Int, refresh: Bool = false) async throws -> MLResult<MLPageData> {
         var variables: [String: MLValue] = ["user": .int(userID), "type": .string(type.rawValue), "page": .int(page)]
         if let status { variables["status"] = .string(status.rawValue) }
         return try await client.execute(Self.libraryQuery, variables: variables, as: MLPageData.self, refresh: refresh, requiresAuth: true)
     }
-    func media(_ id: Int, refresh: Bool = false) async throws -> MLResult<MLMediaData> {
-        try await client.execute("""
+    static let mediaQuery = """
             query ($id: Int) { Media(id: $id) {
                 \(Self.card) bannerImage description(asHtml: false) synonyms duration season source popularity genres isFavourite
                 startDate { year month day } endDate { year month day }
@@ -138,7 +145,12 @@ struct MLRepository: Sendable {
                 studios(isMain: true) { nodes { id name isAnimationStudio isFavourite } }
                 relations { edges { relationType node { \(Self.card) } } }
             } }
-            """, variables: ["id": .int(id)], as: MLMediaData.self, refresh: refresh)
+            """
+    func media(_ id: Int, refresh: Bool = false) async throws -> MLResult<MLMediaData> {
+        try await client.execute(Self.mediaQuery, variables: ["id": .int(id)], as: MLMediaData.self, refresh: refresh)
+    }
+    func savedMedia(_ id: Int) async throws -> MLResult<MLMediaData>? {
+        try await client.cached(Self.mediaQuery, variables: ["id": .int(id)], as: MLMediaData.self, allowStale: true)
     }
     enum MediaSection: String, CaseIterable { case characters, staff, recommendations, reviews }
     func mediaSection(_ id: Int, section: MediaSection, page: Int, refresh: Bool = false) async throws -> MLResult<MLMediaData> {
@@ -379,9 +391,9 @@ extension MLRepository {
         }
         return pages
     }
-    func cachedLibrary(userID: Int, type: MLMediaType, status: MLListStatus?, page: Int) async throws -> MLResult<MLPageData>? {
+    func cachedLibrary(userID: Int, type: MLMediaType, status: MLListStatus?, page: Int, allowStale: Bool = false) async throws -> MLResult<MLPageData>? {
         var variables: [String: MLValue] = ["user": .int(userID), "type": .string(type.rawValue), "page": .int(page)]
         if let status { variables["status"] = .string(status.rawValue) }
-        return try await client.cached(Self.libraryQuery, variables: variables, as: MLPageData.self)
+        return try await client.cached(Self.libraryQuery, variables: variables, as: MLPageData.self, allowStale: allowStale)
     }
 }

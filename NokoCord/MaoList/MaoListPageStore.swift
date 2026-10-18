@@ -55,34 +55,74 @@ final class MLPageStore {
     @ObservationIgnored private var initialLoadedAt: Date?
     @ObservationIgnored private var retryReset = false
     var queryIdentity: String { initialKey ?? "" }
-    func loadInitial(key: String, refresh: Bool = false, request: (Int) async throws -> MLResult<MLPageData>) async {
+    func loadInitial(key: String, refresh: Bool = false, saved: (() async throws -> MLResult<MLPageData>?)? = nil, request: (Int) async throws -> MLResult<MLPageData>) async {
         if !refresh, initialKey == key, page > 0, error == nil, !partial,
            let initialLoadedAt, Date().timeIntervalSince(initialLoadedAt) < 300 { return }
         let sameKey = initialKey == key
         // The key identifies displayed data, including partial/failed refreshes.
         // Freshness is separate so a partial result is always retryable.
         if !sameKey { initialKey = key; initialLoadedAt = nil }
-        let loaded = await load(reset: true, preservingData: sameKey && page > 0, request: request)
+        let loaded = await load(reset: true, preservingData: sameKey && page > 0, saved: saved, request: request)
         if loaded, initialKey == key, !partial { initialLoadedAt = Date() }
     }
     /// Hydrate already prepared pages without a network request or dropping the
     /// beginning of the library. The opt-in pass is bounded to 200 pages per list.
     func hydratePreparedPages(count: Int, request: (Int) async throws -> MLResult<MLPageData>?) async {
         let last = min(count, 200)
-        retentionLimit = max(MLPageWindow.limit, last * 40)
-        while page > 0 && page < last && hasNext && !loading && !Task.isCancelled {
+        guard page > 0, page < last, hasNext, !loading, !Task.isCancelled else { return }
+        let originalPage = page, originalLease = lease, originalKey = initialKey
+        var buffered = MLPage(), lastPage = page
+        var bufferedPartial = false
+        var bufferedDate: Date?
+        // Preparation can contain thousands of titles. Accumulate cache-only
+        // pages once, then merge/publish once rather than copying and diffing
+        // the growing library after every page.
+        func append<T>(_ incoming: [T?]?, to values: inout [T?]?) {
+            guard let incoming else { return }
+            if values == nil { values = [] }
+            values?.append(contentsOf: incoming)
+        }
+        while lastPage < last {
             do {
-                let originalPage = page, originalLease = lease, originalKey = initialKey
-                guard let result = try await request(originalPage + 1) else { return }
+                guard let result = try await request(lastPage + 1), let incoming = result.value.Page else { break }
                 try Task.checkCancellation()
                 guard originalLease == lease, originalKey == initialKey, originalPage == page, !loading else { return }
-                guard await load(request: { _ in result }) else { return }
-            } catch { return }
+                append(incoming.media, to: &buffered.media)
+                append(incoming.mediaList, to: &buffered.mediaList)
+                append(incoming.activities, to: &buffered.activities)
+                append(incoming.activityReplies, to: &buffered.activityReplies)
+                append(incoming.following, to: &buffered.following)
+                append(incoming.followers, to: &buffered.followers)
+                append(incoming.notifications, to: &buffered.notifications)
+                buffered.pageInfo = incoming.pageInfo
+                bufferedPartial = bufferedPartial || result.isPartial
+                if let date = result.cachedAt { bufferedDate = min(bufferedDate ?? date, date) }
+                lastPage += 1
+                if incoming.pageInfo?.hasNextPage != true { break }
+            } catch {
+                if Task.isCancelled || error is CancellationError { return }
+                break
+            }
         }
+        guard !Task.isCancelled, originalLease == lease, originalKey == initialKey,
+              originalPage == page, !loading, lastPage > originalPage else { return }
+        retentionLimit = max(MLPageWindow.limit, last * 40)
+        var merged = data
+        merged.pageInfo = buffered.pageInfo
+        merged.media = merge(data.media, buffered.media)
+        merged.mediaList = merge(data.mediaList, buffered.mediaList)
+        merged.activities = merge(data.activities, buffered.activities)
+        merged.activityReplies = merge(data.activityReplies, buffered.activityReplies)
+        merged.following = merge(data.following, buffered.following)
+        merged.followers = merge(data.followers, buffered.followers)
+        merged.notifications = merge(data.notifications, buffered.notifications)
+        data = merged; page = lastPage; partial = partial || bufferedPartial
+        if let date = bufferedDate { staleDate = min(staleDate ?? date, date) }
     }
+
     var hasNext: Bool { data.pageInfo?.hasNextPage == true }
     @discardableResult
-    func load(reset: Bool = false, preservingData: Bool = false, request: (Int) async throws -> MLResult<MLPageData>) async -> Bool {
+    func load(reset: Bool = false, preservingData: Bool = false, saved: (() async throws -> MLResult<MLPageData>?)? = nil, request: (Int) async throws -> MLResult<MLPageData>) async -> Bool {
         if loading && !reset { return false }
         let id = UUID(); lease = id; loading = true; error = nil
         let resetting = reset || retryReset
@@ -92,6 +132,11 @@ final class MLPageStore {
         let next = resetting ? 1 : page + 1
         defer { if lease == id { loading = false } }
         do {
+            if page == 0, let snapshot = try? await saved?(), let incoming = snapshot.value.Page {
+                try Task.checkCancellation()
+                guard lease == id else { return false }
+                data = incoming; page = 1; staleDate = snapshot.cachedAt; partial = snapshot.isPartial
+            }
             let result = try await request(next)
             try Task.checkCancellation()
             guard lease == id else { return false }

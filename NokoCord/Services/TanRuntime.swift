@@ -94,12 +94,19 @@ final class TanRuntime {
         resumeTask?.cancel()
         let current = generation
         let packages = manager.scriptActive
+        let pendingTransition = transitionTask
         resumeTask = Task { @MainActor [weak self, weak view] in
+            await pendingTransition?.value
             guard let self, let view else { return }
             defer { if self.generation == current { self.resumeTask = nil } }
             for package in packages {
                 guard !Task.isCancelled, self.generation == current else { return }
-                let source = "globalThis[\(Self.quote(Self.key(package)))]?.resume?.();"
+                let key = Self.quote(Self.key(package))
+                // Live-safe Tans can recover a missing document instance.
+                // Page-world/reload-only packages still require navigation.
+                let recovery = package.manifest.target != .page && !package.manifest.requiresReload
+                    ? "else {\n\(self.preparedSource(package))\n}" : ""
+                let source = "if (globalThis[\(key)]) { globalThis[\(key)].resume?.(); } \(recovery)"
                 try? await self.evaluate(source, view: view, world: self.world(package))
             }
         }
@@ -163,7 +170,11 @@ final class TanRuntime {
         resumeTask?.cancel(); resumeTask = nil
         generation = UUID(); let current = generation
         guard let view else { return }
-        let pendingStops = Array(Dictionary((stopping + Array(livePackages.values)).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values)
+        let next = Dictionary(uniqueKeysWithValues: starting.map { ($0.id, $0) })
+        let pendingStops = Dictionary((stopping + Array(livePackages.values)).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values.filter { old in
+            guard let replacement = next[old.id] else { return true }
+            return !MaomaoTanContent.matches(old, replacement)
+        }
         for package in starting { livePackages[package.id] = package }
         let previousTask = transitionTask
         transitionTask = Task { @MainActor [weak self, weak view] in
@@ -243,8 +254,13 @@ final class TanRuntime {
             (location.origin !== 'https://discord.com' || location.pathname === '/app' || location.pathname.startsWith('/channels/'));
           if (!allowed()) return;
           const key = \#(quote(key(package)));
+          const fingerprint = \#(quote(package.contentHash));
+          // A route change or didFinish callback can revisit the same live
+          // document. Keep its listeners/state when the package is unchanged.
+          if (globalThis[key]?.fingerprint === fingerprint && globalThis[key].refreshLocation?.()) return;
           globalThis[key]?.stop();
           let definition = null, cleanup = null, style = null, stopped = false;
+          let documentLocation = location.href;
           const send = body => window.webkit.messageHandlers[\#(quote(handlerName(package)))].postMessage(body);
           const report = state => { try { send({type:'status', state}).catch(() => {}); } catch {} };
           const disposers = new Set();
@@ -254,6 +270,20 @@ final class TanRuntime {
             return () => { if (disposers.delete(dispose)) dispose(); };
           };
           const state = {
+            fingerprint,
+            refreshLocation() {
+              if (stopped || !allowed()) return false;
+              if (documentLocation === location.href) return true;
+              // Legacy packages may attach directly to the old page's nodes.
+              // Only an explicit navigation hook opts out of their restart.
+              if (typeof definition?.navigationChanged !== 'function') return false;
+              try {
+                const result = definition.navigationChanged();
+                if (result && typeof result.then === 'function') return false;
+                documentLocation = location.href;
+                return true;
+              } catch { return false; }
+            },
             resume() {
               if (stopped || !allowed()) return;
               try {

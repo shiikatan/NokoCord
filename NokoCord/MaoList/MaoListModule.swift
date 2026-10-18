@@ -124,7 +124,7 @@ enum MLRoute: Hashable { case media(Int), activity(Int), review(Int), profile(In
 /// Off has no session, Keychain read, observers, images, models or tasks.
 @MainActor @Observable
 final class MaoListModule {
-    static let version = "ML1.0.0"
+    static let version = "ML2.0.0"
     static let preferenceKey = "maomaoMaoListEnabled"
     static let preparationPreferenceKey = "maomaoMaoListPrepareAtLaunch"
     private(set) var runtime: MLRuntime?
@@ -183,6 +183,11 @@ final class MLHomeState {
         let request = UUID(); lease = request; loading = true; error = nil
         defer { if lease == request { loading = false } }
         do {
+            if data == nil, let snapshot = try? await repository.savedHome(userID: userID) {
+                try Task.checkCancellation()
+                guard lease == request else { return nil }
+                data = snapshot.value; stale = snapshot.cachedAt; partial = snapshot.isPartial
+            }
             let result = try await repository.home(userID: userID, refresh: refresh)
             try Task.checkCancellation()
             if lease == request {
@@ -210,6 +215,61 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     var animeListStatus: MLListStatus? = .current
     var mangaListStatus: MLListStatus? = .current
     var routes: [MLRoute] = []
+    @ObservationIgnored private var mediaPreviews: [Int: MLMedia] = [:]
+    @ObservationIgnored private var mediaPreviewOrder: [Int] = []
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var prefetchID: Int?
+    @ObservationIgnored private var prefetchLease = UUID()
+    @ObservationIgnored private var prefetchStarts: [Date] = []
+    func mediaPreview(_ id: Int) -> MLMedia? { mediaPreviews[id] }
+    func rememberMedia(_ media: MLMedia) {
+        guard !stopped, !connecting else { return }
+        mediaPreviews[media.id] = media
+        mediaPreviewOrder.removeAll { $0 == media.id }; mediaPreviewOrder.append(media.id)
+        while mediaPreviewOrder.count > 24 { mediaPreviews.removeValue(forKey: mediaPreviewOrder.removeFirst()) }
+    }
+    func openMedia(_ media: MLMedia) {
+        // A full snapshot from an earlier visit is richer than a card payload.
+        if mediaPreviews[media.id] == nil { rememberMedia(media) }
+        routes.append(.media(media.id))
+    }
+    func cancelMediaPrefetch() {
+        prefetchLease = UUID(); prefetchTask?.cancel(); prefetchTask = nil; prefetchID = nil
+    }
+    private func clearMediaPreviews() {
+        cancelMediaPrefetch(); mediaPreviews.removeAll(); mediaPreviewOrder.removeAll(); prefetchStarts.removeAll()
+    }
+    func anticipateMedia(_ media: MLMedia, hovering: Bool) {
+        if !hovering {
+            // Keep the shared flight alive while its foreground consumer joins.
+            if prefetchID == media.id, routes.last != .media(media.id) { cancelMediaPrefetch() }
+            return
+        }
+        guard !stopped, !connecting, prefetchID != media.id else { return }
+        cancelMediaPrefetch()
+        let lease = UUID(); prefetchLease = lease; prefetchID = media.id
+        prefetchTask = Task(priority: .utility) { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+                guard let self, !self.stopped else { return }
+                defer { if self.prefetchLease == lease { self.prefetchTask = nil; self.prefetchID = nil } }
+                self.prefetchStarts.removeAll { Date().timeIntervalSince($0) >= 60 }
+                guard self.prefetchStarts.count < 4 else { return }
+                self.prefetchStarts.append(Date())
+                let revision = self.mutationRevision
+                try await MLRequestContext.$background.withValue(true) {
+                    let result = try await self.repository.media(media.id)
+                    try Task.checkCancellation()
+                    guard self.prefetchLease == lease, self.mutationRevision == revision, !self.stopped,
+                          !result.isPartial, let loaded = result.value.Media else { return }
+                    self.rememberMedia(loaded)
+                    _ = await self.images.image(loaded.coverImage?.large, pixels: 272)
+                    try Task.checkCancellation()
+                    if let banner = loaded.bannerImage { _ = await self.images.image(banner, pixels: 1600) }
+                }
+            } catch { if let self, !Task.isCancelled { self.handle(error) } }
+        }
+    }
     var search = MLSearchFilters()
     var searching = false
     var searchConfigured = false
@@ -291,6 +351,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     func stop() {
         guard !stopped else { return }
         stopped = true
+        clearMediaPreviews()
         cancelPreparation()
         preparedLibraryPages.removeAll()
         generation = UUID()
@@ -304,6 +365,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
         Task { await client.stop() }
     }
     func suspend() {
+        cancelMediaPrefetch()
         // Explicit launch preparation is a bounded exception to the default
         // hidden-workspace policy. Ordinary hidden views still cancel their work.
         guard !preparing else { return }
@@ -319,81 +381,87 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
         preparationStatus = "Preparing your connection…"
         let lease = UUID(); preparationLease = lease
         preparationTask = Task(priority: .utility) { [weak self] in
-            // A system credential read may outlive cancellation. Keep only its
-            // task across that wait so disabling releases the runtime/images.
-            if self?.restorationStarted == false { self?.startRestore(silently: true) }
-            let restoration = self?.accountTask
-            await restoration?.value
-            guard let self else { return }
-            defer {
-                if self.preparationLease == lease { self.preparing = false; self.preparationTask = nil }
-            }
-            do {
-                try Task.checkCancellation()
-                guard !self.stopped, self.preparationLease == lease else { return }
-                guard let userID = self.viewer?.id else {
-                    self.preparationStatus = "Open MaoList to prepare your account."
-                    return
+            await MLRequestContext.$background.withValue(true) {
+                // A system credential read may outlive cancellation. Keep only its
+                // task across that wait so disabling releases the runtime/images.
+                if self?.restorationStarted == false { self?.startRestore(silently: true) }
+                let restoration = self?.accountTask
+                await restoration?.value
+                guard let self else { return }
+                defer {
+                    if self.preparationLease == lease { self.preparing = false; self.preparationTask = nil }
                 }
-                self.preparationStatus = "Preparing Home…"
-                let preparedHome = await self.home.load(repository: self.repository, userID: userID, revision: self.mutationRevision)
-                try Task.checkCancellation()
-                guard let preparedHome, !preparedHome.isPartial, !preparedHome.isStale else { throw MLError.unavailable }
-                let data = preparedHome.value
-                if let user = data.Viewer { self.applyViewer(user) }
-                let watching = data.watching?.mediaList?.compactMap { $0?.media } ?? []
-                let reading = data.reading?.mediaList?.compactMap { $0?.media } ?? []
-                let discovery = data.discovery?.media?.compactMap { $0 } ?? []
-                let covers: [(URL?, Int)] = watching.prefix(3).map { ($0.coverImage?.medium ?? $0.coverImage?.large, 156) }
-                    + reading.prefix(1).map { ($0.coverImage?.medium ?? $0.coverImage?.large, 156) }
-                    + discovery.prefix(4).map { ($0.coverImage?.large, 396) }
-                // Cover latency must not hold up section data. First-page batches
-                // include default Anime, Manga, Discover and Activity together.
-                let entries = MLPreparationEntry.all
-                var remaining: [(MLMediaType, MLListStatus?)] = []
-                for start in stride(from: 0, to: entries.count, by: 4) {
+                do {
                     try Task.checkCancellation()
-                    self.preparationStatus = "Preparing sections \(start + 1)–\(min(start + 4, entries.count)) of \(entries.count)…"
-                    let batch = Array(entries[start..<min(start + 4, entries.count)])
-                    let pages = try await self.repository.prepareFirstPages(batch, userID: userID)
+                    guard !self.stopped, self.preparationLease == lease else { return }
+                    guard let userID = self.viewer?.id else {
+                        self.preparationStatus = "Open MaoList to prepare your account."
+                        return
+                    }
+                    self.preparationStatus = "Preparing Home…"
+                    let preparedHome = await self.home.load(repository: self.repository, userID: userID, revision: self.mutationRevision)
                     try Task.checkCancellation()
-                    for (entry, page) in zip(batch, pages) {
-                        if case .library(let type, let status) = entry.kind {
-                            self.preparedLibraryPages["\(type.rawValue)/\(status?.rawValue ?? "all")"] = 1
-                            if page.pageInfo?.hasNextPage == true { remaining.append((type, status)) }
+                    guard let preparedHome, !preparedHome.isPartial, !preparedHome.isStale else { throw MLError.unavailable }
+                    let data = preparedHome.value
+                    if let user = data.Viewer { self.applyViewer(user) }
+                    let watching = data.watching?.mediaList?.compactMap { $0?.media } ?? []
+                    let reading = data.reading?.mediaList?.compactMap { $0?.media } ?? []
+                    let discovery = data.discovery?.media?.compactMap { $0 } ?? []
+                    let covers: [(URL?, Int)] = watching.prefix(3).map { ($0.coverImage?.medium ?? $0.coverImage?.large, 156) }
+                        + reading.prefix(1).map { ($0.coverImage?.medium ?? $0.coverImage?.large, 156) }
+                        + discovery.prefix(4).map { ($0.coverImage?.large, 396) }
+                    async let artwork: Void = self.warmArtwork(covers)
+                    // Cover latency must not hold up section data. First-page batches
+                    // include default Anime, Manga, Discover and Activity together.
+                    let entries = MLPreparationEntry.all
+                    var remaining: [(MLMediaType, MLListStatus?)] = []
+                    for start in stride(from: 0, to: entries.count, by: 4) {
+                        try Task.checkCancellation()
+                        self.preparationStatus = "Preparing sections \(start + 1)–\(min(start + 4, entries.count)) of \(entries.count)…"
+                        let batch = Array(entries[start..<min(start + 4, entries.count)])
+                        let pages = try await self.repository.prepareFirstPages(batch, userID: userID)
+                        try Task.checkCancellation()
+                        for (entry, page) in zip(batch, pages) {
+                            if case .library(let type, let status) = entry.kind {
+                                self.preparedLibraryPages["\(type.rawValue)/\(status?.rawValue ?? "all")"] = 1
+                                if page.pageInfo?.hasNextPage == true { remaining.append((type, status)) }
+                            }
                         }
                     }
-                }
-                for (type, status) in remaining {
-                    var page = 2
-                    while true {
-                        try Task.checkCancellation()
-                        self.preparationStatus = "Preparing \(type.title.lowercased()) · \(status?.title(for: type) ?? "All") · page \(page)…"
-                        let epoch = await self.repository.client.preparationEpoch()
-                        let result = try await self.repository.library(userID: userID, type: type, status: status, page: page)
-                        try Task.checkCancellation()
-                        guard !result.isPartial, !result.isStale, let loaded = result.value.Page else { throw MLError.unavailable }
-                        var variables: [String: MLValue] = ["user": .int(userID), "type": .string(type.rawValue), "page": .int(page)]
-                        if let status { variables["status"] = .string(status.rawValue) }
-                        try await self.repository.client.cachePrepared(MLRepository.libraryQuery, variables: variables, value: result.value, epoch: epoch)
-                        self.preparedLibraryPages["\(type.rawValue)/\(status?.rawValue ?? "all")"] = page
-                        if loaded.pageInfo?.hasNextPage != true { break }
-                        guard page < 200 else { throw MLError.unavailable }
-                        page += 1
+                    for (type, status) in remaining {
+                        var page = 2
+                        while true {
+                            try Task.checkCancellation()
+                            self.preparationStatus = "Preparing \(type.title.lowercased()) · \(status?.title(for: type) ?? "All") · page \(page)…"
+                            let epoch = await self.repository.client.preparationEpoch()
+                            let result = try await self.repository.library(userID: userID, type: type, status: status, page: page)
+                            try Task.checkCancellation()
+                            guard !result.isPartial, !result.isStale, let loaded = result.value.Page else { throw MLError.unavailable }
+                            var variables: [String: MLValue] = ["user": .int(userID), "type": .string(type.rawValue), "page": .int(page)]
+                            if let status { variables["status"] = .string(status.rawValue) }
+                            try await self.repository.client.cachePrepared(MLRepository.libraryQuery, variables: variables, value: result.value, epoch: epoch)
+                            self.preparedLibraryPages["\(type.rawValue)/\(status?.rawValue ?? "all")"] = page
+                            if loaded.pageInfo?.hasNextPage != true { break }
+                            guard page < 200 else { throw MLError.unavailable }
+                            page += 1
+                        }
+                    }
+                    self.preparationStatus = "Finishing Home artwork…"
+                    await artwork
+                    try Task.checkCancellation()
+                    self.preparationStatus = "Preparation finished."
+                } catch {
+                    if self.preparationLease == lease, !self.stopped, !Task.isCancelled {
+                        self.preparationStatus = "Preparation stopped. Remaining sections will load when opened."
                     }
                 }
-                self.preparationStatus = "Finishing Home artwork…"
-                for (url, pixels) in covers {
-                    try Task.checkCancellation()
-                    _ = await self.images.image(url, pixels: pixels)
-                }
-                try Task.checkCancellation()
-                self.preparationStatus = "Preparation finished."
-            } catch {
-                if self.preparationLease == lease, !self.stopped, !Task.isCancelled {
-                    self.preparationStatus = "Preparation stopped. Remaining sections will load when opened."
-                }
             }
+        }
+    }
+    private func warmArtwork(_ covers: [(URL?, Int)]) async {
+        for (url, pixels) in covers {
+            guard !Task.isCancelled, !stopped else { return }
+            _ = await images.image(url, pixels: pixels)
         }
     }
     func cancelPreparation() {
@@ -438,6 +506,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     }
     func connect() {
         guard !stopped, !connecting, !restoring else { return }
+        clearMediaPreviews()
         cancelPreparation()
         preparedLibraryPages.removeAll()
         accountError = nil
@@ -478,6 +547,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
                 guard !self.stopped, lease == self.generation else { return }
                 self.credentials = saved
                 await self.repository.client.authorize(token: saved.accessToken, accountID: user.id)
+                self.clearMediaPreviews()
                 self.viewer = user; self.needsReconnect = false; self.routes.removeAll(); self.section = .home
                 self.home.clear()
                 self.mutationRevision += 1
@@ -496,6 +566,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     func cancelConnect() { accountTask?.cancel(); authSession?.cancel() }
     func disconnect() async {
         guard !stopped else { return }
+        clearMediaPreviews()
         cancelPreparation()
         preparedLibraryPages.removeAll()
         cancelConnect()
@@ -515,12 +586,12 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     func handle(_ error: Error) {
         guard !stopped, !(error is CancellationError) else { return }
         if error as? MLError == .authentication {
-            cancelPreparation(); preparedLibraryPages.removeAll()
+            clearMediaPreviews(); cancelPreparation(); preparedLibraryPages.removeAll()
             needsReconnect = true; viewer = nil; credentials = nil; routes.removeAll(); mutationRevision += 1
             home.clear()
         }
     }
-    func didMutate() { cancelPreparation(); preparedLibraryPages.removeAll(); mutationRevision += 1 }
+    func didMutate() { clearMediaPreviews(); cancelPreparation(); preparedLibraryPages.removeAll(); mutationRevision += 1 }
     func applyListPreferences(_ user: MLUser) {
         guard !stopped, var current = viewer, current.id == user.id else { return }
         current.mediaListOptions = user.mediaListOptions

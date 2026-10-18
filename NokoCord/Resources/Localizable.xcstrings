@@ -1,7 +1,52 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ of %@" : {
+    "#%lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "#%1$lld %2$@"
+          }
+        }
+      }
+    },
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%@ %lld name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$lld name"
+          }
+        }
+      }
+    },
+    "%@ chapters read" : {
+
+    },
+    "%@ continue layout" : {
+
+    },
+    "%@ hours watched" : {
+
+    },
+    "%@ mean score" : {
+
+    },
+    "%@ score" : {
+
+    },
+    "%@ volumes read" : {
 
     },
     "%@, %@" : {
@@ -17,6 +62,24 @@
     "%lld" : {
 
     },
+    "%lld anime" : {
+
+    },
+    "%lld library titles" : {
+
+    },
+    "%lld likes" : {
+
+    },
+    "%lld manga" : {
+
+    },
+    "%lld replies" : {
+
+    },
+    "%lld shown" : {
+
+    },
     "%lld source files · %lld license files preserved" : {
       "localizations" : {
         "en" : {
@@ -27,22 +90,10 @@
         }
       }
     },
-    "Appears while Apple Music Presence is enabled. Hiding the card keeps your Discord activity on." : {
+    "%lld/100" : {
 
     },
-    "Hide Apple Music card" : {
-
-    },
-    "Hide this card. Restore it in Settings → General → Apple Music." : {
-
-    },
-    "Listening to Apple Music" : {
-
-    },
-    "Paused in Apple Music" : {
-
-    },
-    "Show Apple Music card on Home" : {
+    "%lld%%" : {
 
     },
     "• Discord login, WebKit data, and cookies" : {
@@ -58,6 +109,9 @@
 
     },
     "A little Noko. A lot of possibility." : {
+
+    },
+    "A native AniList companion for anime and manga. Switching it off unloads the module and preserves your saved connection." : {
 
     },
     "A newer Maomao version is available. Updating preserves the Discord session, Maomao settings, and Tans in Maomao's scoped storage. Shared build-3 Tans remain untouched and require a separate import." : {
@@ -82,7 +136,7 @@
     "About Tans" : {
 
     },
-    "Action" : {
+    "Accent color" : {
 
     },
     "Access" : {
@@ -96,7 +150,100 @@
         }
       }
     },
+    "Account totals reported by AniList." : {
+
+    },
+    "Action" : {
+
+    },
+    "Activity" : {
+
+    },
+    "Add %@" : {
+
+    },
+    "Add and reorder your custom lists. Renaming or removing an existing list removes its membership; anime and manga stay in your library. Changes apply when you save." : {
+
+    },
+    "Add one chapter" : {
+
+    },
+    "Add one chapter to %@" : {
+
+    },
+    "Add one episode" : {
+
+    },
+    "Add one episode to %@" : {
+
+    },
+    "Add to favorites" : {
+
+    },
+    "Add to list" : {
+
+    },
+    "ADD TO YOUR LIST" : {
+
+    },
+    "Advanced scoring" : {
+
+    },
     "All" : {
+
+    },
+    "All custom lists" : {
+
+    },
+    "Alternative titles" : {
+
+    },
+    "AniList average" : {
+
+    },
+    "AniList average: %lld%%" : {
+
+    },
+    "AniList connection" : {
+
+    },
+    "AniList is separate from your Discord account. Its access token is saved only in macOS Keychain." : {
+
+    },
+    "AniList list preferences…" : {
+
+    },
+    "AniList notifications" : {
+
+    },
+    "AniList statistics" : {
+
+    },
+    "AniList tag" : {
+
+    },
+    "Any format" : {
+
+    },
+    "Any genre" : {
+
+    },
+    "Any popularity" : {
+
+    },
+    "Any score" : {
+
+    },
+    "Any season" : {
+
+    },
+    "Any source" : {
+
+    },
+    "Any status" : {
+
+    },
+    "Any year" : {
 
     },
     "Appearance" : {
@@ -109,13 +256,37 @@
         }
       }
     },
+    "Appears while Apple Music Presence is enabled. Hiding the card keeps your Discord activity on." : {
+
+    },
+    "Apple Music" : {
+
+    },
+    "Applies to both anime and manga on your AniList account." : {
+
+    },
+    "Apply" : {
+
+    },
+    "Apply changes" : {
+
+    },
+    "Apply list changes?" : {
+
+    },
+    "Are you sure?" : {
+
+    },
     "Are You Sure?" : {
 
     },
-    "Before attempt" : {
+    "Artwork grid" : {
 
     },
     "Assisted" : {
+
+    },
+    "At a glance" : {
 
     },
     "Automatic" : {
@@ -134,7 +305,16 @@
         }
       }
     },
+    "Before attempt" : {
+
+    },
     "Bring a source folder. See what fits." : {
+
+    },
+    "Browse anime" : {
+
+    },
+    "Browse manga" : {
 
     },
     "By" : {
@@ -164,6 +344,9 @@
         }
       }
     },
+    "Cancel editing" : {
+
+    },
     "Cancel translation" : {
 
     },
@@ -176,6 +359,12 @@
     "Check your connection, then reload. Reloading interrupts any active call." : {
 
     },
+    "Checking downloaded ZIP…" : {
+
+    },
+    "Checking GitHub…" : {
+
+    },
     "Checking shared Tan folder…" : {
 
     },
@@ -185,7 +374,7 @@
     "Choose a different local ZIP or inspect this one again." : {
 
     },
-    "Choose a local Maomao app ZIP or drop it into Updates. Selection inspects the ZIP only. NokoCord does not check for, download, or schedule app updates." : {
+    "Choose a local Maomao app ZIP or drop it into Updates. Selection inspects the ZIP only. Noko-Fetch is an optional way to download a verified ZIP from GitHub when you request it. There are no background update checks. Both paths use the same inspection and installation process." : {
 
     },
     "Choose a Maomao app ZIP from this Mac. Selecting a file only checks it; nothing is installed until you choose an action below." : {
@@ -195,6 +384,9 @@
 
     },
     "Choose a Noko-Tan, or import a Tan of your own." : {
+
+    },
+    "Choose a section to explore." : {
 
     },
     "Choose a Vencord plugin folder or source repository to check compatibility and create a Tan. Your original files stay unchanged." : {
@@ -224,13 +416,22 @@
     "Clean Reinstall…" : {
 
     },
+    "Clear" : {
+
+    },
     "Clear & Reload" : {
+
+    },
+    "Clear %@ date" : {
 
     },
     "Clear Discord Session" : {
 
     },
     "Clear Discord session…" : {
+
+    },
+    "Clear filters" : {
 
     },
     "Clear saved session data to sign out of Discord on this Mac. Files you have downloaded are kept." : {
@@ -254,10 +455,16 @@
     "Clear your Discord session?" : {
 
     },
+    "Clear your score" : {
+
+    },
     "Clearing session data" : {
 
     },
     "Close" : {
+
+    },
+    "Close search" : {
 
     },
     "Collapsed" : {
@@ -272,13 +479,43 @@
     "Completed" : {
 
     },
+    "Configure dimension names in their scoring order. Changing these names or their order can affect scores already stored on AniList. MaoList does not migrate old dimension scores." : {
+
+    },
+    "Connect AniList" : {
+
+    },
+    "Connect AniList to keep your anime and manga lists up to date here. You can browse without signing in." : {
+
+    },
+    "Connect AniList to see activity from people you follow." : {
+
+    },
+    "Connecting…" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Continue Reading" : {
+
+    },
     "Continue to Discord" : {
 
     },
     "Continue to Final Confirmation" : {
 
     },
+    "Continue Watching" : {
+
+    },
     "Convert with document-ready startup" : {
+
+    },
+    "Copy Discord Colors" : {
+
+    },
+    "Covers" : {
 
     },
     "Current" : {
@@ -287,13 +524,28 @@
     "Current → selected ZIP" : {
 
     },
+    "Custom list" : {
+
+    },
+    "Custom lists" : {
+
+    },
     "Dark" : {
+
+    },
+    "Decrease %@" : {
 
     },
     "Different package IDs are separate Tans, even if their names resemble one another—for example, NokoChat, Noko Chat, Noko-Chat, and noko_chat." : {
 
     },
     "Disabled" : {
+
+    },
+    "Disconnect AniList?" : {
+
+    },
+    "Disconnect AniList…" : {
 
     },
     "Discord" : {
@@ -342,6 +594,16 @@
     "Download" : {
 
     },
+    "Downloading %@ · %lld%%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Downloading %1$@ · %2$lld%%"
+          }
+        }
+      }
+    },
     "Downloads" : {
 
     },
@@ -351,10 +613,43 @@
     "Drop a local ZIP here" : {
 
     },
+    "Earlier pages were released to keep MaoList light. Refresh to return to the beginning." : {
+
+    },
+    "Earlier pages were released to keep MaoList light. Reopen this page to return to the beginning." : {
+
+    },
+    "Edit" : {
+
+    },
+    "Edit %@" : {
+
+    },
+    "Edit bio" : {
+
+    },
+    "Edit entry" : {
+
+    },
+    "EDIT LIST ENTRY" : {
+
+    },
     "Edition" : {
 
     },
+    "Enable" : {
+
+    },
     "Enable %@?" : {
+
+    },
+    "Enable advanced scoring" : {
+
+    },
+    "Enable MaoList" : {
+
+    },
+    "Enable MaoList in General to connect AniList. Your existing saved connection is preserved while MaoList is off." : {
 
     },
     "Enable Tan" : {
@@ -363,6 +658,36 @@
     "Enabled" : {
 
     },
+    "Ep. %lld · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Ep. %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Episode %lld · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Episode %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Episode %lld airs %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Episode %1$lld airs %2$@"
+          }
+        }
+      }
+    },
     "Erase Data and Clean Reinstall" : {
 
     },
@@ -370,6 +695,18 @@
 
     },
     "Expanded" : {
+
+    },
+    "Explore" : {
+
+    },
+    "Explore something new" : {
+
+    },
+    "Explore this title" : {
+
+    },
+    "Explore trending anime" : {
 
     },
     "Failed" : {
@@ -381,10 +718,55 @@
     "Fast Find — search Tans" : {
 
     },
+    "Favorite" : {
+
+    },
+    "Favorite anime" : {
+
+    },
+    "Favorite characters" : {
+
+    },
+    "Favorite manga" : {
+
+    },
+    "Favorite staff" : {
+
+    },
+    "Favorite studios" : {
+
+    },
+    "Favorited" : {
+
+    },
+    "Feed" : {
+
+    },
+    "Fetch a verified update ZIP from GitHub, then review it below. Local ZIP updates remain available offline." : {
+
+    },
+    "Filters" : {
+
+    },
     "Final confirmation: this permanently erases Maomao's Discord session, WebKit data and cookies, scoped Tans, Tan and app settings, gateways, bridge configuration, and customizations. This cannot be undone." : {
 
     },
+    "Find anime or manga" : {
+
+    },
     "Finish or cancel a download before starting another." : {
+
+    },
+    "Follow" : {
+
+    },
+    "Following" : {
+
+    },
+    "Follows you" : {
+
+    },
+    "Format" : {
 
     },
     "Forward" : {
@@ -408,10 +790,46 @@
         }
       }
     },
+    "Genre" : {
+
+    },
+    "Genres & themes" : {
+
+    },
+    "Global" : {
+
+    },
     "Go to…" : {
 
     },
+    "Hide Apple Music card" : {
+
+    },
+    "Hide from status lists" : {
+
+    },
+    "Hide Noko-Bar" : {
+
+    },
+    "Hide Noko-Bar?" : {
+
+    },
     "Hide Noko-Tans" : {
+
+    },
+    "Hide or show the collection. Fast Find can still reveal matching Tans." : {
+
+    },
+    "Hide spoiler tags" : {
+
+    },
+    "Hide Tans" : {
+
+    },
+    "Hide this card. Restore it in Settings → General → Apple Music." : {
+
+    },
+    "Hide this section" : {
 
     },
     "Home" : {
@@ -461,6 +879,9 @@
     "Importing shared Tans…" : {
 
     },
+    "Increase %@" : {
+
+    },
     "Information" : {
 
     },
@@ -482,16 +903,79 @@
     "Keep Maomao open while the update handoff starts." : {
 
     },
+    "Keep your progress and rating in one place." : {
+
+    },
     "Keyboard shortcuts" : {
 
     },
     "Learn about Tans, translation, updates, and package identity." : {
 
     },
+    "Library presentation" : {
+
+    },
     "Light" : {
 
     },
+    "Like activity" : {
+
+    },
+    "Like reply" : {
+
+    },
     "Liquid Glass" : {
+
+    },
+    "List" : {
+
+    },
+    "List display" : {
+
+    },
+    "List notes" : {
+
+    },
+    "List preferences" : {
+
+    },
+    "Listening to Apple Music" : {
+
+    },
+    "Load more" : {
+
+    },
+    "Load more favorites" : {
+
+    },
+    "Loading %@…" : {
+
+    },
+    "Loading activity…" : {
+
+    },
+    "Loading additional details…" : {
+
+    },
+    "Loading details…" : {
+
+    },
+    "Loading entries…" : {
+
+    },
+    "Loading profile…" : {
+
+    },
+    "Loading review…" : {
+
+    },
+    "Loading saved score…" : {
+
+    },
+    "Loading your home…" : {
+
+    },
+    "Loading your list…" : {
 
     },
     "Local update ZIP" : {
@@ -506,7 +990,19 @@
     "Make it yours." : {
 
     },
+    "MaoList" : {
+
+    },
+    "MaoList can’t accurately display this content natively. Open it in your browser?" : {
+
+    },
+    "MaoList will prepare all main sections and your anime and manga library pages when the app starts. This uses additional memory, processing power, and network data. Large libraries take longer and are subject to cache limits. Prepared data is kept for up to 30 minutes; refresh to see newer changes." : {
+
+    },
     "Maomao already has its own Tans" : {
+
+    },
+    "Media" : {
 
     },
     "Microphone" : {
@@ -520,10 +1016,63 @@
         }
       }
     },
+    "Minimum popularity" : {
+
+    },
+    "Minimum score" : {
+
+    },
+    "Minimum score in percent" : {
+
+    },
+    "Module version" : {
+
+    },
+    "More filters" : {
+
+    },
     "Most supported behavior can be converted, while uncertain or unsupported parts may need review or manual adjustment." : {
 
     },
+    "Move %@ %lld down" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Move %1$@ %2$lld down"
+          }
+        }
+      }
+    },
+    "Move %@ %lld up" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Move %1$@ %2$lld up"
+          }
+        }
+      }
+    },
     "Music access" : {
+
+    },
+    "New" : {
+
+    },
+    "New %@ name" : {
+
+    },
+    "New AniList activity" : {
+
+    },
+    "No %@ available." : {
+
+    },
+    "No %@ to show." : {
+
+    },
+    "No activity yet" : {
 
     },
     "No analytics or telemetry" : {
@@ -539,10 +1088,25 @@
     "No downloads yet" : {
 
     },
+    "No entries here" : {
+
+    },
+    "No favorites to show yet." : {
+
+    },
     "No installable Tan was created. Required behavior needs an adapter or source changes; it has not been silently removed." : {
 
     },
+    "No matches" : {
+
+    },
+    "No matching AniList tag." : {
+
+    },
     "No matching destinations" : {
+
+    },
+    "No matching entries loaded." : {
 
     },
     "No matching Tans" : {
@@ -558,6 +1122,18 @@
 
     },
     "No ZIP selected" : {
+
+    },
+    "Noko-Bar" : {
+
+    },
+    "Noko-Fetch" : {
+
+    },
+    "Noko-Fetch · GitHub" : {
+
+    },
+    "Noko-Glass" : {
 
     },
     "Noko-Tans" : {
@@ -594,6 +1170,28 @@
     "Not Supported" : {
 
     },
+    "Notes" : {
+
+    },
+    "Nothing in Reading yet. Your next manga is waiting in Discover." : {
+
+    },
+    "Nothing in Watching yet. Discover an anime and add it to your list." : {
+
+    },
+    "Notifications" : {
+
+    },
+    "of %lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "of %1$lld %2$@"
+          }
+        }
+      }
+    },
     "OK" : {
 
     },
@@ -601,6 +1199,12 @@
 
     },
     "One-time import already completed" : {
+
+    },
+    "Open" : {
+
+    },
+    "Open %@" : {
 
     },
     "Open Discord" : {
@@ -619,10 +1223,37 @@
         }
       }
     },
+    "Open this content in your browser?" : {
+
+    },
     "Optional shared Tan import" : {
 
     },
+    "Overall score" : {
+
+    },
+    "Overall score format" : {
+
+    },
+    "Paused in Apple Music" : {
+
+    },
     "Plugin" : {
+
+    },
+    "Post" : {
+
+    },
+    "Powered by AniList" : {
+
+    },
+    "Prepare MaoList at launch" : {
+
+    },
+    "Prepare MaoList at launch?" : {
+
+    },
+    "Prepare your sections while Discord opens, so MaoList is ready sooner." : {
 
     },
     "Preparing NokoCord…" : {
@@ -638,7 +1269,7 @@
         }
       }
     },
-    "Previous Discord page" : {
+    "Press Control–Command–N (⌃⌘N) to show Noko-Bar again. You can also turn it back on in Appearance settings." : {
 
     },
     "Previous app remains installed" : {
@@ -647,7 +1278,13 @@
     "Previous app restored" : {
 
     },
+    "Previous Discord page" : {
+
+    },
     "Previous update attempt" : {
+
+    },
+    "Priority" : {
 
     },
     "Privacy" : {
@@ -659,6 +1296,18 @@
           }
         }
       }
+    },
+    "Private entry" : {
+
+    },
+    "Profile biography" : {
+
+    },
+    "Profile section" : {
+
+    },
+    "Public browsing is available while MaoList restores your saved connection." : {
+
     },
     "Quick switcher" : {
       "localizations" : {
@@ -683,14 +1332,22 @@
         }
       }
     },
+    "Read full synopsis" : {
+
+    },
     "Ready to review" : {
 
     },
-    "Replacement ready; cleanup incomplete" : {
+    "Recent activity" : {
+
+    },
+    "Reconnect" : {
+
+    },
+    "Reconnect AniList" : {
 
     },
     "Refresh" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -699,6 +1356,9 @@
           }
         }
       }
+    },
+    "Refresh details" : {
+
     },
     "Refresh Tan folder" : {
 
@@ -721,7 +1381,19 @@
     "Reinstall Noko-Tan" : {
 
     },
+    "Related titles" : {
+
+    },
+    "Related works" : {
+
+    },
     "Relaunching Maomao" : {
+
+    },
+    "Release status" : {
+
+    },
+    "Release year" : {
 
     },
     "Reload" : {
@@ -742,7 +1414,50 @@
     "Reloads Discord and may interrupt an active call" : {
 
     },
+    "Remove %@ %lld from draft" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Remove %1$@ %2$lld from draft"
+          }
+        }
+      }
+    },
+    "Remove %@ from your AniList list?" : {
+
+    },
+    "Remove connection and local account data" : {
+
+    },
+    "Remove entry" : {
+
+    },
+    "Remove from favorites" : {
+
+    },
+    "Remove from list" : {
+
+    },
+    "Removed or renamed custom lists lose their membership, but entries remain in your AniList library. Changes to scoring dimensions may affect existing dimension scores. Save may apply several operations; a failed later operation cannot undo a completed removal." : {
+
+    },
+    "Repeat count" : {
+
+    },
+    "Replacement ready; cleanup incomplete" : {
+
+    },
+    "Reply" : {
+
+    },
     "Requires Native Adapter" : {
+
+    },
+    "Restoring AniList connection" : {
+
+    },
+    "Restoring your AniList connection…" : {
 
     },
     "Resume Tans" : {
@@ -758,10 +1473,19 @@
         }
       }
     },
+    "Retry favorites" : {
+
+    },
     "Returns to the previous Discord page" : {
 
     },
+    "Reveal spoiler tags" : {
+
+    },
     "Review code you trust before enabling it. Installation preserves the source and report, and leaves the Tan turned off." : {
+
+    },
+    "Rows" : {
 
     },
     "Runtime" : {
@@ -776,7 +1500,16 @@
     "Safe Mode is on" : {
 
     },
+    "Save" : {
+
+    },
+    "Save changes" : {
+
+    },
     "Save Discord download" : {
+
+    },
+    "Save to AniList" : {
 
     },
     "Saved as enabled" : {
@@ -785,10 +1518,40 @@
     "Saved enabled Tans may start running in Discord as soon as you import them." : {
 
     },
+    "Saved score unavailable" : {
+
+    },
+    "Scoring" : {
+
+    },
+    "Search filters" : {
+
+    },
+    "Search shown titles" : {
+
+    },
+    "Search tags" : {
+
+    },
+    "Searching AniList…" : {
+
+    },
+    "Season" : {
+
+    },
+    "Select MaoList to load your titles." : {
+
+    },
     "Selected ZIP" : {
 
     },
+    "Separate completed entries by format" : {
+
+    },
     "Settings" : {
+
+    },
+    "Share an update with AniList." : {
 
     },
     "Shared Tan folder unavailable" : {
@@ -809,6 +1572,21 @@
     "Show all Tans" : {
 
     },
+    "Show Apple Music card on Home" : {
+
+    },
+    "Show fewer" : {
+
+    },
+    "Show less" : {
+
+    },
+    "Show more" : {
+
+    },
+    "Show Noko-Bar" : {
+
+    },
     "Show Noko-Tans" : {
 
     },
@@ -818,10 +1596,44 @@
     "Show NokoCord in menu bar" : {
 
     },
+    "Show Tans" : {
+
+    },
+    "Show the navigation and controls above Discord. Restore anytime with ⌃⌘N." : {
+
+    },
+    "Show this section" : {
+
+    },
     "Show translation, updates, and package identity information" : {
 
     },
+    "Showing %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Showing %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "Showing saved information from %@" : {
+
+    },
     "Small touches, made for NokoCord." : {
+
+    },
+    "Some AniList information is unavailable. You can keep browsing." : {
+
+    },
+    "Song progress" : {
+
+    },
+    "Sort" : {
+
+    },
+    "Sort loaded entries" : {
 
     },
     "Source" : {
@@ -837,6 +1649,21 @@
 
     },
     "Startup was explicitly adapted to run when the document is ready. Test the Tan’s behavior before relying on it." : {
+
+    },
+    "Statistics aren’t available." : {
+
+    },
+    "Switch between NokoCord and MaoList" : {
+
+    },
+    "Switch to NokoCord" : {
+
+    },
+    "Switch to NokoCord (⇧⌘M)" : {
+
+    },
+    "Synopsis" : {
 
     },
     "System" : {
@@ -857,7 +1684,13 @@
     "The download failed. Retry from Discord when the connection is available." : {
 
     },
+    "The downloaded file could not replace the existing file. Choose another save location and retry." : {
+
+    },
     "The import is unavailable because it would replace your existing Maomao Tan collection." : {
+
+    },
+    "The replacement could not be prepared. Choose another save location and retry." : {
 
     },
     "The saved Safe Mode setting is on, so imported enabled Tans will stay paused until you resume them." : {
@@ -887,6 +1720,9 @@
     "This folder was shared with older editions. Its files have no reliable edition provenance and may include M1.2 or Chiaki Tans." : {
 
     },
+    "This image is no longer available. Open it again in Discord and retry the download." : {
+
+    },
     "This installed Maomao version is below the supported updater baseline. Install the M1.3.0 checkpoint manually, then inspect a ZIP here again." : {
 
     },
@@ -908,6 +1744,9 @@
     "This removes the installed copy and its saved source, and turns it off. Keep your original source folder to import it again. Changes that need a reload are shown on Home." : {
 
     },
+    "This removes the saved AniList authentication and account-specific MaoList cache from this Mac. Your lists on AniList are preserved. MaoList stays available for connecting another account." : {
+
+    },
     "This Tan needs functionality ordinary browser page JavaScript cannot provide. It requires an approved NokoCord native provider or capability." : {
 
     },
@@ -915,6 +1754,12 @@
 
     },
     "This ZIP has the same version number with a newer build. Updating preserves the Discord session, Maomao settings, and Tans in Maomao's scoped storage. Shared build-3 Tans remain untouched and require a separate import." : {
+
+    },
+    "Tracking progress" : {
+
+    },
+    "Tracking progress for %@" : {
 
     },
     "Translate" : {
@@ -941,6 +1786,15 @@
     "Try another name, author, or feature." : {
 
     },
+    "Try another status or discover something new." : {
+
+    },
+    "Try another title or fewer filters." : {
+
+    },
+    "Unfollow" : {
+
+    },
     "Uninstall Tan" : {
 
     },
@@ -948,6 +1802,15 @@
 
     },
     "Uninstall…" : {
+
+    },
+    "Unknown dates can stay blank. Changing a date won’t change your status." : {
+
+    },
+    "Unlike activity" : {
+
+    },
+    "Unlike reply" : {
 
     },
     "Unsupported" : {
@@ -989,13 +1852,46 @@
     "Updates" : {
 
     },
+    "Updating library" : {
+
+    },
+    "Use 2–8,000 characters." : {
+
+    },
+    "Use 5–10,000 characters." : {
+
+    },
+    "Use MaoList’s default colors" : {
+
+    },
+    "Use NokoCord’s translucent Discord presentation. Turn off for Discord’s normal appearance." : {
+
+    },
     "Use translucent controls and surfaces. Accessibility settings take priority." : {
+
+    },
+    "Uses AniList’s 100-point scale. Your overall score is set separately." : {
+
+    },
+    "Uses available Discord colors when you open MaoList, with MaoList’s own colors as a fallback." : {
 
     },
     "Validated Tans" : {
 
     },
+    "Verifying SHA-256…" : {
+
+    },
     "Version" : {
+
+    },
+    "Volumes" : {
+
+    },
+    "Waiting for AniList…" : {
+
+    },
+    "Watch, read & resources" : {
 
     },
     "When enabled, NokoCord reads Music through Apple Events. It looks up cover art using Apple’s iTunes Search service. Only if no cover is found, album and artist details go to Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title." : {
@@ -1007,10 +1903,61 @@
     "While enabled, NokoCord uses Apple Events to read the current song and playback state from Music and shows the song as your Discord activity. macOS may ask you to allow access to Music. Cover lookup sends artist, title, and album details to Apple’s iTunes Search service. Only if no cover is found, album and artist details go to Last.fm when configured, or MusicBrainz and Cover Art Archive otherwise. Last.fm may also receive the song title." : {
 
     },
+    "Write a reply" : {
+
+    },
+    "Year" : {
+
+    },
     "You will need to sign in and set up again. Two separate confirmations are required." : {
 
     },
+    "You’ll need to reconnect to edit your AniList lists." : {
+
+    },
+    "You’re all caught up" : {
+
+    },
+    "Your %@ list" : {
+
+    },
+    "Your AniList bio" : {
+
+    },
+    "Your AniList connection needs renewing." : {
+
+    },
+    "Your AniList profile" : {
+
+    },
+    "Your Discord authorization is saved in macOS Keychain. After an update, macOS may ask permission to restore it. Any password requested in that dialog is handled by macOS." : {
+
+    },
+    "Your library is ready" : {
+
+    },
+    "Your list" : {
+
+    },
+    "Your next episode, one click away." : {
+
+    },
+    "Your next manga, one click away." : {
+
+    },
+    "Your progress" : {
+
+    },
+    "Your saved score stays unchanged until you edit it." : {
+
+    },
+    "Your score: %@" : {
+
+    },
     "Your Tans" : {
+
+    },
+    "Your Tans are hidden. Use Fast Find above to look them up, or choose Show Tans." : {
 
     },
     "Your Tans are paused. Your selections are saved." : {

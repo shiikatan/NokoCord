@@ -256,6 +256,134 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
         box-shadow: 0 12px 40px rgb(0 0 0 / 25%), 0 0 0 1px var(--maomao-line);
     }
 
+    /* Positioned/transformed HTML inside a nested SVG foreignObject paints at
+     * the outer SVG origin in WebKit. Flow the three native dots inline and
+     * pulse their fill instead; the native SVG still owns badge size and x/y. */
+    svg:is([class^="mask_"], [class*=" mask_"]) svg:is([class^="dots_"], [class*=" dots_"]) {
+        transform: none !important;
+        > foreignObject {
+            font-size: 0;
+            line-height: 0;
+            white-space: nowrap;
+            > :is([class^="dot_"], [class*=" dot_"]) {
+                position: static !important;
+                display: inline-block;
+                vertical-align: top;
+                margin: 0;
+                margin-inline-end: calc(100% / 14);
+                transform: none !important;
+                scale: none !important;
+                opacity: 1 !important;
+                will-change: auto !important;
+                animation: noko-avatar-dot 1.2s ease-in-out infinite;
+                &:last-child { margin-inline-end: 0; }
+                &:nth-child(2) { animation-delay: -.8s; }
+                &:nth-child(3) { animation-delay: -.4s; }
+            }
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        svg:is([class^="mask_"], [class*=" mask_"]) svg:is([class^="dots_"], [class*=" dots_"])
+        > foreignObject > :is([class^="dot_"], [class*=" dot_"]) { animation: none; }
+    }
+
+    /* The outlined name's absolute fill layer can round a fractional content
+     * width down in WebKit and show an ellipsis on names that fit. One pixel of
+     * fill-layer headroom preserves the outline, font and real truncation. */
+    :is([class^="dnsFont_"], [class*=" dnsFont_"])
+    > :is([class^="innerContainer_"], [class*=" innerContainer_"]):is([class^="toon_"], [class*=" toon_"])::before {
+        inset-inline-end: -1px;
+    }
+
+    /* Compact profile cards keep their own Nitro/default palette. The stable
+     * popout marker excludes full profiles, profile editors and profile effects. */
+    .user-profile-popout {
+        --noko-profile-line: color-mix(in srgb, var(--text-default, #f2f3f5) 12%, transparent);
+        --noko-profile-soft: color-mix(in srgb, var(--text-default, #f2f3f5) 4%, transparent);
+        --noko-profile-focus: color-mix(in srgb, var(--text-default, #f2f3f5) 38%, transparent);
+        border-radius: 22px;
+        box-shadow: 0 18px 48px rgb(0 0 0 / 28%), 0 4px 12px rgb(0 0 0 / 16%),
+                    0 0 0 1px var(--noko-profile-line);
+
+        > :is([class^="inner_"], [class*=" inner_"]) {
+            border-radius: 20px;
+            gap: 8px;
+            padding-block-end: 0;
+            box-shadow: inset 0 1px rgb(255 255 255 / 14%);
+            animation: noko-profile-enter .16s ease-out;
+
+            > :is([class^="header_"], [class*=" header_"]) :is([class^="banner_"], [class*=" banner_"]) {
+                border-start-start-radius: 20px;
+                border-start-end-radius: 20px;
+            }
+            > :is([class^="body_"], [class*=" body_"]) {
+                padding: 4px 12px 8px 20px;
+                gap: 8px;
+            }
+            > :is([class^="footer_"], [class*=" footer_"]) {
+                padding: 8px 20px 14px;
+                background: linear-gradient(transparent, var(--noko-profile-soft));
+            }
+        }
+
+        :is([class^="displayNameRow_"], [class*=" displayNameRow_"]) {
+            margin-block-end: 0;
+        }
+        /* Read complete bios; the existing body scroller owns long content.
+         * Do not change React's expanded state or the View Full Bio action. */
+        :is([class^="descriptionClamp_"], [class*=" descriptionClamp_"], [class^="bioText_"], [class*=" bioText_"]) {
+            max-height: none !important;
+            -webkit-line-clamp: unset !important;
+            mask-image: none !important;
+            -webkit-mask-image: none !important;
+            overflow: visible;
+        }
+
+        /* Activity, collection and account-menu surfaces retain their native
+         * fill. A small highlight and edge give each palette the same finish. */
+        :is([class^="overlay_"], [class*=" overlay_"]) {
+            border-radius: 12px;
+            box-shadow: inset 0 1px rgb(255 255 255 / 6%), 0 2px 8px rgb(0 0 0 / 3%);
+        }
+        :is([class^="overlay_"], [class*=" overlay_"]):is([class^="card_"], [class*=" card_"]) {
+            padding: 10px;
+        }
+
+        :is([class^="footer_"], [class*=" footer_"]) > :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
+            border-radius: 12px;
+            border-color: var(--noko-profile-line);
+            box-shadow: inset 0 1px 3px rgb(0 0 0 / 6%);
+            transition: border-color .15s ease, box-shadow .15s ease;
+            > :is([class^="scrollableContainer_"], [class*=" scrollableContainer_"]) { border-radius: 11px; }
+            &:focus-within {
+                border-color: var(--noko-profile-focus);
+                box-shadow: 0 0 0 3px var(--noko-profile-soft), inset 0 1px 3px rgb(0 0 0 / 4%);
+            }
+        }
+        :is([class^="footer_"], [class*=" footer_"]) > button {
+            min-height: 36px;
+            border-radius: 12px;
+            box-shadow: inset 0 1px rgb(255 255 255 / 18%), 0 3px 8px rgb(0 0 0 / 10%);
+            transition: box-shadow .15s ease;
+            &:hover { box-shadow: inset 0 1px rgb(255 255 255 / 24%), 0 4px 12px rgb(0 0 0 / 14%); }
+            &:active { box-shadow: inset 0 1px 3px rgb(0 0 0 / 12%); }
+        }
+        :is([class^="bannerButton_"], [class*=" bannerButton_"]) {
+            border-color: rgb(255 255 255 / 22%);
+            background: rgb(18 20 24 / 48%);
+            box-shadow: 0 2px 8px rgb(0 0 0 / 14%), inset 0 1px rgb(255 255 255 / 10%);
+            &:hover { background: rgb(18 20 24 / 66%); }
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .user-profile-popout > :is([class^="inner_"], [class*=" inner_"]) { animation: none; }
+        .user-profile-popout :is([class^="channelTextArea_"], [class*=" channelTextArea_"], button) { transition: none !important; }
+    }
+    @media (forced-colors: active) {
+        .user-profile-popout { outline: 1px solid CanvasText; box-shadow: none; }
+        .user-profile-popout :is([class^="overlay_"], [class*=" overlay_"], [class^="channelTextArea_"], [class*=" channelTextArea_"]) { outline: 1px solid CanvasText; box-shadow: none; }
+    }
+
     /* Composer rules are scoped to chatContent above and below: profile
      * popouts reuse channelTextArea but own their light/dark palette.
      * Elevated glass sheets. Keep blur on a few stationary shells, never on
@@ -362,3 +490,10 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
         :is([class^="membersWrap_"], [class*=" membersWrap_"], [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"]) { margin: 5px; }
     }
 }
+
+/* Keyframes must be top-level: WebKit discards them inside nested style rules. */
+@keyframes noko-avatar-dot {
+    0%, 100% { background-color: rgb(255 255 255); }
+    50% { background-color: rgb(255 255 255 / 40%); }
+}
+@keyframes noko-profile-enter { from { opacity: 0; } to { opacity: 1; } }

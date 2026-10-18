@@ -331,13 +331,6 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
               let tans = Self.configuredTanManager else { return }
         didStartActivity = true
         activityRuntime = runtime
-        #if DEBUG
-        let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--nokocord-social-auth-smoke") {
-            runtime.startAuthenticatedSmokeTest()
-            return
-        }
-        #endif
         runtime.start(tanManager: tans)
     }
     static func requestTermination() {

@@ -24,6 +24,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     let downloads = BrowserDownloads()
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var workspaceObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var navigation: WKNavigation?
     @ObservationIgnored private let dataStore: WKWebsiteDataStore
     @ObservationIgnored private var tanRuntime: TanRuntime?
@@ -89,6 +90,9 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.lifecycle.sleep() }
             },
+            center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.tanRuntime?.didWake() }
+            },
             center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -97,8 +101,16 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                 }
             }
         ]
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tanRuntime?.didWake() }
+        }
     }
-    deinit { workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) } }
+    deinit {
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+    }
 
     func prepareBrowser() -> WKWebView {
         if let browserView { return browserView }
@@ -125,11 +137,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
-        #if DEBUG
-        view.isInspectable = true
-        #else
         view.isInspectable = false
-        #endif
         tanRuntime?.attach(view)
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in

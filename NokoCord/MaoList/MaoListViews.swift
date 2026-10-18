@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MaoListView: View {
+    @Binding var sidebarVisible: Bool
     @Environment(MLRuntime.self) private var runtime
     @Environment(ActiveBrowserEngine.self) private var browser
     @Environment(\.nokoWorkspaceVisible) private var workspaceVisible
@@ -30,6 +31,13 @@ struct MaoListView: View {
                     }
                 }.padding(.horizontal, 12).padding(.vertical, 9).frame(maxWidth: 360).modifier(MLPanel())
                 Spacer(minLength: 12)
+                Button {
+                    sidebarVisible.toggle()
+                } label: {
+                    Label(sidebarVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left")
+                }
+                .labelStyle(.iconOnly)
+                .help(sidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                 Button("Filters", systemImage: "line.3.horizontal.decrease") { runtime.seedSearchFromSection(); filtersPresented.toggle() }
                     .popover(isPresented: $filtersPresented) { MLSearchFilterView(filters: $runtime.search) { runtime.searchSubmissionRevision += 1; runtime.searchTypingDeadline = nil; runtime.searchConfigured = true; runtime.searching = true; runtime.routes.removeAll(); filtersPresented = false } }
                 Button { browser.openDiscord() } label: {
@@ -76,8 +84,8 @@ struct MaoListView: View {
             runtime.beginRestoreConnection()
             if copyColors { runtime.discordPalette = await MLDiscordColors.read(from: browser) }
         }
-        .mlTask(id: "viewer/\(runtime.viewer?.id ?? 0)/\(runtime.section)/\(String(describing: runtime.routes.last))/\(runtime.searching)/\(runtime.mutationRevision)") {
-            if runtime.section != .home || !runtime.routes.isEmpty || runtime.searching { await runtime.refreshViewer() }
+        .mlTask(id: "viewer/\(runtime.viewer?.id ?? 0)/\(runtime.section)/\(runtime.searching)/\(runtime.mutationRevision)") {
+            if runtime.section != .home || runtime.searching { await runtime.refreshViewer() }
         }
         .onChange(of: copyColors) { _, enabled in
             if enabled && workspaceVisible { Task { runtime.discordPalette = await MLDiscordColors.read(from: browser) } }
@@ -93,7 +101,7 @@ struct MaoListView: View {
                     Spacer()
                 }.padding(.horizontal, 26).padding(.vertical, 8)
                 switch route {
-                case .media(let id): MLMediaDetailView(id: id)
+                case .media(let id): MLMediaDetailView(id: id, preview: runtime.mediaPreview(id))
                 case .profile(let id): MLProfileView(id: id)
                 case .activity(let id): MLSingleActivityView(id: id)
                 case .review(let id): MLReviewDetailView(id: id)
@@ -123,6 +131,7 @@ struct MaoListSettingsSection: View {
     @State private var preparationConfirmation = false
     @AppStorage("maolistAccent") private var accent = ""
     @AppStorage("maolistCopyDiscordColors") private var copyColors = false
+    @AppStorage("maolistThemePreset") private var presetID = ""
     var body: some View {
         Section("MaoList") {
             Toggle("Enable MaoList", isOn: Binding(get: { module.enabled }, set: module.setEnabled))
@@ -144,8 +153,9 @@ struct MaoListSettingsSection: View {
             Text("A native AniList companion for anime and manga. Switching it off unloads the module and preserves your saved connection.")
                 .font(.caption).foregroundStyle(.secondary)
             if module.enabled {
-                ColorPicker("Accent color", selection: Binding(get: { Color(mlHex: accent) ?? Color(mlHex: "72CDB4")! }, set: { accent = $0.mlHex ?? "" }), supportsOpacity: false).disabled(copyColors)
-                Button("Use MaoList’s default colors") { accent = "" }.disabled(copyColors)
+                MLThemePresetPicker(selection: $presetID, copyDiscord: $copyColors)
+                ColorPicker("Accent color", selection: Binding(get: { Color(mlHex: accent) ?? Color(mlHex: "72CDB4")! }, set: { accent = $0.mlHex ?? ""; presetID = "" }), supportsOpacity: false).disabled(copyColors)
+                Button("Use MaoList’s default colors") { accent = ""; presetID = ""; copyColors = false }
                 Toggle("Copy Discord Colors", isOn: $copyColors)
                 Text("Uses available Discord colors when you open MaoList, with MaoList’s own colors as a fallback.").font(.caption).foregroundStyle(.secondary)
                 if let runtime = module.runtime, runtime.viewer != nil {
@@ -248,7 +258,7 @@ struct MLMediaCard: View {
         return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
     var body: some View {
-        Button { runtime.routes.append(.media(media.id)) } label: {
+        Button { runtime.openMedia(media) } label: {
             VStack(alignment: .leading, spacing: 10) {
                 MLArtwork(url: media.coverImage?.large, width: 152, height: 228, radius: 12)
                     .overlay(alignment: .bottomLeading) {
@@ -266,7 +276,7 @@ struct MLMediaCard: View {
                     if let score = media.averageScore { Image(systemName: "star.fill").font(.system(size: 9)); Text("\(score)%").monospacedDigit() }
                 }.font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }.frame(width: 152, alignment: .leading).contentShape(Rectangle())
-        }.buttonStyle(.plain).onHover { hovered = $0 }.help(media.name).accessibilityLabel(accessibilityDescription)
+        }.buttonStyle(.plain).onHover { hovered = $0; runtime.anticipateMedia(media, hovering: $0) }.onDisappear { runtime.anticipateMedia(media, hovering: false) }.help(media.name).accessibilityLabel(accessibilityDescription)
     }
 }
 struct MLMediaGrid: View {

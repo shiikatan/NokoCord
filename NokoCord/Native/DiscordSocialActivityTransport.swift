@@ -146,24 +146,11 @@ final class NokoActivityRuntime {
         isConfigured: Self.applicationID != nil
     )
     lazy var appleMusicPresence = AppleMusicPresenceService(bridge: bridge)
-    #if DEBUG
-    private let smokeOwner = NokoActivityOwner("nokocord.smoke")
-    private let smokeActivity = NokoActivity(
-        title: "NokoCord",
-        details: "NokoCord Activity Bridge",
-        state: "Social SDK transport test"
-    )
-    #endif
     private var callbackTimer: Timer?
     private var discordLaunchObserver: NSObjectProtocol?
     private var stopping = false
     private var appleMusicCallbackDemand = false
     private var discordAccountCallbackDemand = false
-    #if DEBUG
-    private var authenticatedSmokeTestActive = false
-    #else
-    private var authenticatedSmokeTestActive: Bool { false }
-    #endif
     private var shutdownClearActive = false
     private let optimizesMaomao: Bool
 
@@ -184,7 +171,7 @@ final class NokoActivityRuntime {
     }
 
     private func updateCallbackPump() {
-        if authenticatedSmokeTestActive || appleMusicCallbackDemand ||
+        if appleMusicCallbackDemand ||
             discordAccountCallbackDemand || shutdownClearActive {
             guard callbackTimer == nil else { return }
             let optimizesMaomao = optimizesMaomao
@@ -217,37 +204,6 @@ final class NokoActivityRuntime {
         }
     }
 
-    #if DEBUG
-    private func publishSmoke() {
-        guard !stopping else { return }
-        Task {
-            guard !stopping else { return }
-            do {
-                let result = try await bridge.publish(smokeActivity, ownedBy: smokeOwner)
-                if result == .published { NSLog("NokoCord Social SDK smoke activity accepted by SDK") }
-            } catch {
-                NSLog("NokoCord Social SDK smoke activity failed: %@", error.localizedDescription)
-            }
-        }
-    }
-
-    /// Debug acceptance route for verifying the authenticated Social SDK while
-    /// the Discord desktop process is closed. It uses the same generic bridge.
-    func startAuthenticatedSmokeTest() {
-        stopping = false
-        authenticatedSmokeTestActive = true
-        configureDiscordAccountCallbacks()
-        updateCallbackPump()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.discordAccount.start()
-            if self.discordAccount.requiresAuthorization {
-                await self.discordAccount.authorize()
-            }
-        }
-    }
-    #endif
-
     private func configureDiscordAccountCallbacks() {
         discordAccount.onCallbackPumpDemandChanged = { [weak self] demanded in
             self?.discordAccountCallbackDemand = demanded
@@ -273,12 +229,6 @@ final class NokoActivityRuntime {
             } catch {
                 return
             }
-            #if DEBUG
-            if self.authenticatedSmokeTestActive {
-                self.publishSmoke()
-                return
-            }
-            #endif
             await self.reassert()
         }
     }
@@ -303,9 +253,6 @@ final class NokoActivityRuntime {
         await appleMusicPresence.stop()
         _ = try? await bridge.stop()
         await discordAccount.shutdown()
-        #if DEBUG
-        authenticatedSmokeTestActive = false
-        #endif
         appleMusicCallbackDemand = false
         discordAccountCallbackDemand = false
         shutdownClearActive = false

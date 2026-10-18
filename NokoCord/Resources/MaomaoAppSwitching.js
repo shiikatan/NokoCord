@@ -1,6 +1,6 @@
 if (window !== window.top || location.origin !== 'https://discord.com') return;
 globalThis.__maomaoAppSwitching?.destroy();
-let button, observer, visible = true;
+let button, observer, frame = 0, visible = true;
 const style = document.createElement('style');
 style.id = 'noko-app-switch-style';
 style.textContent = `
@@ -41,17 +41,24 @@ function mount() {
   });
   toolbar.insertBefore(button, anchor.nextSibling);
 }
+function scheduleMount() {
+  // When Discord is rebuilding its header, many mutation batches can arrive
+  // before a paint. Scan/layout at most once per frame until it is available.
+  if (!visible || button?.isConnected || frame) return;
+  frame = requestAnimationFrame(() => { frame = 0; mount(); });
+}
 function setVisible(value) {
   visible = value; observer?.disconnect();
+  if (frame) { cancelAnimationFrame(frame); frame = 0; }
   if (!visible && button) { button.classList.remove('noko-hovered'); button.blur(); }
   if (visible) {
-    mount(); observer = new MutationObserver(mount);
+    mount(); observer = new MutationObserver(scheduleMount);
     observer.observe(document.body, {childList:true,subtree:true});
   }
 }
 document.head.append(style);
 globalThis.__maomaoAppSwitching = {
   setVisible,
-  destroy() { visible = false; observer?.disconnect(); button?.remove(); style.remove(); delete globalThis.__maomaoAppSwitching; }
+  destroy() { visible = false; observer?.disconnect(); if (frame) cancelAnimationFrame(frame); button?.remove(); style.remove(); delete globalThis.__maomaoAppSwitching; }
 };
 setVisible(true);

@@ -136,12 +136,17 @@ final class MLArtworkState {
     private(set) var image: NSImage?
     private(set) var source: URL?
     private var lease = UUID()
+    private var loadedPixels: Int?
     func load(_ url: URL?, pixels: Int, loader: MLImageLoader) async {
         let id = UUID(); lease = id
-        if source != url { source = url; image = nil }
-        let value = await loader.image(url, pixels: pixels)
+        let size = MLImageLoader.decodeSize(pixels)
+        if source != url { source = url; image = nil; loadedPixels = nil }
+        // SwiftUI restarts tasks on foreground/workspace changes. The view
+        // already owns this thumbnail even if NSCache has since evicted it.
+        if image != nil, loadedPixels == size { return }
+        let value = await loader.image(url, pixels: size)
         guard !Task.isCancelled, lease == id else { return }
-        if let value { image = value }
+        if let value { image = value; loadedPixels = size }
     }
 }
 
@@ -149,12 +154,13 @@ struct MLArtwork: View {
     @Environment(MLRuntime.self) private var runtime
     @Environment(\.nokoWorkspaceVisible) private var workspaceVisible
     @Environment(\.controlActiveState) private var activeState
+    @Environment(\.displayScale) private var displayScale
     let url: URL?
     var width: CGFloat = 132
     var height: CGFloat = 198
     var radius: CGFloat = 9
     @State private var artwork = MLArtworkState()
-    private var pixels: Int { MLImageLoader.decodeSize(Int(max(width, height) * 2)) }
+    private var pixels: Int { MLImageLoader.decodeSize(Int(ceil(max(width, height) * displayScale))) }
     var body: some View {
         ZStack {
             Rectangle().fill(Color.primary.opacity(0.055))

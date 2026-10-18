@@ -21,6 +21,8 @@ struct MLTrackingRow: View {
             else { trackingRow }
         }
         .sheet(isPresented: $showEditor) { MLListEditor(media: current) { edited = $0; onSaved($0) }.environment(runtime) }
+        .onHover { runtime.anticipateMedia(current, hovering: $0) }
+        .onDisappear { runtime.anticipateMedia(current, hovering: false) }
         .onChange(of: media.mediaListEntry?.progress) { _, _ in edited = nil }
     }
     private var coverCard: some View {
@@ -44,11 +46,11 @@ struct MLTrackingRow: View {
     private var trackingRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 16) {
-                Button { runtime.routes.append(.media(media.id)) } label: {
+                Button { runtime.openMedia(current) } label: {
                     MLArtwork(url: media.coverImage?.medium ?? media.coverImage?.large, width: compact ? 52 : 48, height: compact ? 78 : 72, radius: 8)
                 }.buttonStyle(.plain).accessibilityLabel("Open \(media.name)")
                 VStack(alignment: .leading, spacing: 7) {
-                    Button(media.name) { runtime.routes.append(.media(media.id)) }
+                    Button(media.name) { runtime.openMedia(current) }
                         .buttonStyle(.plain).font(.callout.weight(.semibold)).lineLimit(2).help(media.name)
                     HStack(spacing: 6) {
                         Text(media.summary).lineLimit(1)
@@ -131,7 +133,6 @@ struct MLListEditor: View {
     @State private var deleting = false
     @State private var savedScore: Double?
     @State private var scoreRequest = MLReadRequest()
-    private var scoreLoading: Bool { scoreRequest.loading }
     @State private var scoreError = false
     @State private var scoreStale: Date?
     @State private var scorePartial = false
@@ -151,82 +152,227 @@ struct MLListEditor: View {
     private var customLists: [String] {
         Array(Set(((type == .anime ? runtime.viewer?.mediaListOptions?.animeList : runtime.viewer?.mediaListOptions?.mangaList)?.customLists ?? []) + draft.customLists)).sorted()
     }
+    @Environment(\.mlPalette) private var palette
+    @FocusState private var focusedField: String?
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Text(media.name).font(.title3.bold()).lineLimit(2); Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy) }.padding(20)
-            Form {
-                Section("Your list entry") {
-                    Picker("Status", selection: $draft.status) { ForEach(MLListStatus.allCases) { Text($0.title(for: type)).tag($0) } }
-                    Stepper("\(type == .anime ? "Episodes" : "Chapters"): \(draft.progress)\(media.length.map { " / \($0)" } ?? "")", value: $draft.progress, in: 0...max(media.length ?? 100000, draft.progress))
-                    if type == .manga { Stepper("Volumes: \(draft.volumes)", value: $draft.volumes, in: 0...max(media.volumes ?? 100000, draft.volumes)) }
-                    HStack {
-                        Text("Score")
-                        if draft.entryID != nil && savedScore == nil {
-                            Spacer()
-                            if scoreLoading { ProgressView().controlSize(.small); Text("Loading saved score…").font(.caption) }
-                            else if scoreError { Text("Saved score unavailable").font(.caption).foregroundStyle(.secondary); Button("Retry") { reads.run { await loadScore() } } }
-                        } else {
-                            Slider(value: scoreBinding, in: 0...scoreFormat.maximum, step: scoreFormat.step).accessibilityLabel("Overall score")
-                            Text(scoreFormat.label(scoreBinding.wrappedValue)).monospacedDigit().frame(minWidth: 64)
+            editorHeader
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    statusSection
+                    HStack(alignment: .top, spacing: 14) {
+                        progressSection
+                        scoreSection
+                    }
+                    datesSection
+                    additionalSection
+                    if let error {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .font(.callout).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }.padding(24)
+            }.scrollBounceBehavior(.basedOnSize).disabled(busy)
+            editorFooter
+        }
+        .frame(width: 640, height: 720)
+        .background(palette.background).tint(palette.accent)
+        .mlTask(id: "entry-score/\(draft.entryID ?? 0)") { if savedScore == nil { await loadScore(replacing: true) } }
+        .mlReadActions(reads, id: "\(draft.entryID ?? 0)")
+        .confirmationDialog("Remove \(media.name) from your AniList list?", isPresented: $deleting, titleVisibility: .visible) {
+            Button("Remove from list", role: .destructive) { remove() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+    private var editorHeader: some View {
+        HStack(alignment: .top, spacing: 16) {
+            MLArtwork(url: media.coverImage?.large ?? media.coverImage?.medium, width: 50, height: 74, radius: 10)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(draft.entryID == nil ? "ADD TO YOUR LIST" : "EDIT LIST ENTRY")
+                    .font(.caption2.weight(.semibold)).tracking(1.3).foregroundStyle(palette.accent)
+                Text(media.name).font(.title3.weight(.semibold)).lineLimit(3).help(media.name)
+                Text(media.summary).font(.caption).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.callout.weight(.semibold)).frame(width: 28, height: 28)
+            }.buttonStyle(.bordered).buttonBorderShape(.circle)
+                .keyboardShortcut(.cancelAction).disabled(busy).help("Cancel")
+                .accessibilityLabel("Cancel editing")
+        }.padding(24)
+            .background(LinearGradient(colors: [palette.accent.opacity(0.10), palette.surface.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(alignment: .bottom) { Divider().opacity(0.5) }
+    }
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Status", symbol: "bookmark")
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                ForEach(MLListStatus.allCases) { status in
+                    Button { draft.status = status } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: statusSymbol(status)).font(.caption)
+                            Text(status.title(for: type)).font(.callout.weight(draft.status == status ? .semibold : .regular))
+                            Spacer(minLength: 0)
+                            if draft.status == status { Image(systemName: "checkmark").font(.caption.weight(.bold)) }
+                        }.padding(.horizontal, 12).frame(height: 36)
+                            .foregroundStyle(draft.status == status ? palette.accent : Color.primary.opacity(0.8))
+                            .background(draft.status == status ? palette.accent.opacity(0.15) : palette.surface, in: Capsule())
+                            .overlay(Capsule().strokeBorder(draft.status == status ? palette.accent.opacity(0.45) : Color.primary.opacity(0.06)))
+                    }.buttonStyle(.plain).accessibilityAddTraits(draft.status == status ? .isSelected : [])
+                }
+            }
+        }
+    }
+    private func statusSymbol(_ status: MLListStatus) -> String {
+        switch status {
+        case .current: type == .anime ? "play.fill" : "book.fill"
+        case .planning: "bookmark"
+        case .completed: "checkmark.circle"
+        case .paused: "pause"
+        case .dropped: "minus.circle"
+        case .repeating: "repeat"
+        }
+    }
+    private func sectionTitle(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol).font(.callout.weight(.semibold))
+    }
+    private var progressSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("Progress", symbol: type == .anime ? "play.rectangle" : "books.vertical")
+            countControl(type == .anime ? "Episodes" : "Chapters", value: $draft.progress,
+                         maximum: max(media.length ?? 100000, draft.progress))
+            if let total = media.length, total > 0 {
+                ProgressView(value: Double(min(draft.progress, total)), total: Double(total))
+                    .accessibilityLabel("Tracking progress")
+                Text("of \(total) \(type == .anime ? "episodes" : "chapters")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if type == .manga {
+                Text("Volumes").font(.caption).foregroundStyle(.secondary)
+                countControl("Volumes", value: $draft.volumes, maximum: max(media.volumes ?? 100000, draft.volumes))
+            }
+        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(16).modifier(MLPanel())
+    }
+    private var scoreSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                sectionTitle("Your score", symbol: "star")
+                Spacer()
+                if draft.entryID == nil || savedScore != nil {
+                    Text(scoreFormat.label(scoreBinding.wrappedValue)).font(.callout.weight(.semibold)).monospacedDigit()
+                }
+            }
+            if draft.entryID != nil && savedScore == nil {
+                if scoreError {
+                    Text("Saved score unavailable").font(.callout).foregroundStyle(.secondary)
+                    Button("Retry") { reads.run { await loadScore() } }.buttonStyle(.bordered)
+                } else {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading saved score…").font(.caption).foregroundStyle(.secondary)
+                    }.frame(minHeight: 32)
+                }
+                Text("Your saved score stays unchanged until you edit it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Slider(value: scoreBinding, in: 0...scoreFormat.maximum, step: scoreFormat.step)
+                    .accessibilityLabel("Overall score")
+                HStack {
+                    Text(scoreFormat.title).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Clear") { scoreBinding.wrappedValue = 0 }.buttonStyle(.borderless).font(.caption)
+                        .disabled(scoreBinding.wrappedValue == 0).accessibilityLabel("Clear your score")
+                }
+            }
+            MLStaleBanner(date: scoreStale, partial: scorePartial)
+        }.frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading).padding(16).modifier(MLPanel())
+    }
+    private func countControl(_ title: String, value: Binding<Int>, maximum: Int) -> some View {
+        HStack(spacing: 8) {
+            Button { value.wrappedValue = max(0, value.wrappedValue - 1) } label: {
+                Image(systemName: "minus").frame(width: 22, height: 24)
+            }.disabled(value.wrappedValue <= 0).accessibilityLabel("Decrease \(title.lowercased())")
+            TextField(title, value: Binding(get: { value.wrappedValue }, set: { value.wrappedValue = min(maximum, max(0, $0)) }), format: .number.grouping(.never))
+                .textFieldStyle(.plain).multilineTextAlignment(.center).font(.title3.weight(.semibold)).monospacedDigit()
+                .focused($focusedField, equals: title).accessibilityLabel(title)
+                .frame(minWidth: 44, maxWidth: .infinity)
+            Button { value.wrappedValue = min(maximum, value.wrappedValue + 1) } label: {
+                Image(systemName: "plus").frame(width: 22, height: 24)
+            }.disabled(value.wrappedValue >= maximum).accessibilityLabel("Increase \(title.lowercased())")
+        }.buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 8))
+    }
+    private var datesSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("Dates", symbol: "calendar")
+            HStack(alignment: .top, spacing: 20) {
+                MLFuzzyDateFields(title: "Started", date: $draft.start)
+                Spacer(minLength: 0)
+                MLFuzzyDateFields(title: "Finished", date: $draft.finish)
+            }
+            Text("Unknown dates can stay blank. Changing a date won’t change your status.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.padding(16).modifier(MLPanel())
+    }
+    private var additionalSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Repeat count").font(.caption).foregroundStyle(.secondary)
+                            countControl("Repeat count", value: $draft.repeats, maximum: 1000)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Priority").font(.caption).foregroundStyle(.secondary)
+                            countControl("Priority", value: $draft.priority, maximum: 255)
                         }
                     }
-                    MLStaleBanner(date: scoreStale, partial: scorePartial)
-                    if scoreError { Text("You can edit the other fields. Your score stays unchanged unless you edit it.").font(.caption).foregroundStyle(.secondary) }
-                    if !advancedDimensions.isEmpty {
-                        DisclosureGroup("Advanced scoring") {
-                            Text("Scores use AniList’s 100-point scale. Changing a dimension keeps the other dimension values; MaoList does not calculate your overall score.").font(.caption).foregroundStyle(.secondary)
-                            ForEach(advancedDimensions, id: \.self) { name in
-                                HStack {
-                                    Text(name).lineLimit(2).frame(width: 100, alignment: .leading)
-                                    Slider(value: Binding(get: { draft.advancedScores[name] ?? 0 }, set: { value in
-                                        draft.advancedScores[name] = value
-                                        draft.editedAdvancedScores = advancedDimensions.map { draft.advancedScores[$0] ?? 0 }
-                                    }), in: 0...100, step: 1).accessibilityLabel("\(name) score")
-                                    Text("\(Int(draft.advancedScores[name] ?? 0))/100").monospacedDigit().frame(width: 64)
-                                }
-                            }
-                        }
-                    }
-                    Stepper("Repeat count: \(draft.repeats)", value: $draft.repeats, in: 0...1000)
-                    Stepper("Priority: \(draft.priority)", value: $draft.priority, in: 0...255)
-                }
-                Section("Dates") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        MLFuzzyDateFields(title: "Started", date: $draft.start)
-                        MLFuzzyDateFields(title: "Finished", date: $draft.finish)
-                        Text("Leave fields blank for unknown dates. Dates do not change your status automatically.")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }.padding(.top, 4).padding(.bottom, 12).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Section("Notes and privacy") {
-                    TextEditor(text: $draft.notes).frame(minHeight: 70).accessibilityLabel("List notes")
+                    Text("Notes").font(.callout.weight(.semibold))
+                    TextEditor(text: $draft.notes).font(.body).scrollContentBackground(.hidden)
+                        .frame(minHeight: 80).padding(8).background(palette.background, in: .rect(cornerRadius: 8))
+                        .accessibilityLabel("List notes")
                     Toggle("Private entry", isOn: $draft.isPrivate)
                     Toggle("Hide from status lists", isOn: $draft.hiddenFromStatusLists)
-                }
-                if !customLists.isEmpty {
-                    Section("Custom lists") {
+                    if !customLists.isEmpty {
+                        Divider()
+                        Text("Custom lists").font(.callout.weight(.semibold))
                         ForEach(customLists, id: \.self) { name in
                             Toggle(name, isOn: Binding(get: { draft.customLists.contains(name) }, set: { selected in
                                 if selected { draft.customLists.append(name) } else { draft.customLists.removeAll { $0 == name } }
                             }))
                         }
                     }
+                }.padding(.top, 14)
+            } label: { sectionTitle("More options", symbol: "slider.horizontal.3") }
+            if !advancedDimensions.isEmpty {
+                DisclosureGroup("Advanced scoring") {
+                    Text("Uses AniList’s 100-point scale. Your overall score is set separately.").font(.caption).foregroundStyle(.secondary)
+                    ForEach(advancedDimensions, id: \.self) { name in
+                        HStack {
+                            Text(name).lineLimit(2).frame(width: 100, alignment: .leading)
+                            Slider(value: Binding(get: { draft.advancedScores[name] ?? 0 }, set: { value in
+                                draft.advancedScores[name] = value
+                                draft.editedAdvancedScores = advancedDimensions.map { draft.advancedScores[$0] ?? 0 }
+                            }), in: 0...100, step: 1).accessibilityLabel("\(name) score")
+                            Text("\(Int(draft.advancedScores[name] ?? 0))/100").monospacedDigit().frame(width: 64)
+                        }
+                    }
                 }
-                if let error { Text(error).foregroundStyle(.orange) }
-            }.formStyle(.grouped).disabled(busy)
-            HStack {
-                if draft.entryID != nil { Button("Remove from list…", role: .destructive) { deleting = true }.disabled(busy) }
-                Spacer()
-                if busy { ProgressView().controlSize(.small) }
-                Button("Save to AniList") { submit() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(busy || runtime.viewer == nil)
-            }.padding(20)
-        }.frame(width: 580, height: 670)
-            .mlTask(id: "entry-score/\(draft.entryID ?? 0)") { if savedScore == nil { await loadScore(replacing: true) } }
-            .mlReadActions(reads, id: "\(draft.entryID ?? 0)")
-            .confirmationDialog("Remove \(media.name) from your AniList list?", isPresented: $deleting, titleVisibility: .visible) {
-                Button("Remove from list", role: .destructive) { remove() }
-                Button("Cancel", role: .cancel) {}
             }
+        }.padding(16).modifier(MLPanel())
+    }
+    private var editorFooter: some View {
+        HStack(spacing: 12) {
+            if draft.entryID != nil {
+                Button(role: .destructive) { deleting = true } label: { Label("Remove entry", systemImage: "trash") }
+                    .buttonStyle(.borderless).disabled(busy)
+            }
+            Spacer()
+            if busy { ProgressView().controlSize(.small) }
+            Button("Cancel") { dismiss() }.buttonStyle(.bordered).disabled(busy)
+            Button { focusedField = nil; submit() } label: { Label("Save changes", systemImage: "checkmark") }
+                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(busy || runtime.viewer == nil)
+        }.controlSize(.large).padding(.horizontal, 24).padding(.vertical, 18)
+            .background(palette.surface).overlay(alignment: .top) { Divider().opacity(0.5) }
     }
     private func loadScore(replacing: Bool = false) async {
         guard let id = draft.entryID, let lease = scoreRequest.begin(replacing: replacing) else { return }
@@ -276,9 +422,9 @@ struct MLFuzzyDateFields: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.callout.weight(.semibold))
             HStack(alignment: .bottom, spacing: 10) {
-                field("Year", value: $date.year, width: 88)
-                field("Month", value: $date.month, width: 64)
-                field("Day", value: $date.day, width: 64)
+                field("Year", value: $date.year, width: 72)
+                field("Month", value: $date.month, width: 50)
+                field("Day", value: $date.day, width: 50)
                 Button("Clear", systemImage: "xmark.circle") { date = MLFuzzyDate() }
                     .labelStyle(.iconOnly).buttonStyle(.borderless).frame(height: 24)
                     .accessibilityLabel("Clear \(title.lowercased()) date").help("Clear \(title.lowercased()) date")
