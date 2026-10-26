@@ -227,7 +227,7 @@ struct KeyboardShortcutsView: View {
                 VStack(spacing: 0) {
                     shortcut("Quick switcher", keys: ["⌘", "K"], spoken: "Command K")
                     if EditionIdentity.current?.id == "maomao" {
-                        shortcut("Switch between NokoCord and MaoList", keys: ["⌘", "⇧", "M"], spoken: "Command Shift M; requires MaoList enabled")
+                        shortcut("Switch between NokoCord and MaoList", keys: ["⌃", "⌘", "M"], spoken: "Control Command M; requires MaoList enabled")
                     }
                     Divider()
                     shortcut("Open Discord", keys: ["⌘", "⇧", "D"], spoken: "Command Shift D")
@@ -264,6 +264,8 @@ struct KeyboardShortcutsView: View {
 }
 
 struct SettingsView: View {
+    @State private var showsMusicPresenceEditor = false
+    @AppStorage("maomaoHeaderButtonOpensHome") private var headerButtonOpensHome = false
     @AppStorage("maomaoShowMusicOnHome") private var showMusicOnHome = true
     @AppStorage("useLiquidGlass") private var useLiquidGlass = true
     @AppStorage("openDiscordOnLaunch") private var openDiscordOnLaunch = false
@@ -299,6 +301,16 @@ struct SettingsView: View {
                     Toggle("Show NokoCord in menu bar", isOn: $showMenuBar)
                 }
                 if EditionIdentity.current?.id == "maomao" { MaoListSettingsSection() }
+                if EditionIdentity.current?.id == "maomao" {
+                    Section("Discord navigation") {
+                        Picker("Header button opens", selection: $headerButtonOpensHome) {
+                            Text("MaoList").tag(false)
+                            Text("NokoCord / Tans").tag(true)
+                        }
+                        Text("Choose where the small app button beside Discord’s Help icon takes you. You can reach your Tans even with Noko-Bar hidden.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Section("Startup") {
                     Toggle("Open Discord on Launch", isOn: $openDiscordOnLaunch)
                     Text("Safe Mode always opens Home so you can review your Tans.").font(.caption).foregroundStyle(.secondary)
@@ -308,6 +320,8 @@ struct SettingsView: View {
                         Toggle("Show Apple Music card on Home", isOn: $showMusicOnHome)
                         Text("Appears while Apple Music Presence is enabled. Hiding the card keeps your Discord activity on.")
                             .font(.caption).foregroundStyle(.secondary)
+                        Button("Customize Rich Presence…") { showsMusicPresenceEditor = true }
+                            .sheet(isPresented: $showsMusicPresenceEditor) { AppleMusicDisplaySettings() }
                     }
                 }
                 Section("About") {

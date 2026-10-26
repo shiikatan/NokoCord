@@ -341,19 +341,16 @@ struct MLLibraryView: View {
     @State private var preferencesPresented = false
     @State private var controlsHeight: CGFloat = 0
     @State private var store = MLPageStore()
+    @State private var presentation = MLLibraryPresentation()
+    @Environment(\.locale) private var locale
     @State private var reads = MLReadActions()
     private var media: [MLMedia] {
-        let items = store.data.mediaList?.compactMap { $0?.media }.filter {
-            (query.isEmpty || $0.name.localizedStandardContains(query)) && (customList.isEmpty || $0.mediaListEntry?.customLists?[customList] == true)
-        } ?? []
-        if sort == "Title" { return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
-        if sort == "Score" { return items.sorted { ($0.mediaListEntry?.score ?? 0) > ($1.mediaListEntry?.score ?? 0) } }
-        return items
+        presentation.resolve(store.data.mediaList, revision: store.dataRevision, query: query,
+                             customList: customList, sort: sort, locale: locale.identifier + "/" + Locale.current.identifier)
     }
     private var customLists: [String] { (type == .anime ? runtime.viewer?.mediaListOptions?.animeList : runtime.viewer?.mediaListOptions?.mangaList)?.customLists ?? [] }
     var body: some View {
         let visibleMedia = media
-        let groups = Dictionary(grouping: visibleMedia, by: { $0.mediaListEntry?.status })
         GeometryReader { viewport in
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -387,6 +384,7 @@ struct MLLibraryView: View {
                     if let error = store.error { MLErrorBanner(message: error) }
                     }.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
                     if status == nil {
+                        let groups = Dictionary(grouping: visibleMedia, by: { $0.mediaListEntry?.status })
                         ForEach(MLListStatus.allCases) { group in
                             let entries = groups[group] ?? []
                             if !entries.isEmpty { librarySection(title: group.title(for: type), items: entries) }

@@ -33,15 +33,16 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var appSwitching: MaomaoAppSwitching?
     @ObservationIgnored var onSwitchToMaoList: (() -> Void)?
     private var maoListSwitchEnabled = false
-    func setMaoListSwitchEnabled(_ enabled: Bool) {
+    func setMaoListSwitchEnabled(_ enabled: Bool, opensHome: Bool = false) {
         guard EditionIdentity.current?.id == "maomao" else { return }
-        maoListSwitchEnabled = enabled
-        if enabled {
+        maoListSwitchEnabled = enabled || opensHome
+        if enabled || opensHome {
             if appSwitching == nil {
                 let switching = MaomaoAppSwitching()
                 switching.onSelect = { [weak self] in self?.onSwitchToMaoList?() }
                 appSwitching = switching
             }
+            appSwitching?.setHomeTarget(opensHome)
             if let view = browserView {
                 appSwitching?.install(on: view.configuration.userContentController)
                 appSwitching?.attach(view, visible: lifecycle.isVisible)
@@ -133,7 +134,7 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         } else {
             view = WKWebView(frame: .zero, configuration: configuration)
         }
-        mediaDownloads?.attach(view)
+        mediaDownloads?.attach(view, visible: lifecycle.isVisible)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -167,17 +168,19 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         guard lifecycle.phase != .clearing else { return }
         lifecycle.show()
         appSwitching?.setVisible(true)
+        mediaDownloads?.setVisible(true)
         if browserView == nil {
             _ = prepareBrowser()
             lifecycle.loading()
             navigation = browserView?.load(URLRequest(url: BrowserPolicy.home))
         }
     }
-    func showHome() { appSwitching?.setVisible(false); lifecycle.hide() }
+    func showHome() { appSwitching?.setVisible(false); mediaDownloads?.setVisible(false); lifecycle.hide() }
     func openGuild(_ id: String) {
         guard !id.isEmpty, id.utf8.count <= 20,
               id.utf8.allSatisfy({ (48...57).contains($0) }), lifecycle.phase != .clearing else { return }
         lifecycle.show()
+        mediaDownloads?.setVisible(true)
         let view = prepareBrowser()
         lifecycle.loading()
         navigation = view.load(URLRequest(url: URL(string: "https://discord.com/channels/\(id)")!))

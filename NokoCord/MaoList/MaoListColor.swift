@@ -24,7 +24,8 @@ struct MLRGB: Equatable, Sendable {
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
     func contrast(with other: Self) -> Double {
-        (max(luminance, other.luminance) + 0.05) / (min(luminance, other.luminance) + 0.05)
+        let own = luminance, background = other.luminance
+        return (max(own, background) + 0.05) / (min(own, background) + 0.05)
     }
     func readable(on background: Self, dark: Bool) -> Self {
         guard contrast(with: background) < 4.5 else { return self }

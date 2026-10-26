@@ -18,6 +18,7 @@ final class TanRuntime {
     var retainedWorldCount: Int { worlds.count }
     private var handlers: [TanMessageHandler] = []
     private var generation = UUID()
+    private var documentGeneration = UUID()
     private var transitionTask: Task<Void, Never>?
     private var resumeTask: Task<Void, Never>?
     private var livePackages: [String: TanPackage] = [:]
@@ -35,6 +36,7 @@ final class TanRuntime {
     }
     func attach(_ view: WKWebView) { self.view = view }
     func detach() {
+        documentGeneration = UUID()
         generation = UUID()
         transitionTask?.cancel(); transitionTask = nil
         resumeTask?.cancel(); resumeTask = nil
@@ -64,6 +66,7 @@ final class TanRuntime {
         return true
     }
     func documentNavigationStarted() {
+        documentGeneration = UUID()
         // WebKit captures these scripts for the new document. A later Tan change
         // must not be mistaken for code that has already run in that document.
         pendingReloadScripts = reloadScriptHashes()
@@ -93,6 +96,7 @@ final class TanRuntime {
         guard let view, let url = view.url, Self.accepts(url, origin: allowedOrigin), !manager.safeMode else { return }
         resumeTask?.cancel()
         let current = generation
+        let document = documentGeneration
         let packages = manager.scriptActive
         let pendingTransition = transitionTask
         resumeTask = Task { @MainActor [weak self, weak view] in
@@ -104,10 +108,20 @@ final class TanRuntime {
                 let key = Self.quote(Self.key(package))
                 // Live-safe Tans can recover a missing document instance.
                 // Page-world/reload-only packages still require navigation.
-                let recovery = package.manifest.target != .page && !package.manifest.requiresReload
-                    ? "else {\n\(self.preparedSource(package))\n}" : ""
-                let source = "if (globalThis[\(key)]) { globalThis[\(key)].resume?.(); } \(recovery)"
-                try? await self.evaluate(source, view: view, world: self.world(package))
+                let recoverable = package.manifest.target != .page && !package.manifest.requiresReload
+                if self.optimizesMaomao {
+                    let probe = self.probe("const state = globalThis[\(key)]; if (!state) return false; state.resume?.(); return true;")
+                    do {
+                        let resumed = try await self.evaluateProbe(probe, view: view, world: self.world(package))
+                        guard !Task.isCancelled, self.generation == current, self.documentGeneration == document,
+                              self.view === view, !self.manager.safeMode, let url = view.url,
+                              Self.accepts(url, origin: self.allowedOrigin) else { return }
+                        if !resumed && recoverable { try await self.evaluate(self.preparedSource(package), view: view, world: self.world(package)) }
+                    } catch { /* Resume failures retain their existing best-effort behavior. */ }
+                } else {
+                    let recovery = recoverable ? "else {\n\(self.preparedSource(package))\n}" : ""
+                    try? await self.evaluate("if (globalThis[\(key)]) { globalThis[\(key)].resume?.(); } \(recovery)", view: view, world: self.world(package))
+                }
             }
         }
     }
@@ -169,6 +183,7 @@ final class TanRuntime {
     private func applyLive(stopping: [TanPackage], starting: [TanPackage]) {
         resumeTask?.cancel(); resumeTask = nil
         generation = UUID(); let current = generation
+        let document = documentGeneration
         guard let view else { return }
         let next = Dictionary(uniqueKeysWithValues: starting.map { ($0.id, $0) })
         let pendingStops = Dictionary((stopping + Array(livePackages.values)).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values.filter { old in
@@ -194,7 +209,21 @@ final class TanRuntime {
                 guard self.generation == current, !self.manager.safeMode,
                       let url = view.url, Self.accepts(url, origin: self.allowedOrigin) else { return }
                 self.livePackages[package.id] = package
-                do { try await self.evaluate(self.preparedSource(package), view: view, world: self.world(package)) }
+                do {
+                    if self.optimizesMaomao {
+                        let key = Self.quote(Self.key(package))
+                        let fingerprint = Self.quote(self.activeHashes[package.id] ?? package.contentHash)
+                        // A rejected navigation hook may have side effects.
+                        // Stop that exact instance here so the full wrapper
+                        // cannot invoke its hook a second time during recovery.
+                        let reused = try await self.evaluateProbe(self.probe("const state = globalThis[\(key)]; if (state?.fingerprint !== \(fingerprint)) return false; if (state.refreshLocation?.() === true) return true; state.stop(); return false;"), view: view, world: self.world(package))
+                        guard !Task.isCancelled, self.generation == current, self.documentGeneration == document,
+                              self.view === view, !self.manager.safeMode, let url = view.url,
+                              Self.accepts(url, origin: self.allowedOrigin) else { return }
+                        if reused { continue }
+                    }
+                    try await self.evaluate(self.preparedSource(package), view: view, world: self.world(package))
+                }
                 catch { self.manager.record(package.id, event: .failed) }
             }
             guard self.generation == current else { return }
@@ -207,6 +236,19 @@ final class TanRuntime {
             view.evaluateJavaScript(source, in: nil, in: world) { result in
                 switch result {
                 case .success: continuation.resume()
+                case .failure(let error): continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    private func probe(_ body: String) -> String {
+        "(() => { if (location.origin !== \(Self.quote(allowedOrigin)) || (location.origin === 'https://discord.com' && location.pathname !== '/app' && !location.pathname.startsWith('/channels/'))) return false; \(body) })()"
+    }
+    private func evaluateProbe(_ source: String, view: WKWebView, world: WKContentWorld) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            view.evaluateJavaScript(source, in: nil, in: world) { result in
+                switch result {
+                case .success(let value): continuation.resume(returning: value as? Bool == true)
                 case .failure(let error): continuation.resume(throwing: error)
                 }
             }

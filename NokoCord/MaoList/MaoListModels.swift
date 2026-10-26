@@ -66,6 +66,12 @@ struct MLReadableText {
         ("!\\[[^\\]\\n]*\\]\\((?:[^()]|\\([^()]*\\))*\\)", ""),
         ("(?is)<(?:img|iframe|video|audio|embed|object)\\b[^>]*>(?:.*?</(?:iframe|video|audio|object)>)?", "")
     ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
+    private static let breaks = try! NSRegularExpression(pattern: "<br\\s*/?>")
+    private static let tags = try! NSRegularExpression(pattern: "<[^>]+>")
+    private static let excessLines = try! NSRegularExpression(pattern: "\\n{3,}")
+    private static func replace(_ expression: NSRegularExpression, in value: String, with replacement: String) -> String {
+        expression.stringByReplacingMatches(in: value, range: NSRange(value.startIndex..., in: value), withTemplate: replacement)
+    }
     init(_ source: String) {
         let buffer = NSMutableString(string: source)
         var unsupported = false
@@ -76,16 +82,35 @@ struct MLReadableText {
             unsupported = unsupported || count > 0
         }
         var value = buffer as String
-        value = value.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: "</p>", with: "\n\n")
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        value = Self.replace(Self.breaks, in: value, with: "\n").replacingOccurrences(of: "</p>", with: "\n\n")
+        value = Self.replace(Self.tags, in: value, with: "")
             .replacingOccurrences(of: "&amp;", with: "&").replacingOccurrences(of: "&quot;", with: "\"")
             .replacingOccurrences(of: "&#39;", with: "'").replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
         let blank = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{3164}\u{200B}\u{FEFF}"))
         let lines = value.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: blank) }
-        value = lines.joined(separator: "\n").replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression).trimmingCharacters(in: blank)
+        value = Self.replace(Self.excessLines, in: lines.joined(separator: "\n"), with: "\n\n").trimmingCharacters(in: blank)
         text = value; hasUnsupportedContent = unsupported
+    }
+}
+
+/// Owned by one rendered prose view; never retains text across accounts/views.
+@MainActor final class MLTextPresentation {
+    final class Value {
+        let content: MLReadableText
+        let attributed: AttributedString
+        init(_ source: String) {
+            content = MLReadableText(source)
+            attributed = (try? AttributedString(markdown: content.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(content.text)
+        }
+    }
+    private var source: String?
+    private var value: Value?
+    func resolve(_ source: String) -> Value {
+        if self.source == source, let value { return value }
+        let result = Value(source)
+        self.source = source; value = result
+        return result
     }
 }
 struct MLAiring: Codable, Sendable { let episode: Int; let airingAt: Int; var timeUntilAiring: Int? }
@@ -306,3 +331,29 @@ enum MLError: LocalizedError, Equatable, Sendable {
 struct MLThreadReference: Codable, Sendable { var siteUrl: URL? }
 struct MLActivityData: Codable, Sendable { var Activity: MLActivity? }
 struct MLReviewData: Codable, Sendable { var Review: MLReview? }
+
+/// One library view's current derivation. Exact data revisions also cover
+/// same-page refreshes; locale changes invalidate localized matching/sorting.
+@MainActor final class MLLibraryPresentation {
+    private struct Key: Equatable {
+        let revision: UInt
+        let query: String
+        let customList: String
+        let sort: String
+        let locale: String
+    }
+    private var key: Key?
+    private var values: [MLMedia] = []
+    func resolve(_ entries: [MLLibraryEntry?]?, revision: UInt, query: String, customList: String, sort: String,
+                 locale: String = Locale.current.identifier) -> [MLMedia] {
+        let next = Key(revision: revision, query: query, customList: customList, sort: sort, locale: locale)
+        if key == next { return values }
+        var items = entries?.compactMap { $0?.media }.filter {
+            (query.isEmpty || $0.name.localizedStandardContains(query)) && (customList.isEmpty || $0.mediaListEntry?.customLists?[customList] == true)
+        } ?? []
+        if sort == "Title" { items.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+        if sort == "Score" { items.sort { ($0.mediaListEntry?.score ?? 0) > ($1.mediaListEntry?.score ?? 0) } }
+        key = next; values = items
+        return items
+    }
+}

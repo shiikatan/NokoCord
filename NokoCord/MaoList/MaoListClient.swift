@@ -141,8 +141,20 @@ private final class MLTransportGate: @unchecked Sendable {
 /// One cancellable transport per loaded module. No periodic refresh or retry loop.
 actor MLGraphQLClient {
     private struct Request: Encodable { let query: String; let variables: [String: MLValue] }
-    private struct Envelope<T: Decodable>: Decodable { let data: T?; let errors: [GraphError]? }
-    private struct ErrorEnvelope: Decodable { let errors: [GraphError]? }
+    private struct Envelope<T: Decodable>: Decodable {
+        let data: T?
+        let errors: [GraphError]?
+        private enum CodingKeys: String, CodingKey { case data, errors }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Classify authorization before potentially malformed private data,
+            // without reparsing the entire response with a second decoder.
+            errors = try container.decodeIfPresent([GraphError].self, forKey: .errors)
+            if errors?.contains(where: { $0.status == 401 }) == true { throw MLError.authentication }
+            if errors?.contains(where: { $0.status == 429 }) == true { throw MLError.rateLimited(Date().addingTimeInterval(60)) }
+            data = try container.decodeIfPresent(T.self, forKey: .data)
+        }
+    }
     private struct GraphError: Decodable { var status: Int? }
     private let session: URLSession
     private let publicCache: MLDiskCache
@@ -435,15 +447,17 @@ actor MLGraphQLClient {
         try gate.check(); try Task.checkCancellation()
         guard !stopped, epoch == cacheEpoch, authorization == authorizationEpoch else { throw CancellationError() }
         let value = try decode(entry.data, as: T.self)
+        // Invalidated/stale offline snapshots must never be promoted to fresh
+        // results: the hot set intentionally has no invalidation metadata.
+        if fresh {
+            remember(value.value, partial: value.partial, key: key, storedAt: entry.storedAt,
+                     prepared: entry.prepared == true, cost: entry.data.count)
+        }
         return MLResult(value: value.value, cachedAt: !fresh || Date().timeIntervalSince(entry.storedAt) >= 300 ? entry.storedAt : nil, isPartial: value.partial)
     }
     private func decode<T: Decodable>(_ data: Data, as: T.Type, allowPartial: Bool = true) throws -> (value: T, partial: Bool) {
         // Classify expired authorization before decoding potentially malformed
         // partial data. Never fall back to cached private data after a 401.
-        if let errors = try? JSONDecoder().decode(ErrorEnvelope.self, from: data).errors {
-            if errors.contains(where: { $0.status == 401 }) { throw MLError.authentication }
-            if errors.contains(where: { $0.status == 429 }) { throw MLError.rateLimited(Date().addingTimeInterval(60)) }
-        }
         let result: Envelope<T>
         do { result = try JSONDecoder().decode(Envelope<T>.self, from: data) }
         catch let error as MLError { throw error }

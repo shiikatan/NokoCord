@@ -8,7 +8,7 @@ Maintainer contact: [shiikatan@proton.me](mailto:shiikatan@proton.me).
 
 ## Install and update
 
-Maomao M2.5.0 requires Apple Silicon and macOS 26.6 or later. Release downloads
+Maomao M2.5.1 requires Apple Silicon and macOS 26.6 or later. Release downloads
 provide a ZIP, DMG and SHA-256 checksums. The ZIP contains `NokoCord.app` and works
 with the built-in local updater. Optional Noko-Fetch downloads the latest stable
 Maomao ZIP from GitHub only when requested, verifies its published checksum and
@@ -50,16 +50,25 @@ deleting your AniList lists.
 - MaoList uses AniList's public GraphQL API and bounded response/artwork caches.
   Hidden screens normally stop their reads. Launch preparation attempts a
   noninteractive Keychain read and defers to foreground access if locked.
-- Optional Apple Music Presence publishes artist, song, artwork and playback
-  timing to Discord. Artwork lookup sends track/artist/album metadata to Apple's
-  iTunes Search. After a miss, it uses Last.fm when an application key is configured,
-  otherwise MusicBrainz/Cover Art Archive. Backup lookups are cached and rate limited.
-  No Last.fm user sign-in, scrobbling, shared secret or MusicKit access is used.
+- Optional Apple Music Presence publishes your selected text, artwork and timing
+  to Discord. Settings → General → Apple Music → Customize Rich Presence controls all three lines,
+  the member-list showcase, album cover, artist photo badge and paused activity.
+  The heading remains Listening to Apple Music. Custom text supports `{song}`,
+  `{artist}` and `{album}`.
+- Artwork lookup sends track/artist/album metadata to Apple's iTunes Search.
+  After a miss, Deezer receives album/artist details, then song/artist details if
+  needed to match another release of the same song. Optional artist photos send
+  the artist name to Deezer. Requests use no API key or user account; they are
+  cached and rate limited. No scrobbling or MusicKit access is used.
 - Home's optional music card reuses Presence samples without extra music polling.
   Hiding the card leaves Discord activity enabled; disabling the Tan cancels
   lookups and clears its activity.
 - Tans can modify pages. Install only Tans you trust. Generated apps, browser
   profiles, caches, credentials and diagnostic captures stay outside Git.
+
+The Discord header app button normally opens MaoList. Settings → General →
+Discord navigation can change it to NokoCord / Tans, including with Noko-Bar
+hidden. Control–Command–M switches between Discord and MaoList.
 
 ## Build and verify
 
@@ -70,15 +79,14 @@ SDK **1.10.19337** from Discord and install its macOS package locally:
 ./scripts/install-discord-social-sdk.sh /path/to/discord_social_sdk
 xcodebuild -project NokoCord.xcodeproj -scheme NokoCord -configuration Release \
   -destination 'platform=macOS' -derivedDataPath /tmp/NokoCord-build \
-  CODE_SIGN_IDENTITY=- NOKO_LASTFM_API_KEY= build
+  CODE_SIGN_IDENTITY=- build
 ```
 
 The SDK is ignored by Git and must include arm64 and x86_64 slices. Public Discord
 and AniList client IDs are in `Config/Edition.xcconfig`; no client secret is used.
 Their redirects are `http://127.0.0.1/callback` and `nokocord-maolist://oauth`.
-Private overrides belong in ignored `Config/Local.xcconfig`. Keep the empty
-`NOKO_LASTFM_API_KEY=` override for distribution builds so local keys are excluded.
-Without a key, artwork uses the keyless backup.
+Private overrides belong in ignored `Config/Local.xcconfig` and must never be
+included in distribution source. Artwork lookup needs no private API key.
 
 The app uses ad hoc signing for local builds. Its library-validation exception
 allows the bundled Discord SDK to load; translator and updater helpers do not

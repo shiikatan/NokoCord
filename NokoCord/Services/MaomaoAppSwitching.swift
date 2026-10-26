@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import CryptoKit
 
 /// A utility toolbar logo opens native MaoList through an isolated message bridge.
 @MainActor
@@ -11,7 +12,9 @@ final class MaomaoAppSwitching: NSObject, WKScriptMessageHandler {
     private weak var view: WKWebView?
     var onSelect: (() -> Void)?
     private var desiredVisible = true
+    private var opensHome = false
     private var generation = UUID()
+    private var registration: WKUserScript?
 
     private static let source: String? = {
         guard let url = Bundle.main.url(forResource: "MaomaoAppSwitching", withExtension: "js"),
@@ -19,7 +22,8 @@ final class MaomaoAppSwitching: NSObject, WKScriptMessageHandler {
               let noko = icon("NokoMark"), let mao = icon("MaoListMark"),
               let data = try? JSONEncoder().encode([noko, mao]),
               let icons = String(data: data, encoding: .utf8) else { return nil }
-        return marker + "\n(() => { const icons = \(icons);\n" + script + "\n})();"
+        let fingerprint = SHA256.hash(data: Data(script.utf8)).map { String(format: "%02x", $0) }.joined()
+        return marker + "\n(() => { const icons = \(icons); const scriptFingerprint = '\(fingerprint)';\n" + script + "\n})();"
     }()
     private static func icon(_ name: String) -> String? {
         guard let image = NSImage(named: name),
@@ -39,10 +43,12 @@ final class MaomaoAppSwitching: NSObject, WKScriptMessageHandler {
             controller.add(self, contentWorld: Self.world, name: Self.handler)
             self.controller = controller
         }
+        if let registration, controller.userScripts.contains(where: { $0 === registration }) { return }
         removeScript(from: controller)
         if let source = Self.source {
-            controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentEnd,
-                                                 forMainFrameOnly: true, in: Self.world))
+            let script = WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: Self.world)
+            registration = script
+            controller.addUserScript(script)
         }
     }
     func attach(_ view: WKWebView, visible: Bool) {
@@ -57,8 +63,12 @@ final class MaomaoAppSwitching: NSObject, WKScriptMessageHandler {
     func setVisible(_ visible: Bool) {
         desiredVisible = visible
         guard let view, BrowserPolicy.isDiscordOrigin(view.url) else { return }
-        view.callAsyncJavaScript("globalThis.__maomaoAppSwitching?.setVisible(visible)",
-                                 arguments: ["visible": visible], in: nil, in: Self.world) { _ in }
+        view.callAsyncJavaScript("globalThis.__maomaoAppSwitching?.setHomeTarget(home); globalThis.__maomaoAppSwitching?.setVisible(visible)",
+                                 arguments: ["visible": visible, "home": opensHome], in: nil, in: Self.world) { _ in }
+    }
+    func setHomeTarget(_ home: Bool) {
+        opensHome = home
+        setVisible(desiredVisible)
     }
     func detach() {
         generation = UUID(); desiredVisible = false
@@ -69,7 +79,7 @@ final class MaomaoAppSwitching: NSObject, WKScriptMessageHandler {
             controller.removeScriptMessageHandler(forName: Self.handler, contentWorld: Self.world)
             removeScript(from: controller)
         }
-        controller = nil; view = nil
+        controller = nil; view = nil; registration = nil
     }
     private func removeScript(from controller: WKUserContentController) {
         let retained = controller.userScripts.filter { !$0.source.hasPrefix(Self.marker) }

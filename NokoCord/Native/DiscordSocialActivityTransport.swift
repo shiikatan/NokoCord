@@ -70,7 +70,9 @@ final class DiscordSocialActivityTransport: NokoActivityTransport, @unchecked Se
                 endsAt: activity.endsAt,
                 statusDisplayField: activity.statusDisplayField?.rawValue,
                 largeImage: activity.largeImageURL ?? activity.largeImageAssetKey,
-                largeImageText: activity.largeImageText
+                largeImageText: activity.largeImageText,
+                smallImage: activity.smallImageURL,
+                smallImageText: activity.smallImageText
             ) { result in
                 let updateResult: Result<Void, any Error> = result.isSuccessful
                     ? .success(())

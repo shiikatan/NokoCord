@@ -281,20 +281,21 @@ struct MLMediaDetailView: View {
 }
 
 struct MLRichText: View {
-    private let content: MLReadableText
-    private let attributed: AttributedString
+    private let text: String
+    @State private var presentation = MLTextPresentation()
     private let fallbackURL: URL?
     private let fallbackLabel: String
     private let notice: String
     @State private var browserConfirmation = false
     init(text: String, fallbackURL: URL? = nil, fallbackLabel: String = "View full content on AniList", notice: String = "Some images or formatting are available on AniList.") {
-        let readable = MLReadableText(text)
-        content = readable
-        attributed = (try? AttributedString(markdown: readable.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(readable.text)
+        self.text = text
         self.fallbackURL = fallbackURL?.scheme == "https" && fallbackURL?.host == "anilist.co" && fallbackURL?.user == nil && fallbackURL?.password == nil ? fallbackURL : nil
         self.fallbackLabel = fallbackLabel; self.notice = notice
     }
     var body: some View {
+        let parsed = presentation.resolve(text)
+        let content = parsed.content
+        let attributed = parsed.attributed
         VStack(alignment: .leading, spacing: 10) {
             if !content.text.isEmpty { Text(attributed).textSelection(.enabled).font(.body).lineSpacing(4) }
             if content.hasUnsupportedContent {

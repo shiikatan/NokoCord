@@ -2,6 +2,33 @@ import AppKit
 import Observation
 import WebKit
 
+/// At most one UI delivery per transfer is queued, regardless of KVO bursts.
+final class BrowserDownloadProgressMailbox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latest: Double?
+    private var scheduled = false
+    private var closed = false
+    func offer(_ value: Double) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return false }
+        latest = value.isFinite ? min(1, max(0, value)) : 0
+        guard !scheduled else { return false }
+        scheduled = true
+        return true
+    }
+    func take() -> Double? {
+        lock.lock(); defer { lock.unlock() }
+        scheduled = false
+        let value = closed ? nil : latest
+        latest = nil
+        return value
+    }
+    func close() {
+        lock.lock(); defer { lock.unlock() }
+        closed = true; latest = nil
+    }
+}
+
 struct BrowserDownloadRecord: Identifiable {
     enum Status { case choosing, downloading, complete, cancelled, failed }
     let id: UUID
@@ -19,6 +46,7 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
     private struct Transfer {
         let download: WKDownload
         let id: UUID
+        let progress = BrowserDownloadProgressMailbox()
         var observation: NSKeyValueObservation?
         var destination: URL?
         var scoped = false
@@ -99,10 +127,11 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
             }
             self.update(transfer.id) { $0.name = url.lastPathComponent; $0.status = .downloading }
             self.transfers[key]?.observation = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
-                let fraction = progress.fractionCompleted
+                guard transfer.progress.offer(progress.fractionCompleted) else { return }
                 Task { @MainActor [weak self] in
-                    guard let self, self.transfers[key] != nil else { return }
-                    self.update(transfer.id) { $0.fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0 }
+                    guard let self, self.transfers[key]?.id == transfer.id, let next = transfer.progress.take() else { return }
+                    guard self.records.first(where: { $0.id == transfer.id })?.fraction != next else { return }
+                    self.update(transfer.id) { $0.fraction = next }
                 }
             }
             completionHandler(downloadURL)
@@ -139,6 +168,7 @@ final class BrowserDownloads: NSObject, WKDownloadDelegate {
     }
     private func finish(_ key: ObjectIdentifier, status: BrowserDownloadRecord.Status) {
         guard let transfer = transfers.removeValue(forKey: key) else { return }
+        transfer.progress.close()
         transfer.observation?.invalidate()
         if let directory = transfer.stagingDirectory { try? FileManager.default.removeItem(at: directory) }
         if transfer.scoped { transfer.destination?.stopAccessingSecurityScopedResource() }

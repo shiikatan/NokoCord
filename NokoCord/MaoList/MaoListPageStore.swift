@@ -1,6 +1,25 @@
 import Foundation
 import Observation
 
+/// A presentation deadline, never a delay or owner of account/network work.
+@MainActor @Observable
+final class MLEntryLoadingPresentation {
+    private(set) var deadline: ContinuousClock.Instant?
+    private(set) var dismissed = false
+    func update(loading: Bool, pending: Bool, active: Bool, permitted: Bool, now: ContinuousClock.Instant = .now) {
+        guard !dismissed else { return }
+        guard active, permitted else { dismiss(); return }
+        if loading {
+            if deadline == nil { deadline = now.advanced(by: .seconds(3)) }
+            if let deadline, now >= deadline { dismiss() }
+        } else if !pending { dismiss() }
+    }
+    func isVisible(now: ContinuousClock.Instant = .now) -> Bool {
+        !dismissed && deadline.map { now < $0 } == true
+    }
+    func dismiss() { dismissed = true; deadline = nil }
+}
+
 /// A returning screen can replace a cancelled load that is still unwinding.
 /// Only the newest request may publish data or clear the loading indicator.
 @MainActor @Observable
@@ -42,7 +61,8 @@ final class MLReadActions {
 
 @MainActor @Observable
 final class MLPageStore {
-    private(set) var data = MLPage()
+    private(set) var data = MLPage() { didSet { dataRevision &+= 1 } }
+    private(set) var dataRevision: UInt = 0
     private(set) var page = 0
     private(set) var loading = false
     private(set) var error: String?

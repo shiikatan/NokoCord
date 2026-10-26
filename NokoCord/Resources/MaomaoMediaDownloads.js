@@ -6,7 +6,7 @@
     const knownViewer = '[class*="imageModal_"], [class*="carouselModal_"], [class*="mediaViewer_"]';
     const roots = '[role="dialog"], ' + knownViewer;
     const viewers = new Map();
-    let context = null;
+    let context = null, workspaceVisible = true;
 
     function installButtonStyle() {
         const style = document.createElement('style');
@@ -300,6 +300,12 @@
     }, true);
 
     globalThis.__maomaoMediaDownloads = Object.freeze({
+        setVisible(value) {
+            const next = value === true;
+            if (workspaceVisible === next) return;
+            workspaceVisible = next;
+            refreshMediaVisibility();
+        },
         contextURL(kind, x, y) {
             const saved = context;
             context = null;
@@ -363,13 +369,13 @@
             const parent = toolbar || root;
             const placement = toolbar ? 'toolbar' : 'floating';
             if (button.dataset.placement !== placement) button.dataset.placement = placement;
-            if (toolbar) {
-                button.style.position = 'relative'; button.style.right = ''; button.style.bottom = ''; button.style.zIndex = '';
-                button.querySelector('span').hidden = true;
-            } else {
-                button.style.position = 'fixed'; button.style.right = '24px'; button.style.bottom = '24px'; button.style.zIndex = '10';
-                button.querySelector('span').hidden = false;
+            for (const [property, value] of Object.entries(toolbar
+                ? {position:'relative', right:'', bottom:'', zIndex:''}
+                : {position:'fixed', right:'24px', bottom:'24px', zIndex:'10'})) {
+                if (button.style[property] !== value) button.style[property] = value;
             }
+            const label = button.querySelector('span');
+            if (label.hidden !== !!toolbar) label.hidden = !!toolbar;
             if (button.parentElement !== parent) parent.appendChild(button);
         }
         function schedule() { if (!frame) frame = requestAnimationFrame(update); }
@@ -389,7 +395,28 @@
         observer.observe(root, {childList:true, subtree:true, attributes:true, attributeFilter:['src','srcset','class','style','aria-hidden','aria-label']});
         update();
     }
-    const gifFrames = new Map();
+    const gifFrames = new Map(), chatGIFs = new Map();
+    const panelSelector = '#gif-picker-tab-panel, #emoji-picker-tab-panel, #sticker-picker-tab-panel, #stickers-picker-tab-panel';
+    const chatSelector = '[id^="chat-messages-"]';
+    // One observer pair per document, rather than per result in long GIF lists.
+    const mediaVisibility = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+            const record = gifFrames.get(entry.target) || chatGIFs.get(entry.target);
+            record?.setVisible(entry.isIntersecting);
+        }
+    });
+    const previewSizes = new ResizeObserver(entries => {
+        for (const entry of entries) gifFrames.get(entry.target)?.resize(entry.contentRect);
+    });
+    function refreshMediaVisibility() {
+        for (const record of gifFrames.values()) record.refresh();
+        for (const record of chatGIFs.values()) record.refresh();
+    }
+    document.addEventListener('visibilitychange', refreshMediaVisibility);
+    document.addEventListener('play', event => {
+        if (event.target instanceof HTMLVideoElement) watchChatGIF(event.target);
+    }, true);
+
     function frameGIF(video) {
         if (gifFrames.has(video)) return;
         const card = video.closest('[class^="result_"], [class*=" result_"]');
@@ -398,11 +425,12 @@
         canvas.setAttribute('data-noko-gif-frame', '');
         canvas.setAttribute('aria-hidden', 'true');
         canvas.hidden = true;
-        // Insert alongside the preview, before favorite/label overlays. React
-        // retains its video and handlers; no second network request or decoder.
+        canvas.width = canvas.height = 0;
         video.after(canvas);
         const ctx = canvas.getContext('2d', {alpha: false});
-        let visible = false, disposed = false, pending = null, last = -Infinity;
+        let visible = false, observed = false, disposed = false, pending = null, last = -Infinity;
+        // Cache geometry on resize, never force layout for each decoded frame.
+        let box = video.getBoundingClientRect();
         const nativeFrames = typeof video.requestVideoFrameCallback === 'function';
         function stop() {
             if (pending === null) return;
@@ -410,17 +438,26 @@
             else cancelAnimationFrame(pending);
             pending = null;
         }
+        function releasePixels() {
+            canvas.hidden = true;
+            video.removeAttribute('data-noko-preview-covered');
+            if (canvas.width || canvas.height) canvas.width = canvas.height = 0;
+            last = -Infinity;
+        }
+        function active() { return !disposed && visible && workspaceVisible && !document.hidden; }
         function schedule() {
-            if (disposed || !visible || document.hidden || pending !== null || video.paused || !ctx) return;
+            if (!active() || pending !== null || video.paused || video.readyState < 2 || !ctx) return;
             pending = nativeFrames ? video.requestVideoFrameCallback(draw) : requestAnimationFrame(draw);
         }
         function draw(now = performance.now()) {
             pending = null;
-            if (disposed || !visible || document.hidden) return;
+            if (!active()) { releasePixels(); return; }
             if (video.readyState >= 2 && video.videoWidth && now - last >= 30) {
-                const rect = video.getBoundingClientRect();
-                const dpr = Math.min(devicePixelRatio || 1, 2);
-                const w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
+                // Preserve Retina rendering for normal cards; bound pathological
+                // card dimensions to a 4 MiB RGBA surface instead of hundreds.
+                const scaleLimit = Math.sqrt(1024 * 1024 / Math.max(1, box.width * box.height));
+                const dpr = Math.min(devicePixelRatio || 1, 2, scaleLimit);
+                const w = Math.floor(box.width * dpr), h = Math.floor(box.height * dpr);
                 if (w && h) {
                     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
                     const scale = Math.min(w / video.videoWidth, h / video.videoHeight);
@@ -428,88 +465,173 @@
                     try {
                         ctx.fillStyle = '#192023'; ctx.fillRect(0, 0, w, h);
                         ctx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
-                        canvas.hidden = false;
-                        video.setAttribute('data-noko-preview-covered', '');
+                        if (canvas.hidden) canvas.hidden = false;
+                        if (!video.hasAttribute('data-noko-preview-covered')) video.setAttribute('data-noko-preview-covered', '');
                         last = now;
-                    } catch (_) { canvas.hidden = true; video.removeAttribute('data-noko-preview-covered'); }
+                    } catch (_) { releasePixels(); }
                 }
             }
             schedule();
         }
         function refresh() { stop(); draw(); }
-        function reset() { video.removeAttribute('data-noko-preview-covered'); canvas.hidden = true; last = -Infinity; refresh(); }
-        const observer = new IntersectionObserver(entries => {
-            visible = entries[0].isIntersecting;
-            refresh();
-        });
-        observer.observe(video);
-        const resize = new ResizeObserver(() => { last = -Infinity; refresh(); });
-        resize.observe(video);
+        function reset() { releasePixels(); refresh(); }
         const events = {playing: refresh, loadeddata: reset, emptied: reset, pause: stop, error: reset};
         for (const [event, handler] of Object.entries(events)) video.addEventListener(event, handler);
-        document.addEventListener('visibilitychange', refresh);
-        const dispose = () => {
-            disposed = true; stop(); observer.disconnect(); resize.disconnect();
-            for (const [event, handler] of Object.entries(events)) video.removeEventListener(event, handler);
-            document.removeEventListener('visibilitychange', refresh);
-            video.removeAttribute('data-noko-preview-covered');
-            canvas.remove(); gifFrames.delete(video);
-        };
-        dispose.canvas = canvas;
-        gifFrames.set(video, dispose);
+        gifFrames.set(video, {
+            canvas,
+            setVisible(value) {
+                if (observed && visible === value) return;
+                observed = true; visible = value; refresh();
+            },
+            resize(rect) { box = rect; last = -Infinity; refresh(); },
+            refresh,
+            dispose() {
+                disposed = true; stop(); releasePixels();
+                mediaVisibility.unobserve(video); previewSizes.unobserve(video);
+                for (const [event, handler] of Object.entries(events)) video.removeEventListener(event, handler);
+                canvas.remove(); gifFrames.delete(video);
+            }
+        });
+        mediaVisibility.observe(video); previewSizes.observe(video);
     }
 
-    function decorateGIFPicker(node) {
-        const selector = '#gif-picker-tab-panel, #emoji-picker-tab-panel, #sticker-picker-tab-panel, #stickers-picker-tab-panel';
-        const panels = new Set([node.closest(selector), ...node.querySelectorAll(selector)].filter(Boolean));
-        for (const panel of panels) {
-            const shell = panel.closest('[class^="contentWrapper_"], [class*=" contentWrapper_"]') || panel;
-            if (!shell.hasAttribute('data-noko-gif-shell')) {
-                shell.setAttribute('data-noko-gif-shell', '');
-                shell.addEventListener('pointermove', () => shell.removeAttribute('data-noko-picker-keyboard'), {passive:true});
-                shell.addEventListener('keydown', event => {
-                    if (['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) shell.setAttribute('data-noko-picker-keyboard', '');
-                });
+    function watchChatGIF(video) {
+        // Limit playback management to silent autoplay loops in messages.
+        // Calls, screen shares, ordinary videos and manual playback stay native.
+        if (chatGIFs.has(video) || !video.closest(chatSelector)) return;
+        const eligible = () => video.autoplay && video.loop && (video.muted || video.defaultMuted) && !video.controls && !video.srcObject;
+        if (!eligible()) return;
+        let visible = true, observed = false, pausedByUs = false, disposed = false;
+        function refresh() {
+            if (disposed) return;
+            const canRun = workspaceVisible && !document.hidden && (!observed || visible);
+            if (!eligible()) { pausedByUs = false; return; }
+            if (!canRun && !video.paused) {
+                pausedByUs = true;
+                video.pause();
+            } else if (canRun && pausedByUs) {
+                pausedByUs = false;
+                // Resume only playback that this integration paused. Discord's
+                // autoplay preference and manual pauses retain their authority.
+                video.play().catch(() => {});
             }
-            if (!panel.hasAttribute('data-noko-expression-panel')) panel.setAttribute('data-noko-expression-panel', '');
-            if (panel.id === 'gif-picker-tab-panel' && !panel.hasAttribute('data-noko-gif-panel')) panel.setAttribute('data-noko-gif-panel', '');
-            if (panel.id === 'gif-picker-tab-panel') for (const video of panel.querySelectorAll('video')) frameGIF(video);
-            for (const heading of panel.querySelectorAll('[class^="header_"], [class*=" header_"], [class^="categoryHeader_"], [class*=" categoryHeader_"], [role="heading"]')) {
-                if (!heading.querySelector('input')) heading.setAttribute('data-noko-section-heading', '');
+        }
+        video.addEventListener('play', refresh);
+        chatGIFs.set(video, {
+            setVisible(value) { observed = true; visible = value; refresh(); },
+            refresh,
+            dispose() {
+                disposed = true; mediaVisibility.unobserve(video);
+                video.removeEventListener('play', refresh);
+                chatGIFs.delete(video);
+                // React can reuse a still-connected video outside the message.
+                // Relinquish our pause instead of leaving the new owner stalled.
+                if (pausedByUs && video.isConnected && eligible()) video.play().catch(() => {});
+                pausedByUs = false;
             }
-            for (const input of panel.querySelectorAll('input')) {
-                const field = input.closest('[class^="searchBar_"], [class*=" searchBar_"], [class^="searchBarComponent_"], [class*=" searchBarComponent_"]') || input.parentElement;
-                if (field && !field.hasAttribute('data-noko-gif-search')) field.setAttribute('data-noko-gif-search', '');
-                // Search headers differ across GIF/sticker/emoji tabs. Clear the
-                // actual ancestor chain rather than guessing one hashed class.
-                for (let backing = field?.parentElement; backing && backing !== shell; backing = backing.parentElement) {
-                    if (!backing.hasAttribute('data-noko-search-backing')) backing.setAttribute('data-noko-search-backing', '');
-                }
+        });
+        mediaVisibility.observe(video);
+        refresh();
+    }
+
+    const headingSelector = '[class^="header_"], [class*=" header_"], [class^="categoryHeader_"], [class*=" categoryHeader_"], [role="heading"]';
+    const panelShells = new WeakMap();
+    function decorateGIFPicker(panel, additions = [panel]) {
+        const shell = panel.closest('[class^="contentWrapper_"], [class*=" contentWrapper_"]') || panel;
+        // A new shell can change existing search ancestors. Full initialization
+        // is rare; ordinary result insertion only visits the added subtrees.
+        if (panelShells.get(panel) !== shell) { additions = [panel]; panelShells.set(panel, shell); }
+        if (!shell.hasAttribute('data-noko-gif-shell')) {
+            shell.setAttribute('data-noko-gif-shell', '');
+            shell.addEventListener('pointermove', () => {
+                if (shell.hasAttribute('data-noko-picker-keyboard')) shell.removeAttribute('data-noko-picker-keyboard');
+            }, {passive:true});
+            shell.addEventListener('keydown', event => {
+                if (['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) shell.setAttribute('data-noko-picker-keyboard', '');
+            });
+        }
+        if (!panel.hasAttribute('data-noko-expression-panel')) panel.setAttribute('data-noko-expression-panel', '');
+        if (panel.id === 'gif-picker-tab-panel' && !panel.hasAttribute('data-noko-gif-panel')) panel.setAttribute('data-noko-gif-panel', '');
+        const videos = new Set(), headings = new Set(), inputs = new Set();
+        for (const root of additions) {
+            if (!panel.contains(root)) continue;
+            if (root.matches('video')) videos.add(root);
+            if (root.matches(headingSelector)) headings.add(root);
+            if (root.matches('input')) inputs.add(root);
+            for (const node of root.querySelectorAll('video, input, ' + headingSelector)) {
+                if (node.matches('video')) videos.add(node);
+                if (node.matches('input')) inputs.add(node);
+                if (node.matches(headingSelector)) headings.add(node);
+            }
+        }
+        if (panel.id === 'gif-picker-tab-panel') videos.forEach(frameGIF);
+        for (const heading of headings) {
+            if (!heading.querySelector('input') && heading.getAttribute('data-noko-section-heading') !== '') heading.setAttribute('data-noko-section-heading', '');
+        }
+        for (const input of inputs) {
+            const field = input.closest('[class^="searchBar_"], [class*=" searchBar_"], [class^="searchBarComponent_"], [class*=" searchBarComponent_"]') || input.parentElement;
+            if (field && !field.hasAttribute('data-noko-gif-search')) field.setAttribute('data-noko-gif-search', '');
+            // Search headers differ across GIF/sticker/emoji tabs. Clear the
+            // actual ancestor chain rather than guessing one hashed class.
+            for (let backing = field?.parentElement; backing && backing !== shell; backing = backing.parentElement) {
+                if (!backing.hasAttribute('data-noko-search-backing')) backing.setAttribute('data-noko-search-backing', '');
             }
         }
     }
 
-    function discover(node) {
+    function discover(node, panels) {
         if (!(node instanceof Element)) return;
-        decorateGIFPicker(node);
+        const panel = node.closest(panelSelector);
+        if (panel) {
+            if (!panels.has(panel)) panels.set(panel, []);
+            panels.get(panel).push(node);
+        }
         if (node.matches(roots)) watch(node);
-        for (const root of node.querySelectorAll(roots)) watch(root);
+        if (node.matches('video')) watchChatGIF(node);
+        for (const candidate of node.querySelectorAll(roots + ', ' + panelSelector + ', video')) {
+            if (candidate.matches(panelSelector)) panels.set(candidate, [candidate]);
+            else if (candidate.matches('video')) watchChatGIF(candidate);
+            else watch(candidate);
+        }
     }
     function start() {
         installButtonStyle();
-        discover(document.body);
-        // Only inspect newly inserted subtrees. Image selection and attribute
-        // observation are confined to open dialogs; there is no polling.
+        const initialPanels = new Map();
+        discover(document.body, initialPanels);
+        initialPanels.forEach((roots, panel) => decorateGIFPicker(panel, roots));
+        const added = new Set();
+        let frame = 0, needsSweep = false;
+        function flush() {
+            frame = 0;
+            if (needsSweep) {
+                needsSweep = false;
+                for (const [root, dispose] of viewers) if (!root.isConnected) dispose();
+                for (const [video, record] of [...gifFrames]) {
+                    if (!video.isConnected || !video.closest('[data-noko-gif-panel]')) record.dispose();
+                    else if (!record.canvas.isConnected || record.canvas.parentElement !== video.parentElement) {
+                        record.dispose(); frameGIF(video);
+                    }
+                }
+                for (const [video, record] of chatGIFs) if (!video.isConnected || !video.closest(chatSelector)) record.dispose();
+            }
+            const panels = new Map();
+            for (const node of added) {
+                if (!node.isConnected) continue;
+                let parent = node.parentElement;
+                while (parent && !added.has(parent)) parent = parent.parentElement;
+                if (!parent) discover(node, panels);
+            }
+            added.clear();
+            panels.forEach((roots, panel) => decorateGIFPicker(panel, roots));
+        }
         new MutationObserver(changes => {
-            for (const [root, dispose] of viewers) if (!root.isConnected) dispose();
-            for (const [video, dispose] of [...gifFrames]) {
-                if (!video.isConnected) dispose();
-                else if (!dispose.canvas.isConnected || dispose.canvas.parentElement !== video.parentElement) {
-                    dispose();
-                    if (video.closest('[data-noko-gif-panel]')) frameGIF(video);
+            for (const change of changes) {
+                if (change.removedNodes.length) needsSweep = true;
+                for (const node of change.addedNodes) {
+                    if (node instanceof Element && !node.matches('[data-noko-gif-frame], [data-maomao-media-download]')) added.add(node);
                 }
             }
-            for (const change of changes) for (const node of change.addedNodes) discover(node);
+            if (!frame && (added.size || needsSweep)) frame = requestAnimationFrame(flush);
         }).observe(document.body, {childList:true, subtree:true});
     }
     if (document.body) start();

@@ -541,6 +541,8 @@ void CompleteOnMainQueue(std::shared_ptr<CallbackGate> gate,
                  statusDisplayField:(NSString *)statusDisplayField
                          largeImage:(NSString *)largeImage
                     largeImageText:(NSString *)largeImageText
+                         smallImage:(NSString *)smallImage
+                    smallImageText:(NSString *)smallImageText
                            completion:(NokoDiscordOperationCompletion)completion
 {
     NativeImplementation *implementation = static_cast<NativeImplementation *>(_implementation);
@@ -574,10 +576,12 @@ void CompleteOnMainQueue(std::shared_ptr<CallbackGate> gate,
             activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Name);
         }
 
-        if (const auto imageValue = OptionalUTF8(largeImage); imageValue.has_value()) {
+        if (largeImage != nil || smallImage != nil) {
             discordpp::ActivityAssets assets;
-            assets.SetLargeImage(imageValue);
+            assets.SetLargeImage(OptionalUTF8(largeImage));
             assets.SetLargeText(OptionalUTF8(largeImageText));
+            assets.SetSmallImage(OptionalUTF8(smallImage));
+            assets.SetSmallText(OptionalUTF8(smallImageText));
             activity.SetAssets(std::move(assets));
         }
 

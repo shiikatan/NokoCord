@@ -12,6 +12,8 @@ final class MaomaoMediaDownloads: NSObject, WKScriptMessageHandler {
     private weak var view: WKWebView?
     var onRequest: ((URL) -> Void)?
     var onUnavailable: (() -> Void)?
+    private var desiredVisible = true
+    private var registration: WKUserScript?
 
     private static let source: String? = {
         #if SWIFT_PACKAGE
@@ -30,26 +32,38 @@ final class MaomaoMediaDownloads: NSObject, WKScriptMessageHandler {
             controller.add(self, contentWorld: Self.world, name: Self.handler)
             self.controller = controller
         }
+        if let registration, controller.userScripts.contains(where: { $0 === registration }) { return }
         let retained = controller.userScripts.filter { !$0.source.hasPrefix(Self.marker) }
         if retained.count != controller.userScripts.count {
             controller.removeAllUserScripts()
             retained.forEach(controller.addUserScript)
         }
         guard let source = Self.source else { return }
-        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
-                                             forMainFrameOnly: true, in: Self.world))
+        let script = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: Self.world)
+        registration = script
+        controller.addUserScript(script)
     }
 
-    func attach(_ view: WKWebView) { self.view = view }
+    func attach(_ view: WKWebView, visible: Bool) { self.view = view; desiredVisible = visible }
+
+    func setVisible(_ visible: Bool) {
+        desiredVisible = visible
+        guard let view, BrowserPolicy.isDiscordOrigin(view.url) else { return }
+        view.callAsyncJavaScript("globalThis.__maomaoMediaDownloads?.setVisible(visible)",
+                                 arguments: ["visible": visible], in: nil, in: Self.world) { _ in }
+    }
 
     func pageDidLoad() {
         guard let view, BrowserPolicy.isDiscordOrigin(view.url), let source = Self.source else { return }
-        view.evaluateJavaScript(source, in: nil, in: Self.world) { _ in }
+        view.evaluateJavaScript(source, in: nil, in: Self.world) { [weak self, weak view] _ in
+            guard let self, let view, self.view === view else { return }
+            self.setVisible(self.desiredVisible)
+        }
     }
 
     func detach() {
         controller?.removeScriptMessageHandler(forName: Self.handler, contentWorld: Self.world)
-        controller = nil; view = nil
+        controller = nil; view = nil; registration = nil
     }
 
     func requestContextDownload(kind: String, point: CGPoint) {

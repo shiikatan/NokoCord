@@ -6,8 +6,13 @@ struct MaoListView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
     @Environment(\.nokoWorkspaceVisible) private var workspaceVisible
     @Environment(\.controlActiveState) private var activeState
+    @Environment(\.accessibilityReduceMotion) private var entryReduceMotion
     @AppStorage("maolistCopyDiscordColors") private var copyColors = false
     @State private var filtersPresented = false
+    private var entryActive: Bool { workspaceVisible && activeState != .inactive }
+    private var showEntryLoader: Bool {
+        entryActive && runtime.entryLoadingEligible && runtime.entryLoading.isVisible()
+    }
     var body: some View {
         @Bindable var runtime = runtime
         VStack(spacing: 0) {
@@ -44,7 +49,7 @@ struct MaoListView: View {
                     Image("NokoMark").renderingMode(.original).resizable().scaledToFit()
                         .frame(width: 24, height: 24).clipShape(.rect(cornerRadius: 6))
                         .padding(4).frame(width: 32, height: 32)
-                }.buttonStyle(.plain).help("Switch to NokoCord (⇧⌘M)")
+                }.buttonStyle(.plain).help("Switch to NokoCord (⌃⌘M)")
                     .accessibilityLabel("Switch to NokoCord")
                 if let viewer = runtime.viewer {
                     Button { runtime.routes.append(.notifications) } label: {
@@ -74,8 +79,23 @@ struct MaoListView: View {
             }
             if let error = runtime.accountError { MLErrorBanner(message: error) { runtime.accountError = nil } }
             routeContent
+                .accessibilityHidden(showEntryLoader)
+                .overlay {
+                    if showEntryLoader { MLEntryLoader(reduceMotion: entryReduceMotion) }
+                }
         }
         .environment(runtime).modifier(MLAppearance())
+        .onChange(of: "\(runtime.entryLoadingEligible)/\(runtime.entryLoadingPending)/\(runtime.entryLoadingPermitted)/\(entryActive)", initial: true) { _, _ in
+            runtime.entryLoading.update(loading: runtime.entryLoadingEligible, pending: runtime.entryLoadingPending,
+                                        active: entryActive, permitted: runtime.entryLoadingPermitted)
+        }
+        .task(id: runtime.entryLoading.deadline) {
+            guard let deadline = runtime.entryLoading.deadline else { return }
+            do {
+                try await Task.sleep(until: deadline, clock: .continuous)
+                if runtime.entryLoading.deadline == deadline { runtime.entryLoading.dismiss() }
+            } catch { /* Dismissal cancels only this presentation timeout. */ }
+        }
         .onChange(of: runtime.search.term) { _, term in
             if !term.isEmpty { runtime.searching = true; runtime.routes.removeAll(); runtime.search.sort = "SEARCH_MATCH" }
         }
@@ -91,7 +111,7 @@ struct MaoListView: View {
             if enabled && workspaceVisible { Task { runtime.discordPalette = await MLDiscordColors.read(from: browser) } }
             else { runtime.discordPalette = nil }
         }
-        .onDisappear { runtime.suspend() }
+        .onDisappear { runtime.entryLoading.dismiss(); runtime.suspend() }
     }
     @ViewBuilder private var routeContent: some View {
         if let route = runtime.routes.last {

@@ -5,6 +5,7 @@ struct NokoRootView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
     @Environment(MaoListModule.self) private var maolist
     @AppStorage(MaomaoWorkspaceAppearance.barPreferenceKey) private var showNokoBar = true
+    @AppStorage("maomaoHeaderButtonOpensHome") private var headerButtonOpensHome = false
     @State private var selection: NokoDestination = .home
     @State private var showQuickSwitcher = false
     @Environment(\.openSettings) private var openSettings
@@ -43,14 +44,16 @@ struct NokoRootView: View {
                 .accessibilityHidden(!browser.lifecycle.isVisible)
             }
         }
-        .onAppear { [browser, maolist, workspaceSelection = $selection] in
-            browser.onSwitchToMaoList = { [weak browser, weak maolist, workspaceSelection] in
-                guard maolist?.enabled == true else { return }
-                workspaceSelection.wrappedValue = .maolist; browser?.showHome()
+        .onAppear { [browser, maolist, workspaceSelection = $selection, homeTarget = $headerButtonOpensHome] in
+            browser.onSwitchToMaoList = { [weak browser, weak maolist, workspaceSelection, homeTarget] in
+                guard homeTarget.wrappedValue || maolist?.enabled == true else { return }
+                workspaceSelection.wrappedValue = homeTarget.wrappedValue ? .home : .maolist
+                browser?.showHome()
             }
-            browser.setMaoListSwitchEnabled(maolist.enabled)
+            browser.setMaoListSwitchEnabled(maolist.enabled, opensHome: headerButtonOpensHome)
         }
-        .onChange(of: maolist.enabled) { _, enabled in browser.setMaoListSwitchEnabled(enabled) }
+        .onChange(of: maolist.enabled) { _, enabled in browser.setMaoListSwitchEnabled(enabled, opensHome: headerButtonOpensHome) }
+        .onChange(of: headerButtonOpensHome) { _, home in browser.setMaoListSwitchEnabled(maolist.enabled, opensHome: home) }
         .focusedSceneValue(\.nokoCordQuickSwitcher, $showQuickSwitcher)
         .focusedSceneValue(\.nokoCordSwitchApp, maolist.enabled ? {
             if !browser.lifecycle.isVisible && selection == .maolist { browser.openDiscord() }

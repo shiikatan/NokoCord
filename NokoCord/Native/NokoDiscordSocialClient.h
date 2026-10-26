@@ -96,8 +96,10 @@ typedef NS_ENUM(NSInteger, NokoDiscordSocialClientStatus) {
                  statusDisplayField:(nullable NSString *)statusDisplayField
                          largeImage:(nullable NSString *)largeImage
                     largeImageText:(nullable NSString *)largeImageText
+                         smallImage:(nullable NSString *)smallImage
+                    smallImageText:(nullable NSString *)smallImageText
                            completion:(NokoDiscordOperationCompletion)completion
-    NS_SWIFT_NAME(updateRichPresence(type:name:details:state:startedAt:endsAt:statusDisplayField:largeImage:largeImageText:completion:));
+    NS_SWIFT_NAME(updateRichPresence(type:name:details:state:startedAt:endsAt:statusDisplayField:largeImage:largeImageText:smallImage:smallImageText:completion:));
 
 /// The SDK's clear call has no result callback. Completion reports that the
 /// request was issued on the serialized SDK queue, not a Discord acknowledgement.

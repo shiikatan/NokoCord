@@ -1,6 +1,8 @@
 if (window !== window.top || location.origin !== 'https://discord.com') return;
+const revision = typeof scriptFingerprint === 'string' ? scriptFingerprint : null;
+if (revision && globalThis.__maomaoAppSwitching?.fingerprint === revision && globalThis.__maomaoAppSwitching.refresh()) return;
 globalThis.__maomaoAppSwitching?.destroy();
-let button, observer, frame = 0, visible = true;
+let button, observer, frame = 0, visible = true, opensHome = false;
 const style = document.createElement('style');
 style.id = 'noko-app-switch-style';
 style.textContent = `
@@ -12,6 +14,14 @@ html:has(:is([class^="trailing_"], [class*=" trailing_"]) > #noko-maolist-switch
 #noko-maolist-switch.noko-hovered { background:var(--background-modifier-hover,rgba(128,128,128,.12)); }
 #noko-maolist-switch:focus-visible { outline:2px solid var(--text-link,#72cdb4);outline-offset:2px; }
 `;
+function updateTarget() {
+  if (!button) return;
+  const title = opensHome ? 'Open NokoCord / Tans (⇧⌘H)' : 'Switch to MaoList (⌃⌘M)';
+  if (button.title !== title) button.title = title;
+  button.setAttribute('aria-label', opensHome ? 'Open NokoCord / Tans' : 'Switch to MaoList');
+  const image = button.querySelector('img');
+  if (image && image.getAttribute('src') !== icons[opensHome ? 0 : 1]) image.src = icons[opensHome ? 0 : 1];
+}
 function mount() {
   if (!visible || button?.isConnected) return;
   // The utility toolbar's public Help link is independent of Discord's locale.
@@ -29,9 +39,9 @@ function mount() {
   if (!toolbar || anchor.parentElement !== toolbar || !getComputedStyle(toolbar).display.includes('flex')) return;
   button?.remove();
   button = document.createElement('button'); button.id = 'noko-maolist-switch'; button.type = 'button';
-  button.title = 'Switch to MaoList (⇧⌘M)'; button.setAttribute('aria-label', 'Switch to MaoList');
-  const image = document.createElement('img'); image.src = icons[1]; image.alt = '';
-  button.append(image);
+
+  const image = document.createElement('img'); image.alt = '';
+  button.append(image); updateTarget();
   button.addEventListener('pointerenter', () => button.classList.add('noko-hovered'));
   button.addEventListener('pointerleave', () => button.classList.remove('noko-hovered'));
   button.addEventListener('click', e => {
@@ -58,7 +68,10 @@ function setVisible(value) {
 }
 document.head.append(style);
 globalThis.__maomaoAppSwitching = {
+  fingerprint: revision,
+  refresh() { if (!style.isConnected) document.head.append(style); if (visible) mount(); return true; },
   setVisible,
+  setHomeTarget(value) { opensHome = value === true; updateTarget(); },
   destroy() { visible = false; observer?.disconnect(); if (frame) cancelAnimationFrame(frame); button?.remove(); style.remove(); delete globalThis.__maomaoAppSwitching; }
 };
 setVisible(true);

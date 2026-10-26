@@ -27,6 +27,8 @@ public struct NokoActivity: Codable, Equatable, Hashable, Sendable {
     /// A registered Discord application asset used when no track art is available.
     public let largeImageAssetKey: String?
     public let largeImageText: String?
+    public let smallImageURL: String?
+    public let smallImageText: String?
     public let statusDisplayField: NokoActivityStatusDisplayField?
 
     public init(
@@ -40,6 +42,8 @@ public struct NokoActivity: Codable, Equatable, Hashable, Sendable {
         largeImageURL: String? = nil,
         largeImageAssetKey: String? = nil,
         largeImageText: String? = nil,
+        smallImageURL: String? = nil,
+        smallImageText: String? = nil,
         statusDisplayField: NokoActivityStatusDisplayField? = nil
     ) {
         self.title = title
@@ -52,6 +56,8 @@ public struct NokoActivity: Codable, Equatable, Hashable, Sendable {
         self.largeImageURL = largeImageURL
         self.largeImageAssetKey = largeImageAssetKey
         self.largeImageText = largeImageText
+        self.smallImageURL = smallImageURL
+        self.smallImageText = smallImageText
         self.statusDisplayField = statusDisplayField
     }
 }

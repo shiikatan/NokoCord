@@ -191,3 +191,38 @@ struct MLThemePresetPicker: View {
         }.padding(.vertical, 4)
     }
 }
+
+struct MLEntryLoader: View {
+    @Environment(\.mlPalette) private var palette
+    let reduceMotion: Bool
+    @State private var raised = false
+    var body: some View {
+        VStack(spacing: 16) {
+            Image("MaoListMark").renderingMode(.original).resizable().scaledToFit()
+                .frame(width: 64, height: 64).clipShape(.rect(cornerRadius: 16))
+                .offset(y: raised ? -3 : 0)
+            Text("Opening MaoList…").font(.callout.weight(.semibold))
+            HStack(spacing: 6) {
+                ForEach(0..<3) { index in
+                    Circle().fill(palette.accent).frame(width: 5, height: 5)
+                        .opacity(reduceMotion ? 0.7 : (index == 1 ? 0.55 : ((index == 0) == raised ? 1 : 0.25)))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(palette.background)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Opening MaoList, restoring your AniList connection")
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { raised = true }
+        }
+        .onChange(of: reduceMotion) { _, _ in
+            var transaction = Transaction(); transaction.disablesAnimations = true
+            withTransaction(transaction) { raised = false }
+            if !reduceMotion {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { raised = true }
+            }
+        }
+    }
+}

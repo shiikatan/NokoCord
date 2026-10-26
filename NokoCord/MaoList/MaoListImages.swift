@@ -14,6 +14,7 @@ final class MLImageLoader {
     private var pending: [String: Pending] = [:]
     private var pendingBytes: [String: PendingBytes] = [:]
     private var stopped = false
+    private var generation: UInt = 0
     init(session: URLSession? = nil, cacheBase: URL? = nil) {
         self.cacheBase = cacheBase
         disk = MLDiskCache(namespace: "artwork", limit: 96_000_000, base: cacheBase)
@@ -39,6 +40,7 @@ final class MLImageLoader {
     func image(_ url: URL?, pixels: Int) async -> NSImage? {
         guard !stopped, !Task.isCancelled, let url, Self.permitted(url) else { return nil }
         let size = Self.decodeSize(pixels)
+        let generation = generation
         let key = url.absoluteString + "@\(size)"
         if let image = memory.object(forKey: key as NSString) { return image }
         let consumer = UUID()
@@ -46,7 +48,11 @@ final class MLImageLoader {
             existing.consumers.insert(consumer); pending[key] = existing
             let image = await withTaskCancellationHandler { await existing.task.value } onCancel: { Task { @MainActor [weak self] in self?.release(key, consumer: consumer) } }
             release(key, consumer: consumer)
-            return Task.isCancelled || stopped ? nil : image
+            guard !Task.isCancelled, !stopped, self.generation == generation else { return nil }
+            // A view that created the shared flight can disappear first. The
+            // surviving view must still seed the bounded decoded-image cache.
+            if let image { memory.setObject(image, forKey: key as NSString, cost: size * size * 4) }
+            return image
         }
         let id = UUID()
         // Share original bytes across cover/banner/avatar sizes; decoded images
@@ -62,13 +68,13 @@ final class MLImageLoader {
         let image = await withTaskCancellationHandler { await task.value } onCancel: { Task { @MainActor [weak self] in self?.release(key, consumer: consumer) } }
         if pending[key]?.id == id { pending[key] = nil }
         releaseBytes(url.absoluteString, consumer: id)
-        guard !stopped, !Task.isCancelled else { return nil }
+        guard !stopped, !Task.isCancelled, self.generation == generation else { return nil }
         if let image { memory.setObject(image, forKey: key as NSString, cost: size * size * 4) }
         return image
     }
     private func release(_ key: String, consumer: UUID) {
         guard var value = pending[key] else { return }
-        value.consumers.remove(consumer)
+        guard value.consumers.remove(consumer) != nil else { return }
         if value.consumers.isEmpty {
             value.task.cancel(); pending[key] = nil
             releaseBytes(value.source, consumer: value.id)
@@ -76,11 +82,15 @@ final class MLImageLoader {
         else { pending[key] = value }
     }
     private static func decode(_ data: Data, pixels: Int) async -> CGImage? {
-        await Task.detached(priority: .utility) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard !Task.isCancelled else { return nil }
+        let task = Task.detached(priority: .utility) { () -> CGImage? in
+            guard !Task.isCancelled, let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  !Task.isCancelled else { return nil }
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: pixels, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true]
-            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        }.value
+            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            return Task.isCancelled ? nil : image
+        }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
     private func sharedBytes(_ url: URL, pixels: Int, consumer: UUID) -> Task<Source?, Never> {
         let key = url.absoluteString
@@ -96,6 +106,8 @@ final class MLImageLoader {
                 if let image = await Self.decode(saved.data, pixels: pixels) {
                     return Task.isCancelled ? nil : Source(data: saved.data, image: image, pixels: pixels)
                 }
+                // Cancellation is not evidence of corrupt cached bytes.
+                guard !Task.isCancelled else { return nil }
                 await disk.remove(key, matching: saved)
             }
             do {
@@ -118,6 +130,7 @@ final class MLImageLoader {
         else { pendingBytes[key] = value }
     }
     func suspend() {
+        generation &+= 1
         pending.values.forEach { $0.task.cancel() }; pending.removeAll()
         pendingBytes.values.forEach { $0.task.cancel() }; pendingBytes.removeAll()
     }

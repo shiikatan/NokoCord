@@ -36,18 +36,22 @@ protocol AppleMusicNowPlayingReading: Sendable {
 protocol AppleMusicArtworkLookingUp: Sendable {
     func cachedArtwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork?
     func artwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork?
+    func artistImage(for track: AppleMusicTrackSnapshot) async -> URL?
 }
 
 extension AppleMusicArtworkLookingUp {
+    func artistImage(for track: AppleMusicTrackSnapshot) async -> URL? { nil }
     func cachedArtwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork? { nil }
 }
 
 protocol AppleMusicArtworkSource: Sendable {
     func cachedArtworkURL(for track: AppleMusicTrackSnapshot) async -> URL?
     func artworkURL(for track: AppleMusicTrackSnapshot) async -> URL?
+    func artistImageURL(for track: AppleMusicTrackSnapshot) async -> URL?
 }
 
 extension AppleMusicArtworkSource {
+    func artistImageURL(for track: AppleMusicTrackSnapshot) async -> URL? { nil }
     func cachedArtworkURL(for track: AppleMusicTrackSnapshot) async -> URL? { nil }
 }
 
@@ -56,11 +60,21 @@ enum AppleMusicArtwork: Equatable, Sendable {
     case discordAssetKey(String)
 
     static let genericDiscordAssetKey = "nokocord_apple_music_generic"
+    // Apple's public Music app icon. A URL avoids depending on a separately
+    // uploaded asset in each Discord application/edition.
+    static let genericArtworkURL = URL(string: "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/c2/74/89/c27489c2-2c63-2e32-efee-b0f59b3184ef/musicCalistoga-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg")!
+
+    var isTrackSpecific: Bool {
+        if case .url(let url) = self { return AppleMusicArtworkURL.validArtworkURL(url) != nil }
+        return false
+    }
 
     var richPresenceURL: String? {
         switch self {
         case .url(let url):
             return AppleMusicArtworkURL.validArtworkURL(url)?.absoluteString
+        case .discordAssetKey(let key) where key == Self.genericDiscordAssetKey:
+            return Self.genericArtworkURL.absoluteString
         default:
             return nil
         }
@@ -81,29 +95,16 @@ enum AppleMusicArtworkURL {
         validAppleArtworkURL(url) ?? validFallbackArtworkURL(url)
     }
 
-    static func validFallbackArtworkURL(_ url: URL) -> URL? {
-        validLastFMArtworkURL(url) ?? validCoverArtArchiveURL(url)
-    }
+    static func validFallbackArtworkURL(_ url: URL) -> URL? { validDeezerArtworkURL(url) }
 
-    static func validLastFMArtworkURL(_ url: URL) -> URL? {
-        let hosts = ["lastfm-img.freetls.fastly.net", "lastfm.freetls.fastly.net",
-                     "lastfm-img2.akamaized.net", "lastfm-img.akamaized.net"]
-        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), hosts.contains(host),
+    static func validDeezerArtworkURL(_ url: URL) -> URL? { validDeezerImageURL(url, kind: "cover") }
+    static func validDeezerArtistImageURL(_ url: URL) -> URL? { validDeezerImageURL(url, kind: "artist") }
+    private static func validDeezerImageURL(_ url: URL, kind: String) -> URL? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == "cdn-images.dzcdn.net",
               url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil,
-              url.path.hasPrefix("/i/u/"), url.absoluteString.utf8.count <= 300,
-              !url.path.contains("2a96cbd8b46e442fc41c2b86b821562f"),
-              url.path.range(of: #"/[a-fA-F0-9]{32}\.(jpg|jpeg|png|webp)$"#, options: .regularExpression) != nil else { return nil }
-        return url
-    }
-
-    static func validCoverArtArchiveURL(_ url: URL) -> URL? {
-        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == "coverartarchive.org",
-              url.user == nil, url.password == nil, url.port == nil,
-              url.query == nil, url.fragment == nil, url.absoluteString.utf8.count <= 300 else { return nil }
-        let parts = url.path.split(separator: "/")
-        guard parts.count == 3, parts[0] == "release", UUID(uuidString: String(parts[1])) != nil,
-              String(parts[2]).range(of: #"^\d+(-(?:250|500|1200))?\.(jpg|jpeg|png|webp)$"#,
-                                     options: .regularExpression) != nil else { return nil }
+              url.absoluteString.utf8.count <= 300,
+              url.path.range(of: #"^/images/\#(kind)/[a-fA-F0-9]{32}/[0-9]{2,4}x[0-9]{2,4}-[0-9-]+\.(jpg|jpeg|png|webp)$"#,
+                             options: .regularExpression) != nil else { return nil }
         return url
     }
 
@@ -116,6 +117,12 @@ enum AppleMusicArtworkURL {
     }
 }
 
+enum AppleMusicArtworkPolicy {
+    // A failed lookup is temporary. Keep retries bounded without requiring a
+    // track change or Tan restart to recover after a network/provider outage.
+    static let retryInterval: TimeInterval = 60
+}
+
 enum AppleMusicPresenceStatus: String, Equatable, Sendable {
     case disabled
     case waitingForMusic
@@ -124,6 +131,65 @@ enum AppleMusicPresenceStatus: String, Equatable, Sendable {
     case paused
     case permissionDenied
     case unavailable
+}
+
+enum AppleMusicPresenceLine: String, Codable, CaseIterable, Identifiable, Sendable {
+    case song, artist, album, custom, none
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .song: String(localized: "Song")
+        case .artist: String(localized: "Artist")
+        case .album: String(localized: "Album")
+        case .custom: String(localized: "Custom text")
+        case .none: String(localized: "Hidden")
+        }
+    }
+}
+enum AppleMusicStatusLine: String, Codable, CaseIterable, Identifiable, Sendable {
+    case firstLine, secondLine, application
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .firstLine: String(localized: "First line")
+        case .secondLine: String(localized: "Second line")
+        case .application: "Apple Music"
+        }
+    }
+}
+struct AppleMusicDisplayOptions: Codable, Equatable, Sendable {
+    static let storageKey = "maomaoAppleMusicDisplayOptions"
+    var firstLine: AppleMusicPresenceLine = .artist
+    var secondLine: AppleMusicPresenceLine = .song
+    var thirdLine: AppleMusicPresenceLine = .album
+    var statusLine: AppleMusicStatusLine = .secondLine
+    var firstLineTemplate = "{artist}"
+    var secondLineTemplate = "{song}"
+    var thirdLineTemplate = "{album}"
+    var showArtistImage = false
+    var showArtwork = true
+    var showTimer = true
+    var showWhenPaused = true
+    init() {}
+    private enum CodingKeys: String, CodingKey {
+        case firstLine, secondLine, thirdLine, statusLine
+        case firstLineTemplate, secondLineTemplate, thirdLineTemplate
+        case showArtistImage, showArtwork, showTimer, showWhenPaused
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        firstLine = try values.decodeIfPresent(AppleMusicPresenceLine.self, forKey: .firstLine) ?? .artist
+        secondLine = try values.decodeIfPresent(AppleMusicPresenceLine.self, forKey: .secondLine) ?? .song
+        thirdLine = try values.decodeIfPresent(AppleMusicPresenceLine.self, forKey: .thirdLine) ?? .album
+        statusLine = try values.decodeIfPresent(AppleMusicStatusLine.self, forKey: .statusLine) ?? .secondLine
+        firstLineTemplate = try values.decodeIfPresent(String.self, forKey: .firstLineTemplate) ?? "{artist}"
+        secondLineTemplate = try values.decodeIfPresent(String.self, forKey: .secondLineTemplate) ?? "{song}"
+        thirdLineTemplate = try values.decodeIfPresent(String.self, forKey: .thirdLineTemplate) ?? "{album}"
+        showArtistImage = try values.decodeIfPresent(Bool.self, forKey: .showArtistImage) ?? false
+        showArtwork = try values.decodeIfPresent(Bool.self, forKey: .showArtwork) ?? true
+        showTimer = try values.decodeIfPresent(Bool.self, forKey: .showTimer) ?? true
+        showWhenPaused = try values.decodeIfPresent(Bool.self, forKey: .showWhenPaused) ?? true
+    }
 }
 
 struct AppleMusicHomeSnapshot: Equatable {
@@ -179,7 +245,9 @@ struct AppleMusicActivityMapper {
     mutating func activity(
         for track: AppleMusicTrackSnapshot,
         artwork: AppleMusicArtwork?,
-        sampledAt: Date
+        sampledAt: Date,
+        options: AppleMusicDisplayOptions = AppleMusicDisplayOptions(),
+        artistImage: URL? = nil
     ) -> NokoActivity? {
         let title = Self.discordText(track.title, maximumLength: 128)
         guard let title, !title.isEmpty else { return nil }
@@ -193,7 +261,6 @@ struct AppleMusicActivityMapper {
             }
         }()
 
-        let stateText: String
         let start: Date?
         let end: Date?
         switch track.playbackState {
@@ -205,12 +272,8 @@ struct AppleMusicActivityMapper {
             end = track.duration.isFinite && track.duration > 0
                 ? playbackStart?.addingTimeInterval(track.duration)
                 : nil
-            stateText = title
         case .paused:
             playbackStart = nil
-            let position = Self.clock(track.position)
-            let duration = track.duration.isFinite && track.duration > 0 ? " / \(Self.clock(track.duration))" : ""
-            stateText = Self.discordText("\(title) · Paused at \(position)\(duration)", maximumLength: 128) ?? title
             start = nil
             end = nil
         }
@@ -220,19 +283,51 @@ struct AppleMusicActivityMapper {
         lastPosition = max(0, track.position)
         lastSampleTime = sampledAt
 
-        let artist = track.artist.flatMap { Self.discordText($0, maximumLength: 128) }
+        guard track.playbackState != .paused || options.showWhenPaused else { return nil }
+        func text(_ line: AppleMusicPresenceLine, template: String) -> String? {
+            switch line {
+            case .song: title
+            case .artist: track.artist.flatMap { Self.discordText($0, maximumLength: 128) }
+            case .album: track.album.flatMap { Self.discordText($0, maximumLength: 128) }
+            case .custom:
+                Self.discordText(template.replacingOccurrences(of: "{song}", with: track.title)
+                    .replacingOccurrences(of: "{artist}", with: track.artist ?? "")
+                    .replacingOccurrences(of: "{album}", with: track.album ?? ""), maximumLength: 128)
+            case .none: nil
+            }
+        }
+        // A missing artist/album must not accidentally reveal the song through
+        // the transport's generic details fallback.
+        let details = text(options.firstLine, template: options.firstLineTemplate) ?? "Apple Music"
+        var state = text(options.secondLine, template: options.secondLineTemplate)
+        if track.playbackState == .paused, let value = state {
+            let suffix: String
+            if options.showTimer {
+                let duration = track.duration.isFinite && track.duration > 0 ? " / \(Self.clock(track.duration))" : ""
+                suffix = " · Paused at \(Self.clock(track.position))\(duration)"
+            } else { suffix = " · Paused" }
+            state = Self.discordText(value + suffix, maximumLength: 128)
+        }
+        let statusField: NokoActivityStatusDisplayField
+        switch options.statusLine {
+        case .firstLine: statusField = .details
+        case .secondLine: statusField = state == nil ? .name : .state
+        case .application: statusField = .name
+        }
         return NokoActivity(
             title: title,
             type: .listening,
             name: "Apple Music",
-            details: artist,
-            state: stateText,
-            startedAt: start,
-            endsAt: end,
-            largeImageURL: artwork?.richPresenceURL,
-            largeImageAssetKey: artwork?.registeredDiscordAssetKey,
-            largeImageText: nil,
-            statusDisplayField: .state
+            details: details,
+            state: state,
+            startedAt: options.showTimer ? start : nil,
+            endsAt: options.showTimer ? end : nil,
+            largeImageURL: options.showArtwork ? artwork?.richPresenceURL : nil,
+            largeImageAssetKey: options.showArtwork ? artwork?.registeredDiscordAssetKey : nil,
+            largeImageText: options.showArtwork ? text(options.thirdLine, template: options.thirdLineTemplate) : nil,
+            smallImageURL: options.showArtistImage ? artistImage.flatMap(AppleMusicArtworkURL.validDeezerArtistImageURL)?.absoluteString : nil,
+            smallImageText: options.showArtistImage ? text(.artist, template: "") : nil,
+            statusDisplayField: statusField
         )
     }
 
@@ -267,12 +362,20 @@ final class AppleMusicPresenceService {
     private let bridge: NokoActivityBridge
     private let reader: any AppleMusicNowPlayingReading
     private let artworkLookup: any AppleMusicArtworkLookingUp
+    private let now: @Sendable () -> Date
+    private let defaults: UserDefaults?
+    private(set) var displayOptions: AppleMusicDisplayOptions
     private let owner = NokoActivityOwner(NokoNativeTanID.appleMusicPresence)
     private var manager: TanManager?
     private var managerObserver: UUID?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var pollTask: Task<Void, Never>?
     private var artworkTask: Task<Void, Never>?
+    private var artistImageTask: Task<Void, Never>?
+    private var artistImageKey: String?
+    private var artistImage: URL?
+    private var nextArtistLookupAt = Date.distantPast
+    private var artistPublicationRetryAfter: Date?
     private var publicationTask: Task<Void, Never>?
     private var publicationID = UUID()
     private var desiredActivity: NokoActivity?
@@ -286,7 +389,9 @@ final class AppleMusicPresenceService {
     @ObservationIgnored var onCallbackPumpDemandChanged: ((Bool) -> Void)?
     private var permissionDeniedForCurrentEnable = false
     private var currentIdentity: String?
-    private var lastArtworkLookupIdentity: String?
+    private var lastArtworkLookupKey: String?
+    private var nextArtworkLookupAt = Date.distantPast
+    private var imagePublicationRetryAfter: Date?
     private var resolvedArtwork: AppleMusicArtwork?
     private var currentActivity: NokoActivity?
     private var currentTrack: AppleMusicTrackSnapshot?
@@ -295,11 +400,46 @@ final class AppleMusicPresenceService {
     init(
         bridge: NokoActivityBridge,
         reader: any AppleMusicNowPlayingReading = ScriptingBridgeMusicReader(),
-        artworkLookup: any AppleMusicArtworkLookingUp = AppleMusicArtworkResolver()
+        artworkLookup: any AppleMusicArtworkLookingUp = AppleMusicArtworkResolver(),
+        now: @escaping @Sendable () -> Date = { Date() },
+        defaults: UserDefaults? = .standard
     ) {
+        self.defaults = defaults
+        if let data = defaults?.data(forKey: AppleMusicDisplayOptions.storageKey),
+           let options = try? JSONDecoder().decode(AppleMusicDisplayOptions.self, from: data) {
+            displayOptions = options
+        } else { displayOptions = AppleMusicDisplayOptions() }
         self.bridge = bridge
         self.reader = reader
         self.artworkLookup = artworkLookup
+        self.now = now
+    }
+
+    func updateDisplayOptions(_ requested: AppleMusicDisplayOptions) {
+        var options = requested
+        options.firstLineTemplate = String(options.firstLineTemplate.prefix(1024))
+        options.secondLineTemplate = String(options.secondLineTemplate.prefix(1024))
+        options.thirdLineTemplate = String(options.thirdLineTemplate.prefix(1024))
+        guard displayOptions != options else { return }
+        displayOptions = options
+        if !options.showArtistImage { artistImageTask?.cancel(); artistImageTask = nil; artistImageKey = nil; artistImage = nil }
+        if let data = try? JSONEncoder().encode(options) { defaults?.set(data, forKey: AppleMusicDisplayOptions.storageKey) }
+        // Rebuild from the current sample without another Music read or lookup.
+        if monitoring {
+            publishCurrentTrack(sampledAt: mapper.lastSampleTime ?? now())
+            if let currentTrack { scheduleArtistImage(for: currentTrack, generation: generation) }
+        }
+    }
+
+    private func publishCurrentTrack(sampledAt: Date) {
+        guard monitoring, let currentTrack else { return }
+        if let activity = mapper.activity(for: currentTrack, artwork: presenceArtwork,
+                                          sampledAt: sampledAt, options: displayOptions, artistImage: presenceArtistImage) {
+            publishIfChanged(activity, generation: generation)
+        } else if currentActivity != nil || desiredActivity != nil {
+            cancelPublication(); currentActivity = nil
+            scheduleBridgeStop()
+        }
     }
 
     func start(tanManager: TanManager) {
@@ -336,11 +476,14 @@ final class AppleMusicPresenceService {
         monitoring = false
         pollTask?.cancel(); pollTask = nil
         artworkTask?.cancel(); artworkTask = nil
+        clearArtistImage()
         cancelPublication()
         removeMusicLifecycleObservers()
         mapper.reset()
         currentIdentity = nil
-        lastArtworkLookupIdentity = nil
+        lastArtworkLookupKey = nil
+        nextArtworkLookupAt = .distantPast
+        imagePublicationRetryAfter = nil
         resolvedArtwork = nil
         currentActivity = nil
         currentTrack = nil
@@ -383,6 +526,7 @@ final class AppleMusicPresenceService {
         pollTask = nil
         artworkTask?.cancel()
         artworkTask = nil
+        clearArtistImage()
         status = newStatus
         refreshHomeSnapshot()
         if enabled {
@@ -394,7 +538,9 @@ final class AppleMusicPresenceService {
             cancelPublication()
             mapper.reset()
             currentIdentity = nil
-            lastArtworkLookupIdentity = nil
+            lastArtworkLookupKey = nil
+            nextArtworkLookupAt = .distantPast
+            imagePublicationRetryAfter = nil
             resolvedArtwork = nil
             currentActivity = nil
             currentTrack = nil
@@ -478,8 +624,16 @@ final class AppleMusicPresenceService {
         let changedTrack = currentIdentity != track.identity
         if changedTrack {
             artworkTask?.cancel()
+            artworkTask = nil
+            // The portrait belongs to the performer, not the song. Preserve an
+            // in-flight lookup, cached photo and retry cooldown for that artist.
+            if artistImageKey != track.artist?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                clearArtistImage()
+            }
             currentIdentity = track.identity
-            lastArtworkLookupIdentity = nil
+            lastArtworkLookupKey = nil
+            nextArtworkLookupAt = .distantPast
+            imagePublicationRetryAfter = nil
             resolvedArtwork = nil
             currentActivity = nil
         }
@@ -487,9 +641,9 @@ final class AppleMusicPresenceService {
         status = track.playbackState == .playing ? .playing : .paused
         refreshHomeSnapshot()
 
-        let activity = mapper.activity(for: track, artwork: resolvedArtwork ?? .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey), sampledAt: Date())
-        if let activity { publishIfChanged(activity, generation: generation) }
+        publishCurrentTrack(sampledAt: now())
         scheduleArtworkLookup(for: track, generation: generation)
+        scheduleArtistImage(for: track, generation: generation)
     }
 
     private func publishIfChanged(_ activity: NokoActivity, generation: UUID) {
@@ -528,12 +682,21 @@ final class AppleMusicPresenceService {
                 guard desiredActivity == activity else { continue }
                 // A failed external image must not prevent the song itself
                 // from appearing. Retry this state once with the known asset.
-                if activity.largeImageURL != nil, let track = currentTrack {
+                if activity.largeImageURL != nil, activity.largeImageAssetKey == nil, let track = currentTrack {
                     currentActivity = nil
-                    resolvedArtwork = .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey)
-                    refreshHomeSnapshot()
-                    desiredActivity = mapper.activity(for: track, artwork: resolvedArtwork,
-                                                      sampledAt: mapper.lastSampleTime ?? Date())
+                    // SDK failures can be connection failures, not bad images.
+                    // Publish the song without its external image for now, but
+                    // retain the resolved cover and retry it after a cooldown.
+                    imagePublicationRetryAfter = now().addingTimeInterval(AppleMusicArtworkPolicy.retryInterval)
+                    desiredActivity = mapper.activity(for: track, artwork: .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey),
+                                                      sampledAt: mapper.lastSampleTime ?? Date(), options: displayOptions, artistImage: presenceArtistImage)
+                    continue
+                }
+                if activity.smallImageURL != nil, let track = currentTrack {
+                    currentActivity = nil
+                    artistPublicationRetryAfter = now().addingTimeInterval(AppleMusicArtworkPolicy.retryInterval)
+                    desiredActivity = mapper.activity(for: track, artwork: presenceArtwork,
+                        sampledAt: mapper.lastSampleTime ?? now(), options: displayOptions, artistImage: nil)
                     continue
                 }
                 // Connection failures retry on the next sample without
@@ -550,10 +713,53 @@ final class AppleMusicPresenceService {
         desiredActivity = nil
     }
 
+    private var presenceArtwork: AppleMusicArtwork {
+        if let retryAfter = imagePublicationRetryAfter, now() < retryAfter {
+            return .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey)
+        }
+        return resolvedArtwork ?? .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey)
+    }
+
+    private var presenceArtistImage: URL? {
+        guard artistImageKey == currentTrack?.artist?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if let retry = artistPublicationRetryAfter, now() < retry { return nil }
+        return artistImage
+    }
+
+    private func clearArtistImage() {
+        artistImageTask?.cancel(); artistImageTask = nil
+        artistImageKey = nil; artistImage = nil; nextArtistLookupAt = .distantPast; artistPublicationRetryAfter = nil
+    }
+    private func scheduleArtistImage(for track: AppleMusicTrackSnapshot, generation: UUID) {
+        guard displayOptions.showArtistImage else { return }
+        let key = (track.artist ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { clearArtistImage(); return }
+        if key != artistImageKey { clearArtistImage(); artistImageKey = key }
+        guard artistImageTask == nil, artistImage == nil, now() >= nextArtistLookupAt else { return }
+        artistImageTask = Task { [weak self, artworkLookup] in
+            let image = await artworkLookup.artistImage(for: track)
+            guard !Task.isCancelled, let self, self.generation == generation,
+                  self.artistImageKey == key, self.displayOptions.showArtistImage else { return }
+            self.artistImageTask = nil
+            self.artistImage = image.flatMap(AppleMusicArtworkURL.validDeezerArtistImageURL)
+            self.nextArtistLookupAt = self.now().addingTimeInterval(AppleMusicArtworkPolicy.retryInterval)
+            self.publishCurrentTrack(sampledAt: self.mapper.lastSampleTime ?? self.now())
+        }
+    }
+
     private func scheduleArtworkLookup(for track: AppleMusicTrackSnapshot, generation: UUID) {
-        guard lastArtworkLookupIdentity != track.identity else { return }
-        lastArtworkLookupIdentity = track.identity
+        guard artworkTask == nil else { return }
+        let key = track.identity + "|" + AppleMusicArtworkResolver.cacheKey(for: track)
+        let changedMetadata = lastArtworkLookupKey != key
+        guard changedMetadata || (resolvedArtwork?.isTrackSpecific != true && now() >= nextArtworkLookupAt) else { return }
+        lastArtworkLookupKey = key
         artworkTask = Task { [weak self, artworkLookup] in
+            defer {
+                if let self, self.generation == generation, self.lastArtworkLookupKey == key {
+                    self.artworkTask = nil
+                    self.nextArtworkLookupAt = self.now().addingTimeInterval(AppleMusicArtworkPolicy.retryInterval)
+                }
+            }
             // Reuse an already-fetched album cover without another backup
             // request. The normal lookup still gives fresh primary art priority.
             if let cached = await artworkLookup.cachedArtwork(for: track) {
@@ -568,21 +774,23 @@ final class AppleMusicPresenceService {
 
     private func applyArtwork(_ artwork: AppleMusicArtwork?, identity: String, generation: UUID) {
         guard self.generation == generation, monitoring, currentIdentity == identity,
-              let currentTrack else { return }
+              currentTrack != nil else { return }
+        if artwork != resolvedArtwork { imagePublicationRetryAfter = nil }
         resolvedArtwork = artwork
         refreshHomeSnapshot()
         let sampleTime = mapper.lastSampleTime ?? Date()
-        if let updated = mapper.activity(for: currentTrack, artwork: artwork, sampledAt: sampleTime) {
-            publishIfChanged(updated, generation: generation)
-        }
+        publishCurrentTrack(sampledAt: sampleTime)
     }
 
     private func clearCurrentActivity(generation: UUID) async {
         cancelPublication()
         artworkTask?.cancel()
         artworkTask = nil
+        clearArtistImage()
         currentIdentity = nil
-        lastArtworkLookupIdentity = nil
+        lastArtworkLookupKey = nil
+        nextArtworkLookupAt = .distantPast
+        imagePublicationRetryAfter = nil
         resolvedArtwork = nil
         currentTrack = nil
         refreshHomeSnapshot()
@@ -641,20 +849,28 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
     private let primarySource: any AppleMusicArtworkSource
     private let fallbackSource: any AppleMusicArtworkSource
     private let fallbackAssetKey: String
+    private let now: @Sendable () -> Date
     private var successfulArtwork: [String: AppleMusicArtwork] = [:]
     private var successOrder: [String] = []
     private var missExpiry: [String: Date] = [:]
     private let maximumCacheSize = 96
-    private let negativeCacheLifetime: TimeInterval = 10 * 60
+    private let negativeCacheLifetime = AppleMusicArtworkPolicy.retryInterval
 
     init(
         primarySource: any AppleMusicArtworkSource = AppleMusicCurrentArtworkSource(),
-        fallbackSource: any AppleMusicArtworkSource = AppleMusicFallbackArtworkSource(),
-        fallbackAssetKey: String = AppleMusicArtwork.genericDiscordAssetKey
+        fallbackSource: any AppleMusicArtworkSource = DeezerArtworkSource(),
+        fallbackAssetKey: String = AppleMusicArtwork.genericDiscordAssetKey,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.primarySource = primarySource
         self.fallbackSource = fallbackSource
         self.fallbackAssetKey = fallbackAssetKey
+        self.now = now
+    }
+
+    func artistImage(for track: AppleMusicTrackSnapshot) async -> URL? {
+        guard !Task.isCancelled else { return nil }
+        return await fallbackSource.artistImageURL(for: track)
     }
 
     func cachedArtwork(for track: AppleMusicTrackSnapshot) async -> AppleMusicArtwork? {
@@ -669,7 +885,7 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
         guard !Task.isCancelled else { return nil }
         let key = Self.cacheKey(for: track)
         if let cached = successfulArtwork[key] { return cached }
-        if let expiry = missExpiry[key], expiry > Date() {
+        if let expiry = missExpiry[key], expiry > now() {
             // Another song may have populated the album cache since this miss.
             if let cached = await cachedArtwork(for: track) {
                 cacheSuccess(cached, for: key)
@@ -698,7 +914,7 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
             return artwork
         }
 
-        missExpiry[key] = Date().addingTimeInterval(negativeCacheLifetime)
+        missExpiry[key] = now().addingTimeInterval(negativeCacheLifetime)
         trimMisses()
         return .discordAssetKey(fallbackAssetKey)
     }
@@ -713,7 +929,7 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
     }
 
     private func trimMisses() {
-        let now = Date()
+        let now = now()
         missExpiry = missExpiry.filter { $0.value > now }
         if missExpiry.count > maximumCacheSize {
             for key in missExpiry.keys.sorted(by: { missExpiry[$0, default: .distantPast] < missExpiry[$1, default: .distantPast] })
@@ -723,9 +939,9 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
         }
     }
 
-    private static func cacheKey(for track: AppleMusicTrackSnapshot) -> String {
+    static func cacheKey(for track: AppleMusicTrackSnapshot) -> String {
         let duration = track.duration.isFinite && track.duration > 0 ? String(Int(track.duration.rounded())) : ""
-        return [track.title, track.artist ?? "", track.album ?? "", duration]
+        return [track.title, track.artist ?? "", track.album ?? "", track.albumArtist ?? "", duration]
             .map(normalized).joined(separator: "|")
     }
 
@@ -738,8 +954,8 @@ actor AppleMusicArtworkResolver: AppleMusicArtworkLookingUp {
 actor AppleMusicCurrentArtworkSource: AppleMusicArtworkSource {
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 3
-        configuration.timeoutIntervalForResource = 4
+        configuration.timeoutIntervalForRequest = 6
+        configuration.timeoutIntervalForResource = 8
         return URLSession(configuration: configuration)
     }()
     private struct SearchResponse: Decodable {
@@ -757,7 +973,7 @@ actor AppleMusicCurrentArtworkSource: AppleMusicArtworkSource {
 
         do {
             var request = URLRequest(url: requestURL)
-            request.timeoutInterval = 3
+            request.timeoutInterval = 6
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             let (data, response) = try await session.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200,

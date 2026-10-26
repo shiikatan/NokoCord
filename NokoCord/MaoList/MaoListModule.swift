@@ -211,6 +211,15 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     let repository: MLRepository
     let images = MLImageLoader()
     let home = MLHomeState()
+    let entryLoading = MLEntryLoadingPresentation()
+    private(set) var restorationInFlight = false
+    @ObservationIgnored private var restorationLease = UUID()
+    var entryLoadingPending: Bool { !restorationStarted && restoring && !stopped }
+    var entryLoadingPermitted: Bool {
+        !stopped && !connecting && viewer == nil && home.data == nil && home.error == nil &&
+        accountError == nil && !needsReconnect && section == .home && !searching && routes.isEmpty
+    }
+    var entryLoadingEligible: Bool { restorationInFlight && restoring && entryLoadingPermitted }
     var section: MLSection = .home
     var animeListStatus: MLListStatus? = .current
     var mangaListStatus: MLListStatus? = .current
@@ -321,8 +330,11 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     private func startRestore(silently: Bool) {
         guard !stopped, !restorationStarted else { return }
         restorationStarted = true; restorationSilent = silently; restoring = true
+        restorationInFlight = true
+        let restoreLease = UUID(); restorationLease = restoreLease
         let keychain = keychain, client = repository.client
         accountTask = Task { [weak self, keychain, client] in
+            defer { if self?.restorationLease == restoreLease { self?.restorationInFlight = false } }
             await client.setAuthenticationFailureHandler { [weak self] in
                 Task { @MainActor [weak self] in self?.handle(MLError.authentication) }
             }
@@ -351,6 +363,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     func stop() {
         guard !stopped else { return }
         stopped = true
+        restorationInFlight = false; entryLoading.dismiss()
         clearMediaPreviews()
         cancelPreparation()
         preparedLibraryPages.removeAll()
@@ -469,6 +482,8 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
         preparationTask?.cancel(); preparationTask = nil
         preparationStarted = false; preparing = false; preparationStatus = nil
         if restorationSilent {
+            restorationLease = UUID()
+            restorationInFlight = false
             accountTask?.cancel(); accountTask = nil
             restorationSilent = false; restorationStarted = false; restoring = false
         }

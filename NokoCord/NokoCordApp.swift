@@ -157,7 +157,8 @@ private final class NokoStartupCoordinator {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.context != nil else { return }
-                self.showMenuBar = UserDefaults.standard.bool(forKey: "showMenuBar")
+                let visible = UserDefaults.standard.bool(forKey: "showMenuBar")
+                if self.showMenuBar != visible { self.showMenuBar = visible }
             }
         }
     }
@@ -277,7 +278,7 @@ private struct NokoCordCommands: Commands {
         CommandGroup(after: .toolbar) {
             if EditionIdentity.current?.id == "maomao" {
                 Button("Switch between NokoCord and MaoList") { switchApp?() }
-                    .keyboardShortcut("m", modifiers: [.command, .shift]).disabled(switchApp == nil)
+                    .keyboardShortcut("m", modifiers: [.control, .command]).disabled(switchApp == nil)
                 Button("Show Noko-Bar") { showNokoBar = true }
                     .keyboardShortcut("n", modifiers: [.control, .command])
             }
