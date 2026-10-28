@@ -124,7 +124,7 @@ enum MLRoute: Hashable { case media(Int), activity(Int), review(Int), profile(In
 /// Off has no session, Keychain read, observers, images, models or tasks.
 @MainActor @Observable
 final class MaoListModule {
-    static let version = "ML2.0.0"
+    static let version = "ML2.5.0"
     static let preferenceKey = "maomaoMaoListEnabled"
     static let preparationPreferenceKey = "maomaoMaoListPrepareAtLaunch"
     private(set) var runtime: MLRuntime?
@@ -289,7 +289,6 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
     private(set) var needsReconnect = false
     var accountError: String?
     var mutationRevision = 0
-    var discordPalette: MLDiscordPalette?
     private(set) var preparationStatus: String?
     private(set) var preparing = false
     private(set) var preparedLibraryPages: [String: Int] = [:]
@@ -373,7 +372,7 @@ final class MLRuntime: NSObject, ASWebAuthenticationPresentationContextProviding
         images.stop()
         home.clear()
         repository.client.close()
-        credentials = nil; viewer = nil; routes.removeAll(); discordPalette = nil
+        credentials = nil; viewer = nil; routes.removeAll()
         let client = repository.client
         Task { await client.stop() }
     }

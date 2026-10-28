@@ -193,6 +193,49 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
     [data-list-item-id^="members-"] :is([class^="layout_"], [class*=" layout_"]) { border-radius: 9px; }
     [data-list-id="people"] > :is([class^="peopleListItem_"], [class*=" peopleListItem_"]) { border-radius: 10px; }
 
+    /* Discord's Friends sidebar shares its root in expanded and avatar-only
+     * modes. Identify that structure, not a generated suffix or localized label.
+     * Keep its native width, body geometry, resize handle and collapse controls.
+     */
+    :is([class^="container_"], [class*=" container_"]):has(> :is([class^="resizeHandle_"], [class*=" resizeHandle_"])):has(> :is([class^="modeSelectButton_"], [class*=" modeSelectButton_"])):has(> :is([class^="header_"], [class*=" header_"])):has(> :is([class^="body_"], [class*=" body_"])) {
+        --noko-friends-inset: 10px;
+        /* The surrounding channel layout already supplies the top gutter. */
+        margin-block: 0 10px;
+        margin-inline: var(--noko-friends-inset);
+        border-color: transparent;
+        border-radius: 12px;
+        background: transparent;
+        box-shadow: var(--maomao-glass-shadow);
+        isolation: isolate;
+
+        /* The collapsed header has a direct expand button; expanded controls
+         * live in a separate stack beside the mode selector. No width override.
+         */
+        &:has(> :is([class^="header_"], [class*=" header_"]) > :is([class^="button_"], [class*=" button_"])) {
+            --noko-friends-inset: 5px;
+        }
+        &::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            border: 1px solid var(--maomao-glass-line);
+            border-radius: inherit;
+            background: var(--maomao-glass-background);
+            -webkit-backdrop-filter: var(--maomao-glass-filter);
+            backdrop-filter: var(--maomao-glass-filter);
+        }
+        > :is([class^="header_"], [class*=" header_"]) {
+            background: transparent;
+            border-bottom-color: var(--maomao-line);
+            box-shadow: none;
+        }
+        > :is([class^="body_"], [class*=" body_"]) {
+            background: transparent;
+        }
+    }
+
     /* User/voice panels: keep Nitro's custom user-panel banner and decorations
      * visible inside the rounded frame. Never style the banner descendants.
      */
@@ -395,7 +438,6 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
         [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"],
         [class^="panels_"], [class*=" panels_"],
         :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"]),
-        [role="menu"],
         [class^="messagesPopoutWrap_"], [class*=" messagesPopoutWrap_"],
         [class^="emojiPicker_"], [class*=" emojiPicker_"]
     ) {
@@ -404,6 +446,30 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
         box-shadow: var(--maomao-glass-shadow);
         -webkit-backdrop-filter: var(--maomao-glass-filter);
         backdrop-filter: var(--maomao-glass-filter);
+    }
+
+    /* A filter on the menu itself contains Discord's fixed-position nested
+     * popovers. Paint glass behind it so submenus retain viewport coordinates.
+     */
+    [role="menu"] {
+        position: relative;
+        isolation: isolate;
+        background: transparent;
+        border-color: var(--maomao-glass-line);
+        box-shadow: var(--maomao-glass-shadow);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        &::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            border-radius: inherit;
+            background: var(--maomao-glass-background);
+            -webkit-backdrop-filter: var(--maomao-glass-filter);
+            backdrop-filter: var(--maomao-glass-filter);
+        }
     }
 
     /* A denser typing surface carries the same viewport-aligned Nitro theme.

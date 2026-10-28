@@ -232,7 +232,7 @@ NokoTan.register({
         #else
         let bundle = Bundle.main
         #endif
-        let packagedOriginals: [TanPackage] = ["NokoChat", "NokoX", "Morgana"].compactMap { name in
+        let packagedOriginals: [TanPackage] = ["NokoChat", "NokoX", "Morgana", "FakeNitro"].compactMap { name in
             guard let url = bundle.resourceURL?.appendingPathComponent(name + ".tan.json"),
                   let data = try? Data(contentsOf: url),
                   let package = try? JSONDecoder().decode(TanPackage.self, from: data),

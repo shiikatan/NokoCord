@@ -6,9 +6,8 @@ struct MaomaoDiscordAppearanceSettings: View {
     @AppStorage(MaomaoDiscordPresentation.preferenceKey) private var enabled = true
 
     var body: some View {
-        Toggle("Noko-Glass", isOn: $enabled)
-            .onChange(of: enabled) { _, value in browser.setNokoGlassEnabled(value) }
-        Text("Use NokoCord’s translucent Discord presentation. Turn off for Discord’s normal appearance.")
-            .font(.caption).foregroundStyle(.secondary)
+        Toggle(isOn: $enabled) {
+            SettingsControlLabel("Use Noko-Glass", explanation: "Apply NokoCord’s translucent appearance to Discord. Turn off to use Discord’s normal appearance.")
+        }.onChange(of: enabled) { _, value in browser.setNokoGlassEnabled(value) }
     }
 }

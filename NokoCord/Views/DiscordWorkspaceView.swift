@@ -44,11 +44,13 @@ struct NokoRootView: View {
                 .accessibilityHidden(!browser.lifecycle.isVisible)
             }
         }
-        .onAppear { [browser, maolist, workspaceSelection = $selection, homeTarget = $headerButtonOpensHome] in
-            browser.onSwitchToMaoList = { [weak browser, weak maolist, workspaceSelection, homeTarget] in
-                guard homeTarget.wrappedValue || maolist?.enabled == true else { return }
-                workspaceSelection.wrappedValue = homeTarget.wrappedValue ? .home : .maolist
-                browser?.showHome()
+        .onAppear { [browser, maolist, workspaceSelection = $selection] in
+            browser.onSwitchToMaoList = { [weak browser, weak maolist, workspaceSelection] in
+                guard let browser else { return }
+                let home = browser.maoListHeaderOpensHome
+                guard home || maolist?.enabled == true else { return }
+                workspaceSelection.wrappedValue = home ? .home : .maolist
+                browser.showHome()
             }
             browser.setMaoListSwitchEnabled(maolist.enabled, opensHome: headerButtonOpensHome)
         }
@@ -72,10 +74,8 @@ struct NokoRootView: View {
         }
         .navigationTitle(browser.lifecycle.isVisible ? "NokoCord" : selection == .home ? "" : selection.title)
         .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .title : nil)
-        .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .sidebarToggle : nil)
-        .background(WorkspaceWindowToolbarVisibility(
-            hidden: browser.lifecycle.isVisible || selection == .maolist
-        ).frame(width: 0, height: 0))
+        .toolbar(removing: .sidebarToggle)
+        .background(WorkspaceWindowToolbarVisibility(hidden: true).frame(width: 0, height: 0))
         .nokoCordAppearance()
     }
     // NokoBar is a flat content row. The native toolbar stays hidden throughout

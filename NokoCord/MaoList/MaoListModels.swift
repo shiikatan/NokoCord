@@ -1,6 +1,5 @@
 import Foundation
 
-struct MLDiscordPalette: Sendable { let accent: String; let surface: String }
 
 enum MLMediaType: String, Codable, CaseIterable, Identifiable, Sendable {
     case anime = "ANIME", manga = "MANGA"

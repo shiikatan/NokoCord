@@ -18,6 +18,7 @@
 		C01234567890123456789006 /* NokoCord/Services/ManualUpdateTransactionWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789016 /* NokoCord/Services/ManualUpdateTransactionWorker.swift */; };
 		C01234567890123456789007 /* NokoCordUpdateHelper in Embed Update Helper */ = {isa = PBXBuildFile; fileRef = C01234567890123456789018 /* NokoCordUpdateHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		C01234567890123456789025 /* NokoCord/Services/ManualUpdateValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01234567890123456789024 /* NokoCord/Services/ManualUpdateValidation.swift */; };
+		F01234567890123456789001 /* NokoIconVariant.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01234567890123456789002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -79,6 +80,7 @@
 		C01234567890123456789016 /* NokoCord/Services/ManualUpdateTransactionWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdateTransactionWorker.swift; sourceTree = SOURCE_ROOT; };
 		C01234567890123456789018 /* NokoCordUpdateHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NokoCordUpdateHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		C01234567890123456789024 /* NokoCord/Services/ManualUpdateValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Services/ManualUpdateValidation.swift; sourceTree = SOURCE_ROOT; };
+		F01234567890123456789002 /* NokoIconVariant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NokoCord/Models/NokoIconVariant.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -152,6 +154,7 @@
 				C01234567890123456789012 /* NokoCord/Services/ManualUpdaterModels.swift */,
 				C01234567890123456789013 /* NokoCord/Services/ManualUpdateArchive.swift */,
 				C01234567890123456789024 /* NokoCord/Services/ManualUpdateValidation.swift */,
+				F01234567890123456789002 /* NokoIconVariant.swift */,
 				C01234567890123456789015 /* NokoCord/Services/ManualUpdateTransaction.swift */,
 				C01234567890123456789016 /* NokoCord/Services/ManualUpdateTransactionWorker.swift */,
 			);
@@ -278,6 +281,7 @@
 				C01234567890123456789002 /* NokoCord/Services/ManualUpdaterModels.swift in Sources */,
 				C01234567890123456789003 /* NokoCord/Services/ManualUpdateArchive.swift in Sources */,
 				C01234567890123456789025 /* NokoCord/Services/ManualUpdateValidation.swift in Sources */,
+				F01234567890123456789001 /* NokoIconVariant.swift in Sources */,
 				C01234567890123456789005 /* NokoCord/Services/ManualUpdateTransaction.swift in Sources */,
 				C01234567890123456789006 /* NokoCord/Services/ManualUpdateTransactionWorker.swift in Sources */,
 			);
@@ -421,7 +425,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/NokoCord.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 24;
+				CURRENT_PROJECT_VERSION = "$(NOKO_BUILD_NUMBER)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -475,7 +479,7 @@
 				CODE_SIGN_ENTITLEMENTS = Config/NokoCord.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 24;
+				CURRENT_PROJECT_VERSION = "$(NOKO_BUILD_NUMBER)";
 				DEPLOYMENT_POSTPROCESSING = YES;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;

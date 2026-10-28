@@ -1,24 +1,20 @@
 import SwiftUI
-import WebKit
 
 struct MLPalette {
     var accent: Color
     var background: Color
     var surface: Color
     var preset: MLThemePreset? = nil
-    static func resolve(dark: Bool, custom: String, discord: MLDiscordPalette?) -> MLPalette {
-        let base = MLRGB(hex: dark ? "141817" : "F6F8F6")!
-        // Preserve macOS light/dark semantics even when Discord uses the other
-        // appearance. Its surface contributes hue without flipping text contrast.
-        let background = discord.flatMap { MLRGB(hex: $0.surface) }.map { base.mixed(with: $0, amount: 0.12) } ?? base
-        let chosen = MLRGB(hex: discord?.accent ?? custom) ?? MLRGB(hex: dark ? "72CDB4" : "176D59")!
+    static func resolve(dark: Bool, custom: String) -> MLPalette {
+        let background = MLRGB(hex: dark ? "141817" : "F6F8F6")!
+        let chosen = MLRGB(hex: custom) ?? MLRGB(hex: dark ? "72CDB4" : "176D59")!
         let accent = chosen.readable(on: background, dark: dark)
         let surface = background.mixed(with: accent, amount: dark ? 0.075 : 0.025)
         func color(_ rgb: MLRGB) -> Color { Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue, opacity: 1) }
         return MLPalette(accent: color(accent), background: color(background), surface: color(surface))
     }
 }
-private struct MLPaletteKey: EnvironmentKey { static let defaultValue = MLPalette.resolve(dark: true, custom: "", discord: nil) }
+private struct MLPaletteKey: EnvironmentKey { static let defaultValue = MLPalette.resolve(dark: true, custom: "") }
 extension EnvironmentValues {
     var mlPalette: MLPalette { get { self[MLPaletteKey.self] } set { self[MLPaletteKey.self] = newValue } }
 }
@@ -34,47 +30,13 @@ extension Color {
     }
 }
 
-enum MLDiscordColors {
-    /// One read on entry; no script installation, mutations or theme observers.
-    @MainActor static func read(from browser: ActiveBrowserEngine) async -> MLDiscordPalette? {
-        guard let view = browser.view as? WKWebView, BrowserPolicy.isDiscordOrigin(view.url) else { return nil }
-        let script = """
-        (() => {
-          const root = document.querySelector('[class*="appMount"]') || document.body;
-          if (!root) return null;
-          const styles = getComputedStyle(root);
-          const resolve = name => {
-            const value = styles.getPropertyValue(name).trim();
-            if (!value || value.includes('gradient') || value.includes('var(') || !CSS.supports('color', value)) return null;
-            const canvas = document.createElement('canvas');
-            canvas.width = canvas.height = 1;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return null;
-            ctx.fillStyle = '#00000000'; ctx.fillStyle = value;
-            ctx.fillRect(0, 0, 1, 1);
-            const rgba = ctx.getImageData(0, 0, 1, 1).data;
-            if (rgba[3] < 230) return null;
-            return '#' + Array.from(rgba).slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('');
-          };
-          return {accent: resolve('--brand-500'), surface: resolve('--background-base-lowest') || resolve('--background-primary')};
-        })()
-        """
-        guard let value = try? await view.evaluateJavaScript(script) as? [String: String],
-              let accent = value["accent"], let surface = value["surface"],
-              Color(mlHex: accent) != nil, Color(mlHex: surface) != nil else { return nil }
-        return MLDiscordPalette(accent: accent, surface: surface)
-    }
-}
-
 struct MLAppearance: ViewModifier {
-    @Environment(MLRuntime.self) private var runtime
     @Environment(\.colorScheme) private var scheme
     @AppStorage("maolistAccent") private var accent = ""
-    @AppStorage("maolistCopyDiscordColors") private var copyDiscord = false
     @AppStorage("maolistThemePreset") private var presetID = ""
     func body(content: Content) -> some View {
-        let preset = copyDiscord ? nil : MLThemePreset(rawValue: presetID)
-        var palette = MLPalette.resolve(dark: scheme == .dark, custom: preset?.hexColors.first ?? accent, discord: copyDiscord ? runtime.discordPalette : nil)
+        let preset = MLThemePreset(rawValue: presetID)
+        var palette = MLPalette.resolve(dark: scheme == .dark, custom: preset?.hexColors.first ?? accent)
         palette.preset = preset
         return content.environment(\.mlPalette, palette).tint(palette.accent).background {
             palette.background.overlay {
@@ -159,7 +121,6 @@ private final class MLGradientNSView: NSView {
 
 struct MLThemePresetPicker: View {
     @Binding var selection: String
-    @Binding var copyDiscord: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Color presets").font(.headline)
@@ -167,23 +128,22 @@ struct MLThemePresetPicker: View {
                 ForEach(MLThemePreset.allCases) { preset in
                     Button {
                         selection = preset.rawValue
-                        copyDiscord = false
                     } label: {
                         VStack(alignment: .leading, spacing: 7) {
                             MLShiftingGradient(preset: preset).frame(height: 38).clipShape(.rect(cornerRadius: 8))
                             HStack {
                                 Text(preset.name)
                                 Spacer(minLength: 0)
-                                if selection == preset.rawValue && !copyDiscord {
+                                if selection == preset.rawValue {
                                     Image(systemName: "checkmark.circle.fill")
                                 }
                             }.font(.caption.weight(.semibold)).foregroundStyle(.primary)
                         }.padding(8)
                             .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selection == preset.rawValue && !copyDiscord ? Color.accentColor : .clear, lineWidth: 2))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selection == preset.rawValue ? Color.accentColor : .clear, lineWidth: 2))
                     }.buttonStyle(.plain)
                         .accessibilityLabel(preset.name + " color preset")
-                        .accessibilityAddTraits(selection == preset.rawValue && !copyDiscord ? .isSelected : [])
+                        .accessibilityAddTraits(selection == preset.rawValue ? .isSelected : [])
                 }
             }
             Text("Slowly shifting gradients across MaoList. Motion pauses when inactive and respects Reduce Motion.")

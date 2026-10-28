@@ -1,0 +1,7 @@
+{
+  "upstream": "https://github.com/Vendicated/Vencord/tree/main/src/plugins/fakeNitro",
+  "reviewed": "2026-10-27",
+  "sourceSHA256": "79c088b3199ea165d6f944f2a52a16f51223c53696289a3bba80b4b4925b867e",
+  "gifencVersion": "1.0.3",
+  "gifencIntegrity": "sha512-xdr6AdrfGBcfzncONUOlXMBuc5wJDtOueE3c5rdG0oNgtINLD+f2iFZltrBRZYzACRbKr+mSVU/x98zv2u3jmw=="
+}

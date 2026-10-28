@@ -33,8 +33,10 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
     @ObservationIgnored private var appSwitching: MaomaoAppSwitching?
     @ObservationIgnored var onSwitchToMaoList: (() -> Void)?
     private var maoListSwitchEnabled = false
+    private(set) var maoListHeaderOpensHome = false
     func setMaoListSwitchEnabled(_ enabled: Bool, opensHome: Bool = false) {
         guard EditionIdentity.current?.id == "maomao" else { return }
+        maoListHeaderOpensHome = opensHome
         maoListSwitchEnabled = enabled || opensHome
         if enabled || opensHome {
             if appSwitching == nil {
@@ -76,6 +78,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                     self.nokonymise?.apply(to: view)
                     self.mediaDownloads?.install(on: view.configuration.userContentController)
                     self.appSwitching?.install(on: view.configuration.userContentController)
+                    NokoFakeNitroPreferences.install(on: view.configuration.userContentController, enabled: self.fakeNitroActive)
+                    MaomaoStreamSettings.install(on: view.configuration.userContentController)
                 }
                 guard scriptsChanged else { return }
                 // Tan reconfiguration rebuilds the controller's user scripts.
@@ -83,6 +87,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
                     let safeMode = tans?.safeMode ?? false
                     MaomaoDiscordPresentation.install(on: view.configuration.userContentController, safeMode: safeMode)
                     MaomaoDiscordPresentation.apply(to: view, safeMode: safeMode)
+                    NokoFakeNitroPreferences.install(on: view.configuration.userContentController, enabled: self.fakeNitroActive)
+                    MaomaoStreamSettings.install(on: view.configuration.userContentController)
                 }
             }
         }
@@ -124,6 +130,8 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         appSwitching?.install(on: configuration.userContentController)
         MaomaoDiscordPresentation.install(on: configuration.userContentController,
                                          safeMode: tanRuntime?.manager.safeMode ?? false)
+        NokoFakeNitroPreferences.install(on: configuration.userContentController, enabled: fakeNitroActive)
+        MaomaoStreamSettings.install(on: configuration.userContentController)
         let view: WKWebView
         if mediaDownloads != nil {
             let maomaoView = MaomaoWebView(frame: .zero, configuration: configuration)
@@ -201,6 +209,30 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         MaomaoDiscordPresentation.apply(to: view, safeMode: safeMode, enabled: enabled)
     }
     func dismissNotice() { notice = nil }
+    private var fakeNitroActive: Bool {
+        tanRuntime?.manager.scriptActive.contains { $0.id == "noko.fake-nitro" && $0.origin == "Noko Original" } == true
+    }
+    func fakeNitroOptions() async -> NokoFakeNitroOptions {
+        if let saved = NokoFakeNitroPreferences.saved { return .decode(saved) }
+        guard let view = browserView, BrowserPolicy.isDiscordOrigin(view.url),
+              let value = try? await view.evaluateJavaScript("localStorage.getItem('noko.fake-nitro.settings.v1')"),
+              let text = value as? String else { return .init() }
+        return .decode(text.data(using: .utf8))
+    }
+    func setFakeNitroOptions(_ options: NokoFakeNitroOptions) async {
+        let options = NokoFakeNitroOptions.decode(options.data)
+        NokoFakeNitroPreferences.save(options)
+        guard let view = browserView else { return }
+        NokoFakeNitroPreferences.install(on: view.configuration.userContentController, enabled: fakeNitroActive)
+        guard fakeNitroActive, BrowserPolicy.isDiscordOrigin(view.url) else { return }
+        _ = try? await view.evaluateJavaScript(NokoFakeNitroPreferences.script(options))
+    }
+    func fakeNitroCompatibility() async -> NokoFakeNitroCompatibility? {
+        guard let view = browserView, BrowserPolicy.isDiscordOrigin(view.url),
+              let value = try? await view.evaluateJavaScript("JSON.stringify(globalThis[Symbol.for('noko.fake-nitro.compat.v1')]?.statusSnapshot?.() || null)"),
+              let text = value as? String, let data = text.data(using: .utf8), data.count <= 16 * 1024 else { return nil }
+        return try? JSONDecoder().decode(NokoFakeNitroCompatibility.self, from: data)
+    }
     func clearProfile() async {
         guard lifecycle.phase != .clearing else { return }
         lifecycle.clearing()

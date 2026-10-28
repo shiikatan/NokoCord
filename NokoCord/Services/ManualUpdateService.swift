@@ -193,13 +193,17 @@ actor ManualUpdateService {
     }
 
     func inspect(zipURL: URL) async throws -> ManualUpdateCandidate {
+        try await inspect(zipURL: zipURL, preservingExistingCandidates: false)
+    }
+
+    func inspect(zipURL: URL, preservingExistingCandidates: Bool) async throws -> ManualUpdateCandidate {
         emit(.inspecting)
         let accessStarted = zipURL.startAccessingSecurityScopedResource()
         defer { if accessStarted { zipURL.stopAccessingSecurityScopedResource() } }
         let candidateID = UUID()
         let candidateDirectory = paths.candidateRoot.appendingPathComponent(candidateID.uuidString, isDirectory: true)
         do {
-            try discardCandidates()
+            if !preservingExistingCandidates { try discardCandidates() }
             try MaomaoDataPaths.createPrivateDirectory(candidateDirectory)
             let privateArchive = candidateDirectory.appendingPathComponent("selected-update.zip")
             emit(.copyingArchive)
@@ -330,6 +334,9 @@ actor ManualUpdateService {
               staged.build == candidate.build,
               staged.executableName == candidate.executableName,
               classify(installed: installed, candidate: staged) == candidate.classification else { throw ManualUpdateError.staleCandidate }
+        if operation == .changeIcon {
+            try NokoIconVariantPackage.validateNativePair(currentAppURL, candidate.stagedApplicationURL)
+        }
         let currentValidation = try validator.validate(appURL: currentAppURL, executableURL: installed.executableURL)
         let stagedValidation = try validator.validate(appURL: candidate.stagedApplicationURL, executableURL: staged.executableURL)
         _ = try validateUpdaterHelper(

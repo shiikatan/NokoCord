@@ -32,7 +32,7 @@ actor NokoFetchService {
     }
 
     func fetch(currentVersion: ManualUpdateVersion, updater: any NokoFetchInspecting,
-               progress: @escaping @Sendable (NokoFetchProgress) -> Void) async throws -> NokoFetchResult {
+               appIcon: NokoAppIcon = .installed(), progress: @escaping @Sendable (NokoFetchProgress) -> Void) async throws -> NokoFetchResult {
         let workspace = try NokoFetchWorkspace(paths: paths)
         defer { workspace.close() }
         var inspectedCandidate: ManualUpdateCandidate?
@@ -53,8 +53,9 @@ actor NokoFetchService {
                 if batch.count < 100 { break }
                 if page == 10 { throw NokoFetchError.metadata }
             }
-            let selection = try NokoFetchSelection.latest(in: releases)
-            guard selection.version > currentVersion else { return .upToDate(selection.version) }
+            let newest = try NokoFetchSelection.latest(in: releases)
+            guard newest.version > currentVersion else { return .upToDate(newest.version) }
+            let selection = appIcon == .maolist ? try NokoFetchSelection.latest(in: releases, appIcon: .maolist) : newest
             let sumFile = workspace.directory.appendingPathComponent("SHA256SUMS")
             try await transport.download(URL(string: selection.checksum.browser_download_url)!, to: sumFile,
                                          limit: NokoFetchSelection.maximumChecksumSize, expectedSize: selection.checksum.size, progress: { _ in })
@@ -79,6 +80,8 @@ actor NokoFetchService {
             guard candidate.marketingVersion == selection.version, candidate.archiveSHA256 == expected else {
                 throw NokoFetchError.versionMismatch
             }
+            guard let candidateBundle = Bundle(url: candidate.stagedApplicationURL),
+                  NokoAppIcon.installed(in: candidateBundle) == appIcon else { throw NokoFetchError.validation }
             guard candidate.permits(.update) else { throw NokoFetchError.validation }
             return .ready(candidate, filename: selection.zip.name)
         } catch {

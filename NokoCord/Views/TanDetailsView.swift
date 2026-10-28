@@ -52,6 +52,10 @@ struct TanDetailsView: View {
                     LabeledContent("Music access", value: "Current song and playback state while enabled")
                     Text("NokoCord uses Apple Events to read Music. When the song changes, it sends artist, title, and album details to Apple’s iTunes Search service to find cover art. Only if no cover is found, it looks up album and artist details with Deezer, then song and artist details if needed for another release. Artist photo badges also look up the artist name on Deezer when enabled. No account or API key is used.")
                         .font(.caption).foregroundStyle(.secondary)
+                } else if package.id == "noko.fake-nitro" {
+                    Text("Settings save automatically. Reload Discord after installing or updating. This does not change your subscription, boosts, or server upload limits.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    FakeNitroSettingsView().frame(height: 320)
                 } else {
                     LabeledContent("Capabilities", value: package.manifest.capabilities.isEmpty ? "None" : package.manifest.capabilities.map(\.rawValue).joined(separator: ", "))
                 }
@@ -62,7 +66,7 @@ struct TanDetailsView: View {
                 }
             }
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
-        }.padding(28).frame(width: 440)
+        }.padding(28).frame(width: package.id == "noko.fake-nitro" ? 560 : 440)
             .confirmationDialog(tans.availableOriginalUpdate(package)?.manifest.version == package.manifest.version
                                 ? "Reinstall \(package.manifest.name)?" : "Update \(package.manifest.name)?",
                                 isPresented: $confirmingUpdate, titleVisibility: .visible) {

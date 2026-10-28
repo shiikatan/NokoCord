@@ -191,6 +191,7 @@ enum ManualUpdateClassification: String, Equatable, Sendable {
 enum ManualUpdateOperation: String, Codable, Sendable {
     case update
     case cleanReinstall
+    case changeIcon
 }
 
 enum ManualUpdateSignature: Equatable, Sendable {
@@ -259,7 +260,7 @@ struct ManualUpdateCandidate: Equatable, Identifiable, Sendable {
 
     func permits(_ operation: ManualUpdateOperation) -> Bool {
         switch (classification, operation) {
-        case (.newerMarketingVersion, .update), (.newerBuild, .update), (.sameVersionCleanReinstall, .cleanReinstall): true
+        case (.newerMarketingVersion, .update), (.newerBuild, .update), (.sameVersionCleanReinstall, .cleanReinstall), (.sameVersionCleanReinstall, .changeIcon): true
         default: false
         }
     }

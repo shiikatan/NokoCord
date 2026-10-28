@@ -31,7 +31,7 @@ struct HomeMusicPresenceView: View {
                             Spacer(minLength: 12)
                             Button("Hide Apple Music card", systemImage: "eye.slash") { showCard = false }
                                 .labelStyle(.iconOnly).buttonStyle(.borderless)
-                                .help("Hide this card. Restore it in Settings → General → Apple Music.")
+                                .help("Hide this card. Restore it in Settings → Apple Music.")
                         }
                         Text(sample.title).font(.headline).lineLimit(1)
                             .help(sample.title)
@@ -146,58 +146,154 @@ private struct HomeMusicArtwork: View {
     }
 }
 
-/// The card is the editor: every text menu lives where Discord shows its value.
+/// Edits the same mapped fields Discord receives; sample artwork is bundled.
 struct AppleMusicDisplaySettings: View {
     @Environment(AppleMusicPresenceService.self) private var presence
     @Environment(\.dismiss) private var dismiss
-    @State private var firstTemplate = ""
-    @State private var secondTemplate = ""
-    @State private var thirdTemplate = ""
+    @Environment(\.colorScheme) private var scheme
+    @State private var hoveredLine: String?
+    @FocusState private var focusedLine: String?
+
+    private var cardBackground: Color {
+        scheme == .dark ? Color(.sRGB, red: 0.27, green: 0.26, blue: 0.28, opacity: 1) : Color(.sRGB, red: 0.92, green: 0.91, blue: 0.93, opacity: 1)
+    }
     private func option<Value>(_ path: WritableKeyPath<AppleMusicDisplayOptions, Value>) -> Binding<Value> {
         Binding(get: { presence.displayOptions[keyPath: path] }, set: { value in
-            var options = presence.displayOptions; options[keyPath: path] = value
+            var options = presence.displayOptions
+            options[keyPath: path] = value
             presence.updateDisplayOptions(options)
         })
     }
-    private func saveTemplates() {
-        var options = presence.displayOptions
-        options.firstLineTemplate = firstTemplate; options.secondLineTemplate = secondTemplate; options.thirdLineTemplate = thirdTemplate
-        presence.updateDisplayOptions(options)
-    }
     private var preview: NokoActivity {
         var mapper = AppleMusicActivityMapper()
-        return mapper.activity(for: AppleMusicTrackSnapshot(identity: "display-preview", title: String(localized: "Song title"),
-            artist: String(localized: "Artist name"), album: String(localized: "Album name"), albumArtist: nil,
-            duration: 240, position: 60, playbackState: .playing), artwork: nil,
+        return mapper.activity(for: AppleMusicTrackSnapshot(identity: "display-preview", title: "Eclipse",
+            artist: "Pink Floyd", album: "The Dark Side of the Moon", albumArtist: "Pink Floyd",
+            duration: 127, position: 102, playbackState: .playing),
+            artwork: .discordAssetKey(AppleMusicArtwork.genericDiscordAssetKey),
             sampledAt: Date(timeIntervalSince1970: 0), options: presence.displayOptions)!
     }
-    private var showcase: String {
-        let sample = preview
-        switch sample.statusDisplayField {
-        case .details: return sample.details ?? "Apple Music"
-        case .state: return sample.state ?? "Apple Music"
-        default: return "Apple Music"
+    private var sampleShowcase: String {
+        let activity = preview
+        switch activity.statusDisplayField {
+        case .details: return activity.details ?? "Apple Music"
+        case .state: return activity.state ?? "Apple Music"
+        default: return activity.name ?? "Apple Music"
         }
     }
-    private func lineMenu(_ label: String, path: WritableKeyPath<AppleMusicDisplayOptions, AppleMusicPresenceLine>, text: String?, bold: Bool = false, allowsHidden: Bool = true) -> some View {
-        let current = presence.displayOptions[keyPath: path]
-        return Menu {
-            ForEach(AppleMusicPresenceLine.allCases.filter { allowsHidden || $0 != .none }) { field in
-                Button { option(path).wrappedValue = field } label: {
-                    if field == current { Label(field.label, systemImage: "checkmark") }
-                    else { Text(field.label) }
-                }
+    @ViewBuilder private func lineChoices(_ path: WritableKeyPath<AppleMusicDisplayOptions, AppleMusicPresenceLine>, allowsHidden: Bool = true) -> some View {
+        ForEach(AppleMusicPresenceLine.allCases.filter { allowsHidden || $0 != .none }) { field in
+            Button { option(path).wrappedValue = field } label: {
+                if presence.displayOptions[keyPath: path] == field { Label(field.label, systemImage: "checkmark") }
+                else { Text(field.label) }
             }
-        } label: {
-            HStack(spacing: 8) {
-                Text(text ?? (current == .none ? String(localized: "Hidden") : current.label))
-                    .font(bold ? .title3.bold() : .body).lineLimit(2).multilineTextAlignment(.leading)
-                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            }.foregroundStyle(current == .none ? Color.secondary : Color.primary)
-                .padding(.vertical, 4).padding(.horizontal, 6).contentShape(.rect)
-        }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel(label).accessibilityValue(current.label)
-            .help("Choose what appears on this line")
+        }
+    }
+    private func lineMenu(_ label: String, path: WritableKeyPath<AppleMusicDisplayOptions, AppleMusicPresenceLine>, text: String, font: Font, allowsHidden: Bool = true) -> some View {
+        Menu { lineChoices(path, allowsHidden: allowsHidden) } label: {
+            HStack(spacing: 4) {
+                Text(text).font(font).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+                    .opacity(hoveredLine == label || focusedLine == label ? 1 : 0.45)
+                Spacer(minLength: 0)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 2).padding(.vertical, 1)
+                .background(hoveredLine == label || focusedLine == label ? Color.primary.opacity(0.08) : .clear, in: .rect(cornerRadius: 3))
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .focused($focusedLine, equals: label).onHover { hoveredLine = $0 ? label : nil }
+        .accessibilityLabel(Text(LocalizedStringKey(label))).accessibilityValue(presence.displayOptions[keyPath: path].label)
+        .help("Choose what appears on this line")
+    }
+    @ViewBuilder private var showcaseChoices: some View {
+        ForEach(AppleMusicStatusLine.allCases) { line in
+            Button { option(\.statusLine).wrappedValue = line } label: {
+                if presence.displayOptions.statusLine == line { Label(line.label, systemImage: "checkmark") }
+                else { Text(line.label) }
+            }
+        }
+    }
+    private var editableCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Listening to Apple Music").font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 8)
+                Menu {
+                    Menu("Second line") { lineChoices(\.secondLine) }
+                    Menu("Third line / cover text") { lineChoices(\.thirdLine) }
+                    Divider()
+                    Toggle("Show album cover", isOn: option(\.showArtwork))
+                    Toggle("Show artist photo badge", isOn: option(\.showArtistImage))
+                    Toggle("Show playback time", isOn: option(\.showTimer))
+                } label: { Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary) }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                    .accessibilityLabel("Presence display options")
+            }
+            HStack(alignment: .center, spacing: 12) {
+                if presence.displayOptions.showArtwork {
+                    Image("AppleMusicPreviewCover").resizable().scaledToFit().frame(width: 60, height: 60)
+                        .clipShape(.rect(cornerRadius: 8))
+                        .help(preview.largeImageText ?? "")
+                        .accessibilityLabel("The Dark Side of the Moon album cover")
+                        .overlay(alignment: .bottomTrailing) {
+                            if presence.displayOptions.showArtistImage {
+                                Image("AppleMusicPreviewArtist").resizable().scaledToFill().frame(width: 22, height: 22)
+                                    .clipShape(.circle).overlay(Circle().stroke(cardBackground, lineWidth: 2))
+                                    .offset(x: 4, y: 4).help("Pink Floyd").accessibilityLabel("Pink Floyd artist photo badge")
+                            }
+                        }
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    lineMenu("First line", path: \.firstLine, text: preview.details ?? "Apple Music", font: .system(size: 14, weight: .semibold), allowsHidden: false)
+                    if let state = preview.state { lineMenu("Second line", path: \.secondLine, text: state, font: .system(size: 13)) }
+                    if let third = preview.largeImageText { lineMenu("Third line", path: \.thirdLine, text: third, font: .system(size: 12)) }
+                    if presence.displayOptions.showTimer {
+                        HStack(spacing: 7) {
+                            Text("01:42")
+                            GeometryReader { proxy in
+                                Capsule().fill(.primary.opacity(0.15))
+                                Capsule().fill(.primary.opacity(0.75)).frame(width: proxy.size.width * 102 / 127)
+                            }.frame(height: 3).accessibilityHidden(true)
+                            Text("02:07")
+                        }.font(.system(size: 10, design: .monospaced)).padding(.top, 5)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(14).frame(width: 360, alignment: .leading)
+        .background(cardBackground, in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.06)))
+    }
+    private var nameplatePreview: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Discord nameplate preview").font(.callout.weight(.medium))
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable().scaledToFit().foregroundStyle(.secondary)
+                    .frame(width: 40, height: 40).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Username").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Menu { showcaseChoices } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "music.note").foregroundStyle(.green)
+                            Text(sampleShowcase).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.system(size: 8)).foregroundStyle(.secondary)
+                        }.font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+                    }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                        .accessibilityLabel("Showcase").accessibilityValue(presence.displayOptions.statusLine.label)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(9).frame(width: 360, height: 62)
+                .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 9))
+            Text("Choose the activity text beneath your name. This template uses the sample song above.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.frame(width: 360)
+    }
+    private var displayOptions: some View {
+        VStack(spacing: 12) {
+            displayToggle("Show album cover", path: \.showArtwork)
+            displayToggle("Show artist photo badge", path: \.showArtistImage)
+            displayToggle("Show playback time", path: \.showTimer)
+            displayToggle("Keep activity visible while paused", path: \.showWhenPaused)
+        }.toggleStyle(.switch)
     }
     private func displayToggle(_ title: LocalizedStringKey, path: WritableKeyPath<AppleMusicDisplayOptions, Bool>) -> some View {
         HStack {
@@ -206,105 +302,48 @@ struct AppleMusicDisplaySettings: View {
             Toggle(title, isOn: option(path)).labelsHidden()
         }
     }
-    private var editableCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Listening to Apple Music").font(.headline)
-            HStack(alignment: .top, spacing: 22) {
-                ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 15).fill(presence.displayOptions.showArtwork ? AnyShapeStyle(.pink.gradient) : AnyShapeStyle(.quaternary))
-                    Image(systemName: presence.displayOptions.showArtwork ? "music.note" : "photo")
-                        .font(.system(size: 35, weight: .medium)).foregroundStyle(presence.displayOptions.showArtwork ? .white : .secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if presence.displayOptions.showArtistImage {
-                        Image(systemName: "person.fill").font(.body).foregroundStyle(.white)
-                            .frame(width: 36, height: 36).background(.purple.gradient, in: .circle)
-                            .overlay(Circle().stroke(Color(nsColor: .controlBackgroundColor), lineWidth: 3))
-                            .offset(x: 6, y: 6).accessibilityLabel("Artist photo badge")
-                    }
-                }.frame(width: 118, height: 118).accessibilityLabel("Example album cover")
-                VStack(alignment: .leading, spacing: 1) {
-                    lineMenu("First line", path: \.firstLine, text: preview.details, bold: true, allowsHidden: false)
-                    lineMenu("Second line", path: \.secondLine, text: preview.state)
-                    lineMenu("Third line", path: \.thirdLine, text: preview.largeImageText)
-                        .opacity(presence.displayOptions.showArtwork ? 1 : 0.55)
-                    if presence.displayOptions.showTimer {
-                        HStack(spacing: 10) {
-                            Text("01:00").font(.caption.monospacedDigit())
-                            GeometryReader { proxy in
-                                Capsule().fill(.quaternary)
-                                Capsule().fill(.secondary).frame(width: proxy.size.width / 4)
-                            }.frame(height: 3)
-                            Text("04:00").font(.caption.monospacedDigit())
-                        }.foregroundStyle(.secondary).padding(.leading, 6).padding(.top, 9)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Divider().opacity(0.5)
-            HStack(spacing: 8) {
-                Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary)
-                Text("Your name").fontWeight(.semibold)
-                Image(systemName: "music.note").foregroundStyle(.secondary)
-                Menu {
-                    ForEach(AppleMusicStatusLine.allCases) { line in
-                        Button { option(\.statusLine).wrappedValue = line } label: {
-                            let field = line == .firstLine ? presence.displayOptions.firstLine.label : presence.displayOptions.secondLine.label
-                            let label = line == .application ? "Apple Music" : "\(field) (\(line.label.lowercased()))"
-                            if presence.displayOptions.statusLine == line { Label(label, systemImage: "checkmark") }
-                            else { Text(label) }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) { Text(showcase).lineLimit(1); Image(systemName: "chevron.down").font(.caption2) }
-                }.menuStyle(.borderlessButton).menuIndicator(.hidden).accessibilityLabel("Showcase").accessibilityValue(showcase)
-            }.font(.callout)
-        }.padding(24).background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.primary.opacity(0.08)))
-    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Your Apple Music presence").font(.title2.bold())
-                    Text("Click a line in the card to choose what it shows.").foregroundStyle(.secondary)
+                    Text("Click the text in the card to choose what appears.").foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Done") { saveTemplates(); dismiss() }.buttonStyle(.borderedProminent)
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(spacing: 18) {
                     editableCard
-                    Text("Showcase is the text beside your name in Discord’s member list. Click it in the example above to choose the first line, second line, or Apple Music.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if presence.displayOptions.firstLine == .custom || presence.displayOptions.secondLine == .custom || presence.displayOptions.thirdLine == .custom {
-                        VStack(alignment: .leading, spacing: 10) {
-                            if presence.displayOptions.firstLine == .custom { TextField("First line text", text: $firstTemplate).onSubmit(saveTemplates) }
-                            if presence.displayOptions.secondLine == .custom { TextField("Second line text", text: $secondTemplate).onSubmit(saveTemplates) }
-                            if presence.displayOptions.thirdLine == .custom { TextField("Third line text", text: $thirdTemplate).onSubmit(saveTemplates) }
-                            Text("Use {song}, {artist}, and {album}. Each line displays up to 128 characters.").font(.caption).foregroundStyle(.secondary)
-                            Button("Apply text", action: saveTemplates)
-                        }.textFieldStyle(.roundedBorder)
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        displayToggle("Show album cover", path: \.showArtwork)
-                        displayToggle("Show artist photo badge", path: \.showArtistImage)
-                        displayToggle("Show playback time", path: \.showTimer)
-                        displayToggle("Keep activity visible while paused", path: \.showWhenPaused)
-                    }.toggleStyle(.switch)
-                    Text("Artist photos use an artist-name lookup on Deezer when enabled. The third line uses the cover’s image text; Discord may hide it without cover art. The heading stays ‘Listening to Apple Music’.")
+                    Text("Use the card’s ••• menu to restore a hidden line.")
                         .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Button("Restore default display") { presence.updateDisplayOptions(AppleMusicDisplayOptions()) }
-                            .disabled(presence.displayOptions == AppleMusicDisplayOptions())
-                        Spacer()
-                        Text("Changes apply while Presence is enabled.").font(.caption).foregroundStyle(.secondary)
+                    nameplatePreview
+                    if presence.displayOptions.firstLine == .custom || presence.displayOptions.secondLine == .custom || presence.displayOptions.thirdLine == .custom {
+                        GroupBox("Custom text") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                if presence.displayOptions.firstLine == .custom { TextField("First line text", text: option(\.firstLineTemplate)) }
+                                if presence.displayOptions.secondLine == .custom { TextField("Second line text", text: option(\.secondLineTemplate)) }
+                                if presence.displayOptions.thirdLine == .custom { TextField("Third line text", text: option(\.thirdLineTemplate)) }
+                                Text("Use {song}, {artist}, and {album}. Each line displays up to 128 characters.").font(.caption).foregroundStyle(.secondary)
+                            }.textFieldStyle(.roundedBorder).padding(6)
+                        }
                     }
-                }.padding(.vertical, 3)
+                    GroupBox("Display") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            displayOptions
+                            Text("Artist photos use an artist-name lookup on Deezer when enabled. The third line is attached to the cover image; Discord may hide it without cover art.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.padding(6)
+                    }
+                }.frame(maxWidth: .infinity).padding(.vertical, 3)
+            }
+            HStack {
+                Button("Restore default display") { presence.updateDisplayOptions(AppleMusicDisplayOptions()) }
+                    .disabled(presence.displayOptions == AppleMusicDisplayOptions())
+                Spacer()
+                Text("Saved automatically").font(.caption).foregroundStyle(.secondary)
             }
         }.padding(24).frame(width: 740, height: 760)
             .background(Color(nsColor: .windowBackgroundColor))
-            .onAppear { firstTemplate = presence.displayOptions.firstLineTemplate; secondTemplate = presence.displayOptions.secondLineTemplate; thirdTemplate = presence.displayOptions.thirdLineTemplate }
-            .onChange(of: presence.displayOptions.firstLineTemplate) { _, value in firstTemplate = value }
-            .onChange(of: presence.displayOptions.secondLineTemplate) { _, value in secondTemplate = value }
-            .onChange(of: presence.displayOptions.thirdLineTemplate) { _, value in thirdTemplate = value }
     }
 }

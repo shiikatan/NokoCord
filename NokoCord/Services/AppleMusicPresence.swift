@@ -377,8 +377,11 @@ final class AppleMusicPresenceService {
     private var nextArtistLookupAt = Date.distantPast
     private var artistPublicationRetryAfter: Date?
     private var publicationTask: Task<Void, Never>?
+    @ObservationIgnored private var displayOptionsPublicationTask: Task<Void, Never>?
     private var publicationID = UUID()
     private var desiredActivity: NokoActivity?
+    private var failedActivity: NokoActivity?
+    private var failedActivityRetryAfter = Date.distantPast
     private var generation = UUID()
     private var monitoring = false
     private var pollInFlight = false
@@ -421,13 +424,31 @@ final class AppleMusicPresenceService {
         options.secondLineTemplate = String(options.secondLineTemplate.prefix(1024))
         options.thirdLineTemplate = String(options.thirdLineTemplate.prefix(1024))
         guard displayOptions != options else { return }
+        var previousTemplates = options
+        previousTemplates.firstLineTemplate = displayOptions.firstLineTemplate
+        previousTemplates.secondLineTemplate = displayOptions.secondLineTemplate
+        previousTemplates.thirdLineTemplate = displayOptions.thirdLineTemplate
+        let onlyTextChanged = previousTemplates == displayOptions
         displayOptions = options
         if !options.showArtistImage { artistImageTask?.cancel(); artistImageTask = nil; artistImageKey = nil; artistImage = nil }
         if let data = try? JSONEncoder().encode(options) { defaults?.set(data, forKey: AppleMusicDisplayOptions.storageKey) }
-        // Rebuild from the current sample without another Music read or lookup.
+        displayOptionsPublicationTask?.cancel()
+        displayOptionsPublicationTask = nil
+        // Persist each keystroke, but coalesce text publication while typing.
+        // Closing the editor never discards text or cancels its saved options.
         if monitoring {
-            publishCurrentTrack(sampledAt: mapper.lastSampleTime ?? now())
-            if let currentTrack { scheduleArtistImage(for: currentTrack, generation: generation) }
+            if onlyTextChanged {
+                let lease = generation
+                displayOptionsPublicationTask = Task { [weak self] in
+                    do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                    guard let self, self.generation == lease, self.monitoring else { return }
+                    self.displayOptionsPublicationTask = nil
+                    self.publishCurrentTrack(sampledAt: self.mapper.lastSampleTime ?? self.now())
+                }
+            } else {
+                publishCurrentTrack(sampledAt: mapper.lastSampleTime ?? now())
+                if let currentTrack { scheduleArtistImage(for: currentTrack, generation: generation) }
+            }
         }
     }
 
@@ -543,6 +564,8 @@ final class AppleMusicPresenceService {
             imagePublicationRetryAfter = nil
             resolvedArtwork = nil
             currentActivity = nil
+            failedActivity = nil
+            failedActivityRetryAfter = .distantPast
             currentTrack = nil
             scheduleBridgeStop()
         }
@@ -650,6 +673,7 @@ final class AppleMusicPresenceService {
         guard self.generation == generation, monitoring else { return }
         desiredActivity = activity
         guard publicationTask == nil, currentActivity != activity else { return }
+        guard failedActivity != activity || now() >= failedActivityRetryAfter else { return }
         let requestID = UUID()
         publicationID = requestID
         publicationTask = Task { [weak self] in
@@ -666,6 +690,7 @@ final class AppleMusicPresenceService {
     private func publishLatestActivity(generation: UUID) async {
         while !Task.isCancelled, self.generation == generation, monitoring {
             guard let activity = desiredActivity, currentActivity != activity else { return }
+            guard failedActivity != activity || now() >= failedActivityRetryAfter else { return }
             await waitForPendingBridgeStops()
             guard !Task.isCancelled, self.generation == generation, monitoring else { return }
             guard desiredActivity == activity else { continue }
@@ -674,6 +699,7 @@ final class AppleMusicPresenceService {
                 guard !Task.isCancelled, self.generation == generation, monitoring else { return }
                 if result == .published || result == .unchanged {
                     currentActivity = activity
+                    failedActivity = nil
                 } else if desiredActivity == activity {
                     return
                 }
@@ -701,12 +727,20 @@ final class AppleMusicPresenceService {
                 }
                 // Connection failures retry on the next sample without
                 // blocking playback reads or building an SDK request backlog.
+                // An artwork completion can otherwise resend the identical
+                // failed logo immediately, depending on callback ordering.
+                failedActivity = activity
+                failedActivityRetryAfter = now().addingTimeInterval(1)
                 return
             }
         }
     }
 
     private func cancelPublication() {
+        failedActivity = nil
+        failedActivityRetryAfter = .distantPast
+        displayOptionsPublicationTask?.cancel()
+        displayOptionsPublicationTask = nil
         publicationTask?.cancel()
         publicationTask = nil
         publicationID = UUID()

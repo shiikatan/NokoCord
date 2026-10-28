@@ -7,7 +7,6 @@ struct MaoListView: View {
     @Environment(\.nokoWorkspaceVisible) private var workspaceVisible
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.accessibilityReduceMotion) private var entryReduceMotion
-    @AppStorage("maolistCopyDiscordColors") private var copyColors = false
     @State private var filtersPresented = false
     private var entryActive: Bool { workspaceVisible && activeState != .inactive }
     private var showEntryLoader: Bool {
@@ -102,14 +101,9 @@ struct MaoListView: View {
         .task(id: "\(activeState != .inactive && workspaceVisible)/\(runtime.viewer?.id ?? 0)") {
             guard activeState != .inactive && workspaceVisible else { runtime.suspend(); return }
             runtime.beginRestoreConnection()
-            if copyColors { runtime.discordPalette = await MLDiscordColors.read(from: browser) }
         }
         .mlTask(id: "viewer/\(runtime.viewer?.id ?? 0)/\(runtime.section)/\(runtime.searching)/\(runtime.mutationRevision)") {
             if runtime.section != .home || runtime.searching { await runtime.refreshViewer() }
-        }
-        .onChange(of: copyColors) { _, enabled in
-            if enabled && workspaceVisible { Task { runtime.discordPalette = await MLDiscordColors.read(from: browser) } }
-            else { runtime.discordPalette = nil }
         }
         .onDisappear { runtime.entryLoading.dismiss(); runtime.suspend() }
     }
@@ -150,40 +144,44 @@ struct MaoListSettingsSection: View {
     @State private var listPreferencesPresented = false
     @State private var preparationConfirmation = false
     @AppStorage("maolistAccent") private var accent = ""
-    @AppStorage("maolistCopyDiscordColors") private var copyColors = false
     @AppStorage("maolistThemePreset") private var presetID = ""
     var body: some View {
-        Section("MaoList") {
-            Toggle("Enable MaoList", isOn: Binding(get: { module.enabled }, set: module.setEnabled))
-            Toggle("Prepare MaoList at launch", isOn: Binding(get: { module.prepareAtLaunch }, set: { value in
+        Section {
+            Toggle(isOn: Binding(get: { module.enabled }, set: module.setEnabled)) {
+                SettingsControlLabel("Enable MaoList", explanation: "A native AniList companion for anime and manga. Turning it off unloads MaoList and preserves your saved connection.")
+            }
+            Toggle(isOn: Binding(get: { module.prepareAtLaunch }, set: { value in
                 if value { preparationConfirmation = true }
                 else { module.setPrepareAtLaunch(false) }
-            })).disabled(!module.enabled)
+            })) {
+                SettingsControlLabel("Prepare MaoList at launch", explanation: "Prepare sections and library pages during startup so MaoList is ready sooner.")
+            }.disabled(!module.enabled)
                 .alert("Prepare MaoList at launch?", isPresented: $preparationConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     Button("Enable") { module.setPrepareAtLaunch(true) }
                 } message: {
                     Text("MaoList will prepare all main sections and your anime and manga library pages when the app starts. This uses additional memory, processing power, and network data. Large libraries take longer and are subject to cache limits. Prepared data is kept for up to 30 minutes; refresh to see newer changes.")
                 }
-            Text("Prepare your sections while Discord opens, so MaoList is ready sooner.")
-                .font(.caption).foregroundStyle(.secondary)
             if module.prepareAtLaunch, let status = module.runtime?.preparationStatus {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
-            Text("A native AniList companion for anime and manga. Switching it off unloads the module and preserves your saved connection.")
-                .font(.caption).foregroundStyle(.secondary)
-            if module.enabled {
-                MLThemePresetPicker(selection: $presetID, copyDiscord: $copyColors)
-                ColorPicker("Accent color", selection: Binding(get: { Color(mlHex: accent) ?? Color(mlHex: "72CDB4")! }, set: { accent = $0.mlHex ?? ""; presetID = "" }), supportsOpacity: false).disabled(copyColors)
-                Button("Use MaoList’s default colors") { accent = ""; presetID = ""; copyColors = false }
-                Toggle("Copy Discord Colors", isOn: $copyColors)
-                Text("Uses available Discord colors when you open MaoList, with MaoList’s own colors as a fallback.").font(.caption).foregroundStyle(.secondary)
-                if let runtime = module.runtime, runtime.viewer != nil {
+        } header: {
+            Text("Module")
+        } footer: {
+            Text("Module version: \(MaoListModule.version)")
+        }
+        if module.enabled {
+            Section("Appearance") {
+                MLThemePresetPicker(selection: $presetID)
+                ColorPicker("Accent color", selection: Binding(get: { Color(mlHex: accent) ?? Color(mlHex: "72CDB4")! }, set: { accent = $0.mlHex ?? ""; presetID = "" }), supportsOpacity: false)
+                Button("Reset MaoList colors") { accent = ""; presetID = "" }
+            }
+            if let runtime = module.runtime, runtime.viewer != nil {
+                Section("List preferences") {
                     Button("AniList list preferences…") { listPreferencesPresented = true }
                         .sheet(isPresented: $listPreferencesPresented) { MLListPreferencesView().environment(runtime) }
                 }
             }
-            LabeledContent("Module version", value: MaoListModule.version).font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -193,7 +191,7 @@ struct MaoListAccountSection: View {
     var body: some View {
         Section("AniList connection") {
             if let runtime = module.runtime { MLAccountControls().environment(runtime) }
-            else { Text("Enable MaoList in General to connect AniList. Your existing saved connection is preserved while MaoList is off.").foregroundStyle(.secondary) }
+            else { Text("Enable MaoList in Settings → MaoList to connect AniList. Your saved connection is preserved while MaoList is off.").foregroundStyle(.secondary) }
         }
     }
 }

@@ -53,7 +53,7 @@ struct NokoFetchSelection: Sendable {
     /// Select the highest stable marketing version, not GitHub's mixed-edition
     /// `latest` endpoint or publication order. An incomplete newest release fails
     /// closed instead of silently selecting an older package.
-    static func latest(in releases: [NokoFetchRelease]) throws -> Self {
+    static func latest(in releases: [NokoFetchRelease], appIcon: NokoAppIcon = .nokocord) throws -> Self {
         var eligible: [(NokoFetchRelease, ManualUpdateVersion)] = []
         for release in releases where !release.draft && !release.prerelease {
             guard release.tag_name.hasPrefix("maomao-") else { continue }
@@ -68,7 +68,7 @@ struct NokoFetchSelection: Sendable {
         guard let version = eligible.map(\.1).max() else { throw NokoFetchError.noRelease }
         let matching = eligible.filter { $0.1 == version }
         guard matching.count == 1, let release = matching.first?.0 else { throw NokoFetchError.ambiguous }
-        let zipName = "NokoCord-Maomao-M\(version).zip"
+        let zipName = "NokoCord-Maomao-M\(version)" + (appIcon == .maolist ? "-MaoList" : "") + ".zip"
         let zips = release.assets.filter { $0.name == zipName }
         let sums = release.assets.filter { $0.name == "SHA256SUMS" }
         guard !zips.isEmpty else { throw NokoFetchError.missingZIP }

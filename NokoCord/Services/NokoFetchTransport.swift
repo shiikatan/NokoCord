@@ -31,6 +31,8 @@ struct NokoFetchTransport: NokoFetchDownloading {
         let prefix = "\(NokoFetchSelection.repository)/releases/download/\(parts[5])/"
         return url.absoluteString == prefix + "SHA256SUMS"
             || url.absoluteString == prefix + "NokoCord-Maomao-M\(version).zip"
+            || url.absoluteString == prefix + "NokoCord-Maomao-M\(version)-MaoList.zip"
+            || url.absoluteString == prefix + "NokoCord-Maomao-M\(version)-Icons.nokoicons"
     }
 
     static func allowsRedirect(from original: URL, to target: URL) -> Bool {

@@ -91,10 +91,7 @@ struct ContentView: View {
             }.navigationTitle(selection == .home ? "" : selection.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .toolbar(removing: browser.lifecycle.isVisible || selection == .maolist ? .sidebarToggle : nil)
-        .onChange(of: selection, initial: true) { _, destination in
-            columnVisibility = destination == .maolist ? .detailOnly : .all
-        }
+        .toolbar(removing: .sidebarToggle)
         .onChange(of: maolist.enabled) { _, enabled in
             if !enabled && selection == .maolist { selection = .home }
         }
@@ -264,6 +261,11 @@ struct KeyboardShortcutsView: View {
 }
 
 struct SettingsView: View {
+    @Environment(ActiveBrowserEngine.self) private var browser
+    @Environment(MaoListModule.self) private var maolist
+    private enum Page: String { case general, discord, maolist, music, privacy, updates }
+    @State private var selectedPage = Page.general
+    @State private var appIcon = NokoAppIconController.shared
     @State private var showsMusicPresenceEditor = false
     @AppStorage("maomaoHeaderButtonOpensHome") private var headerButtonOpensHome = false
     @AppStorage("maomaoShowMusicOnHome") private var showMusicOnHome = true
@@ -272,77 +274,172 @@ struct SettingsView: View {
     @AppStorage("showMenuBar") private var showMenuBar = false
     @AppStorage("appearance") private var appearance = "system"
     var body: some View {
-        TabView {
-            Form {
-                Section {
-                    HStack(spacing: 14) {
-                        Image("NokoMark").renderingMode(.original).resizable().scaledToFit().frame(width: 56, height: 56)
-                            .clipShape(.rect(cornerRadius: 14)).accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("NokoCord").font(.title2.bold())
-                            Text("Made by shiikatan").foregroundStyle(.secondary)
-                        }
-                    }.padding(.vertical, 4)
+        TabView(selection: $selectedPage) {
+            NokoSettingsPage(title: "General", subtitle: "App appearance and startup") {
+                generalSettings
+            }.tabItem { Label("General", systemImage: "gearshape") }.tag(Page.general)
+            if EditionIdentity.current?.id == "maomao" {
+                NokoSettingsPage(title: "Discord", subtitle: "Presentation and navigation") {
+                    discordSettings
+                }.tabItem { Label("Discord", systemImage: "bubble.left.and.bubble.right") }.tag(Page.discord)
+                NokoSettingsPage(title: "MaoList", subtitle: "Your anime and manga companion") {
+                    Form { MaoListSettingsSection() }.formStyle(.grouped)
+                }.tabItem { Label("MaoList", systemImage: "list.bullet.rectangle") }.tag(Page.maolist)
+                NokoSettingsPage(title: "Apple Music", subtitle: "Home card and Rich Presence") {
+                    musicSettings
+                }.tabItem { Label("Apple Music", systemImage: "music.note") }.tag(Page.music)
+            }
+            NokoSettingsPage(title: "Privacy", subtitle: "Connections and local data") {
+                Form {
+                    DiscordSocialAccountSection()
+                    if EditionIdentity.current?.id == "maomao" { MaoListAccountSection() }
+                    DiscordSessionPrivacySection()
+                    Section { Label("No analytics or telemetry", systemImage: "hand.raised").foregroundStyle(.secondary) }
+                }.formStyle(.grouped)
+            }.tabItem { Label("Privacy", systemImage: "hand.raised") }.tag(Page.privacy)
+            NokoSettingsPage(title: "Updates", subtitle: "Review and install app updates") {
+                ManualUpdatesSettingsView()
+            }.tabItem { Label("Updates", systemImage: "arrow.down.app") }.tag(Page.updates)
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .tabViewSidebarHeader {
+            VStack(alignment: .leading, spacing: 6) {
+                Image("NokoMark").renderingMode(.original).resizable().scaledToFit()
+                    .frame(width: 28, height: 28).clipShape(.rect(cornerRadius: 7)).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("NokoCord").font(.headline)
+                    if let edition = EditionIdentity.current { Text(edition.name).font(.caption).foregroundStyle(.secondary) }
                 }
-                Section("Appearance") {
-                    Picker("Color scheme", selection: $appearance) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }.pickerStyle(.radioGroup)
-                    if EditionIdentity.current?.id != "maomao" {
-                        Toggle("Liquid Glass", isOn: $useLiquidGlass)
-                        Text("Use translucent controls and surfaces. Accessibility settings take priority.").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if EditionIdentity.current?.id == "maomao" {
-                        MaomaoDiscordAppearanceSettings()
-                        MaomaoBarAppearanceSettings()
-                    }
-                    Toggle("Show NokoCord in menu bar", isOn: $showMenuBar)
-                }
-                if EditionIdentity.current?.id == "maomao" { MaoListSettingsSection() }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 16)
+        }
+        .toolbar(removing: .sidebarToggle)
+        .background(WorkspaceWindowToolbarVisibility(hidden: true).frame(width: 0, height: 0))
+        .background(WindowLifetimeObserver { showsMusicPresenceEditor = false; appIcon.cancelPreparation() }.frame(width: 0, height: 0))
+        .confirmationDialog("Change icon and relaunch NokoCord?", isPresented: Binding(
+            get: { appIcon.pendingIcon != nil }, set: { if !$0 { appIcon.pendingIcon = nil } }
+        ), titleVisibility: .visible) {
+            if let icon = appIcon.pendingIcon {
+                Button("Change icon and relaunch") { appIcon.confirm(icon) }
+            }
+            Button("Cancel", role: .cancel) { appIcon.pendingIcon = nil }
+        } message: {
+            Text("NokoCord will verify the icon files, then close and reopen. Active calls will disconnect. Your login, settings, and Tans stay intact.")
+        }
+        .sheet(isPresented: Binding(get: { appIcon.isPreparing }, set: { if !$0 { appIcon.cancelPreparation() } })) {
+            VStack(spacing: 16) {
+                ProgressView(appIcon.progressText).frame(minWidth: 320)
+                Button("Cancel") { appIcon.cancelPreparation() }.disabled(appIcon.isInstalling)
+            }.padding(28).interactiveDismissDisabled(appIcon.isInstalling)
+        }
+        .frame(minWidth: 780, idealWidth: 840, minHeight: 580, idealHeight: 660)
+        .nokoCordAppearance()
+    }
+
+    private var generalSettings: some View {
+        Form {
+            Section("Appearance") {
+                Picker(selection: $appearance) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                } label: {
+                    SettingsControlLabel("Color scheme", explanation: "Follow macOS or choose a light or dark appearance.")
+                }.pickerStyle(.segmented)
                 if EditionIdentity.current?.id == "maomao" {
-                    Section("Discord navigation") {
-                        Picker("Header button opens", selection: $headerButtonOpensHome) {
-                            Text("MaoList").tag(false)
-                            Text("NokoCord / Tans").tag(true)
-                        }
-                        Text("Choose where the small app button beside Discord’s Help icon takes you. You can reach your Tans even with Noko-Bar hidden.")
-                            .font(.caption).foregroundStyle(.secondary)
+                    Picker(selection: Binding(get: { appIcon.selection }, set: { appIcon.select($0) })) {
+                        ForEach(NokoAppIcon.allCases) { icon in Text(icon.label).tag(icon) }
+                    } label: {
+                        SettingsControlLabel("App icon", explanation: "Choose the native Dock icon. Your choice stays visible after quitting.")
+                    }
+                    if let error = appIcon.errorMessage {
+                        Text(error).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Changing icons relaunches NokoCord and disconnects active calls. Small verified switching files are downloaded if needed and cached for this version. Your login, settings, and Tans are kept.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if EditionIdentity.current?.id != "maomao" {
+                    Toggle(isOn: $useLiquidGlass) {
+                        SettingsControlLabel("Use Liquid Glass", explanation: "Use translucent app controls and surfaces. macOS accessibility settings take priority.")
                     }
                 }
-                Section("Startup") {
-                    Toggle("Open Discord on Launch", isOn: $openDiscordOnLaunch)
-                    Text("Safe Mode always opens Home so you can review your Tans.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Startup and access") {
+                Toggle(isOn: $openDiscordOnLaunch) {
+                    SettingsControlLabel("Open Discord at launch", explanation: "Safe Mode always opens Home so you can review your Tans.")
                 }
-                if EditionIdentity.current?.id == "maomao" {
-                    Section("Apple Music") {
-                        Toggle("Show Apple Music card on Home", isOn: $showMusicOnHome)
-                        Text("Appears while Apple Music Presence is enabled. Hiding the card keeps your Discord activity on.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button("Customize Rich Presence…") { showsMusicPresenceEditor = true }
-                            .sheet(isPresented: $showsMusicPresenceEditor) { AppleMusicDisplaySettings() }
-                    }
+                Toggle(isOn: $showMenuBar) {
+                    SettingsControlLabel("Show NokoCord in the menu bar", explanation: "Keep NokoCord’s controls within reach from the macOS menu bar.")
                 }
-                Section("About") {
-                    if let edition = EditionIdentity.current {
-                        LabeledContent("Version", value: edition.publicVersion)
-                        LabeledContent("Edition", value: edition.name)
-                        LabeledContent("Maintainer", value: edition.maintainer)
-                    } else {
-                        LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
-                    }
+            }
+            Section("About NokoCord") {
+                if let edition = EditionIdentity.current {
+                    LabeledContent("Version", value: edition.publicVersion)
+                    LabeledContent("Edition", value: edition.name)
+                    LabeledContent("Maintainer", value: edition.maintainer)
+                } else {
+                    LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                 }
-            }.formStyle(.grouped).tabItem { Label("General", systemImage: "gearshape") }
-            Form {
-                DiscordSocialAccountSection()
-                if EditionIdentity.current?.id == "maomao" { MaoListAccountSection() }
-                DiscordSessionPrivacySection()
-                Section { Label("No analytics or telemetry", systemImage: "hand.raised") }
-            }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "hand.raised") }
-            ManualUpdatesSettingsView()
-                .tabItem { Label("Updates", systemImage: "arrow.down.app") }
-        }.frame(width: 640, height: 480).nokoCordAppearance()
+            }
+        }.formStyle(.grouped)
+    }
+
+    private var discordSettings: some View {
+        Form {
+            Section("Presentation") {
+                MaomaoDiscordAppearanceSettings()
+                MaomaoBarAppearanceSettings()
+            }
+            Section("Navigation") {
+                Picker("Discord header button opens", selection: headerDestination) {
+                    Text("MaoList").tag(false)
+                    Text("Home · Tans").tag(true)
+                }
+                Text("Choose where the app button beside Discord’s Help icon takes you. Your Tans remain available when Noko-Bar is hidden.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }.formStyle(.grouped)
+    }
+
+    private var headerDestination: Binding<Bool> {
+        Binding(get: { headerButtonOpensHome }, set: { home in
+            headerButtonOpensHome = home
+            // Settings has its own window; update the live bridge directly
+            // rather than waiting for the covered main window to redraw.
+            browser.setMaoListSwitchEnabled(maolist.enabled, opensHome: home)
+        })
+    }
+
+    private var musicSettings: some View {
+        Form {
+            Section("Home card") {
+                Toggle(isOn: $showMusicOnHome) {
+                    SettingsControlLabel("Show Apple Music card on Home", explanation: "The card appears while Apple Music Presence is enabled. Hiding it does not stop your Discord activity.")
+                }
+            }
+            Section("Rich Presence") {
+                Text("Choose your activity text, artwork, showcase, and playback details.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button("Customize Rich Presence…", systemImage: "slider.horizontal.3") { showsMusicPresenceEditor = true }
+                    .sheet(isPresented: $showsMusicPresenceEditor) { AppleMusicDisplaySettings() }
+            }
+        }.formStyle(.grouped)
+    }
+}
+
+private struct NokoSettingsPage<Content: View>: View {
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.system(size: 22, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                Text(subtitle).font(.callout).foregroundStyle(.secondary)
+            }.padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 4)
+            content.scrollContentBackground(.hidden)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -418,7 +515,7 @@ private struct ManualUpdatesSettingsView: View {
                     }
                 }
             }
-            Section("Local update ZIP") {
+            Section("Update from a ZIP") {
                 Text("Choose a Maomao app ZIP from this Mac. Selecting a file only checks it; nothing is installed until you choose an action below.")
                     .foregroundStyle(.secondary)
                 HStack {
@@ -448,11 +545,11 @@ private struct ManualUpdatesSettingsView: View {
             }
 
             if EditionIdentity.current?.id == MaomaoDataPaths.editionID {
-                Section("Noko-Fetch · GitHub") {
-                    Text("Fetch a verified update ZIP from GitHub, then review it below. Local ZIP updates remain available offline.")
+                Section("Download from GitHub") {
+                    Text("Download and verify the latest stable Maomao ZIP, then review it below. Local ZIP updates remain available offline.")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack {
-                        Button("Noko-Fetch", systemImage: "arrow.down.app") { fetchFromGitHub() }
+                        Button("Fetch update ZIP", systemImage: "arrow.down.app") { fetchFromGitHub() }
                             .disabled(isBusy)
                         if fetchTask != nil {
                             Button("Cancel", role: .cancel) { fetchTask?.cancel() }
@@ -474,7 +571,7 @@ private struct ManualUpdatesSettingsView: View {
                 }
             }
 
-            Section("Inspection") {
+            Section("Review update") {
                 inspectionContent
                 if let candidate, case .ready = phase {
                     LabeledContent("Current", value: versionLabel(candidate.installedMarketingVersion, build: candidate.installedBuild))
@@ -498,7 +595,7 @@ private struct ManualUpdatesSettingsView: View {
                 }
             }
 
-            Section("Optional shared Tan import") {
+            Section("Import shared Tans") {
                 Text("This one-time import is separate from app ZIP updates. A later Clean Reinstall resets imported Tans with other Maomao data.")
                     .font(.caption).foregroundStyle(.secondary)
                 legacyImportContent

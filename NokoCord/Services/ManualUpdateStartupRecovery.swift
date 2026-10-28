@@ -13,7 +13,7 @@ enum ManualUpdateStartupPolicy {
         recoveryLockHeld: Bool = false
     ) -> Bool {
         switch operation {
-        case .update:
+        case .update, .changeIcon:
             if [.launchRequested, .appReady].contains(state) { return true }
             return recoveryLockHeld && [.swapInProgress, .backupMoved, .replacementInstalled].contains(state)
         case .cleanReinstall:

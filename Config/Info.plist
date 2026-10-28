@@ -1,22 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>NokoEditionID</key><string>$(NOKO_EDITION_ID)</string>
-<key>NokoEditionName</key><string>$(NOKO_EDITION_NAME)</string>
-<key>NokoPublicVersion</key><string>$(NOKO_PUBLIC_VERSION)</string>
-<key>NokoMaintainer</key><string>$(NOKO_MAINTAINER)</string>
-<key>NokoDiscordApplicationID</key><string>$(NOKO_DISCORD_APPLICATION_ID)</string>
-<key>NokoAniListClientID</key><string>$(NOKO_ANILIST_CLIENT_ID)</string>
-<key>CFBundleURLTypes</key><array><dict>
-<key>CFBundleURLName</key><string>com.nokocord.NokoCord.oauth</string>
-<key>CFBundleURLSchemes</key><array><string>nokocord</string></array>
-<key>CFBundleTypeRole</key><string>Viewer</string>
-</dict><dict>
-<key>CFBundleURLName</key><string>com.shiikatan.nokocord.maomao.maolist.oauth</string>
-<key>CFBundleURLSchemes</key><array><string>nokocord-maolist</string></array>
-<key>CFBundleTypeRole</key><string>Viewer</string>
-</dict></array>
-<key>NSCameraUsageDescription</key><string>Allow Discord video calls to use your camera when you choose to enable it.</string>
-<key>NSMicrophoneUsageDescription</key><string>Allow Discord calls and voice channels to use your microphone when you choose to enable it.</string>
-<key>NSAppleEventsUsageDescription</key><string>Read the current song and playback state from Music while Apple Music Presence is enabled.</string>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>NokoEditionID</key>
+	<string>$(NOKO_EDITION_ID)</string>
+	<key>NokoEditionName</key>
+	<string>$(NOKO_EDITION_NAME)</string>
+	<key>NokoPublicVersion</key>
+	<string>$(NOKO_PUBLIC_VERSION)</string>
+	<key>NokoMaintainer</key>
+	<string>$(NOKO_MAINTAINER)</string>
+	<key>NokoDiscordApplicationID</key>
+	<string>$(NOKO_DISCORD_APPLICATION_ID)</string>
+	<key>NokoAniListClientID</key>
+	<string>$(NOKO_ANILIST_CLIENT_ID)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nokocord.NokoCord.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nokocord</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.shiikatan.nokocord.maomao.maolist.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nokocord-maolist</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow Discord video calls to use your camera when you choose to enable it.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Allow Discord calls and voice channels to use your microphone when you choose to enable it.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Read the current song and playback state from Music while Apple Music Presence is enabled.</string>
+</dict>
+</plist>

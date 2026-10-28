@@ -209,7 +209,7 @@ struct TanHubView: View {
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("About Tans").font(.headline)
-                                Text("Learn about Tans, translation, updates, and package identity.")
+                                Text("How translation, installation, and updates work.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 20)
@@ -227,32 +227,7 @@ struct TanHubView: View {
                     .accessibilityValue(translationInfoExpanded ? "Expanded" : "Collapsed")
                     .accessibilityHint("Show translation, updates, and package identity information")
                     if translationInfoExpanded {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Translation Compatibility").font(.headline)
-                            Text("A classification describes how much conversion work is needed. It does not rate a plugin’s safety or quality.")
-                            Group {
-                                LabeledContent("Automatic", value: "Can be converted automatically.")
-                                Text("NokoCord understands the supported functionality and converts it into Noko-Tan equivalents. Automatic conversion does not make arbitrary third-party code safe.")
-                                LabeledContent("Assisted", value: "Mostly convertible; some parts need attention.")
-                                Text("Most supported behavior can be converted, while uncertain or unsupported parts may need review or manual adjustment.")
-                                LabeledContent("Requires Native Adapter", value: "Needs a NokoCord native capability.")
-                                Text("This Tan needs functionality ordinary browser page JavaScript cannot provide. It requires an approved NokoCord native provider or capability.")
-                                LabeledContent("Unsupported", value: "Cannot currently be converted reliably.")
-                                Text("NokoCord cannot currently make a trustworthy equivalent with the available APIs and runtime. This may change as support improves.")
-                            }
-                            Text("NokoCord analyzes features, reports uncertain or unsupported behavior, converts supported parts, preserves available source and license details, then validates the Tan locally before installation.")
-                            Text("Translated code is still code. Native privileges are never granted silently, and entering a URL does not run remote JavaScript.")
-
-                            Text("Installing & Updating Tans").font(.headline).padding(.top, 4)
-                            Text("NokoCord identifies a Tan primarily by its package ID. The same ID means the same Tan; a different ID means a different Tan, even when display names look alike.")
-                            Text("Update — A newer version of the same Tan. Importing it replaces the installed version and preserves compatible state or settings where possible. For example: Noko-Chat 1.5.0 → 1.6.0.")
-                            Text("Reinstall — If the same Tan and exact version are imported again, NokoCord offers to install it again.")
-                            Text("Downgrade — Importing an older version over a newer one prompts for confirmation. Older versions may have different features, settings, or compatibility.")
-
-                            Text("Tan Identity & Similar Names").font(.headline).padding(.top, 4)
-                            Text("Different package IDs are separate Tans, even if their names resemble one another—for example, NokoChat, Noko Chat, Noko-Chat, and noko_chat.")
-                            Text("When names may be confusing, NokoCord shows “Two Tans have similar names.” Check each Tan’s package ID, author, and source before installing. Install Anyway keeps both Tans; it does not replace one based on its name.")
-                        }.font(.callout).foregroundStyle(.secondary).padding(.top, 14)
+                        AboutTansContent().padding(.top, 18)
                     }
                 }
                 .padding(18).background(.quaternary.opacity(translationInfoHovered ? 0.42 : 0.3), in: .rect(cornerRadius: 14))
@@ -416,5 +391,52 @@ struct TanHubView: View {
             }
             catch { importError = "Choose a valid Tan folder. Packages must contain a supported manifest and local source files." }
         }
+    }
+}
+
+/// Read-only help content. The enclosing disclosure and Tan actions own behavior.
+private struct AboutTansContent: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Translating a plugin").font(.headline)
+                Text("Translation turns supported plugin features into a Tan. The result tells you how much conversion work is needed, not whether a plugin is safe or well made.")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    helpItem("Automatic", "Supported features can be converted without manual changes.")
+                    helpItem("Assisted", "Most features can be converted. Some parts need review or manual changes.")
+                    helpItem("Requires Native Adapter", "The plugin needs access that browser code cannot provide. It requires an approved NokoCord native capability.")
+                    helpItem("Unsupported", "NokoCord cannot reliably convert this plugin with its current tools.")
+                }
+                Text("Before installation, NokoCord flags unsupported or uncertain features, converts the supported parts, keeps available source and license details, and checks the Tan locally.")
+                    .foregroundStyle(.secondary)
+                Text("Only install code you trust. Translation does not make third-party code safe. Native access always needs approval, and pasting a URL does not run its code.")
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Installing a version").font(.headline)
+                helpItem("Update", "Import a newer version to replace the installed one. Compatible settings and state are kept where possible. For example: Noko-Chat 1.5.0 → 1.6.0.")
+                helpItem("Reinstall", "Import the same version again and NokoCord offers to install it again.")
+                helpItem("Downgrade", "Import an older version and NokoCord asks you to confirm. Older versions may have different features, settings, or compatibility.")
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Recognizing the same Tan").font(.headline)
+                Text("A package ID identifies a Tan. Matching IDs mean the same Tan; different IDs mean separate Tans, even if their names look alike.")
+                    .foregroundStyle(.secondary)
+                Text("For example, NokoChat, Noko Chat, Noko-Chat, and noko_chat may be different Tans. When names look similar, NokoCord shows “Two Tans have similar names.” Check the package ID, author, and source before installing.")
+                    .foregroundStyle(.secondary)
+                Text("“Install Anyway” keeps both Tans. A matching name alone never replaces an installed Tan.")
+                    .foregroundStyle(.secondary)
+            }
+        }.font(.callout).lineSpacing(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 680, alignment: .leading)
+    }
+
+    private func helpItem(_ title: LocalizedStringKey, _ description: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).fontWeight(.semibold)
+            Text(description).foregroundStyle(.secondary)
+        }.accessibilityElement(children: .combine)
     }
 }

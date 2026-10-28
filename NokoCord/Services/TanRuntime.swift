@@ -62,7 +62,15 @@ final class TanRuntime {
             view?.reload()
             return true
         }
-        applyLive(stopping: old, starting: manager.scriptActive.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
+        // Only removed or changed packages should stop. Reload-only/page Tans
+        // are deliberately absent from live starts; using every old package
+        // here would silently disable unchanged hooks after any Tan edit.
+        let replacements = Dictionary(uniqueKeysWithValues: configured.map { ($0.id, $0) })
+        let stopping = old.filter { prior in
+            guard let replacement = replacements[prior.id] else { return true }
+            return !MaomaoTanContent.matches(prior, replacement)
+        }
+        applyLive(stopping: stopping, starting: configured.filter { $0.manifest.target != .page && !$0.manifest.requiresReload })
         return true
     }
     func documentNavigationStarted() {

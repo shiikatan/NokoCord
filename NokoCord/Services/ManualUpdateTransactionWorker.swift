@@ -1,5 +1,7 @@
 import Darwin
 import Foundation
+import CoreServices
+import AppKit
 
 /// Transaction half that runs from the updater helper copied outside the app
 /// before the old process exits. Every app/data path comes from the narrow
@@ -16,6 +18,12 @@ enum ManualUpdateTransactionWorker {
                 close(lockFD)
             }
         }
+        if manifest.operation == .changeIcon {
+            try validateInstalledBaseline(manifest)
+            try validateStagedCandidate(manifest)
+            try NokoIconVariantPackage.validateNativePair(
+                URL(fileURLWithPath: manifest.applicationPath), URL(fileURLWithPath: manifest.stagedApplicationPath))
+        }
         let journalURL = URL(fileURLWithPath: manifest.journalPath)
         try writeJournal(manifest, .helperReady)
         emitReady(manifest.nonce)
@@ -24,8 +32,17 @@ enum ManualUpdateTransactionWorker {
             try writeJournal(manifest, .waitingForOldProcess)
             try waitForOriginalProcess(manifest)
             try writeJournal(manifest, .oldProcessExited)
+            if manifest.operation == .changeIcon {
+                // Give Dock time to finish withdrawing the old running tile
+                // before registering and opening the replacement application.
+                Thread.sleep(forTimeInterval: 1.0)
+            }
             try validateInstalledBaseline(manifest)
             try validateStagedCandidate(manifest)
+            if manifest.operation == .changeIcon {
+                try NokoIconVariantPackage.validateNativePair(
+                    URL(fileURLWithPath: manifest.applicationPath), URL(fileURLWithPath: manifest.stagedApplicationPath))
+            }
             try writePendingTransaction(manifest)
             try writeJournal(manifest, .swapInProgress)
             try ManualUpdateTransactionFiles.swapSameVolumeDirectories(
@@ -309,7 +326,7 @@ enum ManualUpdateTransactionWorker {
         guard installedVersion >= minimum else { throw ManualUpdateError.baselineUnsupported(currentVersion: installedVersion.description, currentBuild: installedBuild.description, candidateVersion: candidateVersion.description, candidateBuild: candidateBuild.description) }
         let isNewer = candidateVersion > installedVersion || (candidateVersion == installedVersion && candidateBuild > installedBuild)
         let isExact = candidateVersion == installedVersion && candidateBuild == installedBuild
-        guard (manifest.operation == .update && isNewer) || (manifest.operation == .cleanReinstall && isExact) else {
+        guard (manifest.operation == .update && isNewer) || ((manifest.operation == .cleanReinstall || manifest.operation == .changeIcon) && isExact) else {
             throw ManualUpdateError.staleCandidate
         }
         guard manifest.candidateExecutableName.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", options: .regularExpression) != nil,
@@ -707,14 +724,29 @@ enum ManualUpdateTransactionWorker {
 
     private static func launchReplacement(_ manifest: ManualUpdateTransactionManifest) throws {
         let appURL = URL(fileURLWithPath: manifest.applicationPath)
+        if manifest.operation == .changeIcon {
+            try refreshNativeIconRegistration(appURL)
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-n", appURL.path, "--args", "--noko-update-manifest", URL(fileURLWithPath: manifest.transactionDirectoryPath).appendingPathComponent("transaction.json").path, "--noko-update-journal", manifest.journalPath, "--noko-update-nonce", manifest.nonce]
+        process.arguments = ["-n", "-a", appURL.path, "--args", "--noko-update-manifest", URL(fileURLWithPath: manifest.transactionDirectoryPath).appendingPathComponent("transaction.json").path, "--noko-update-journal", manifest.journalPath, "--noko-update-nonce", manifest.nonce]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw ManualUpdateError.unavailable("macOS could not launch the replacement app.") }
+    }
+
+    private static func refreshNativeIconRegistration(_ appURL: URL) throws {
+        // Icon variants intentionally share a version and all artwork bytes.
+        // Notify file-system listeners that the bundle at this path changed;
+        // registering its Info.plist alone can leave Dock's old image cached.
+        // Only directory metadata changes, preserving the signed contents.
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: appURL.path)
+        NSWorkspace.shared.noteFileSystemChanged(appURL.path)
+        guard LSRegisterURL(appURL as CFURL, true) == noErr else {
+            throw ManualUpdateError.unavailable("macOS could not refresh the selected native app icon.")
+        }
     }
 
     private static func waitForReadiness(_ manifest: ManualUpdateTransactionManifest, timeout: TimeInterval) throws {
@@ -774,6 +806,9 @@ enum ManualUpdateTransactionWorker {
     }
 
     private static func launchRestoredApplication(_ manifest: ManualUpdateTransactionManifest) throws {
+        if manifest.operation == .changeIcon {
+            try refreshNativeIconRegistration(URL(fileURLWithPath: manifest.applicationPath))
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-n", manifest.applicationPath]

@@ -649,7 +649,7 @@
     "Enable MaoList" : {
 
     },
-    "Enable MaoList in General to connect AniList. Your existing saved connection is preserved while MaoList is off." : {
+    "Enable MaoList in Settings → MaoList to connect AniList. Your saved connection is preserved while MaoList is off." : {
 
     },
     "Enable Tan" : {
@@ -826,7 +826,7 @@
     "Hide Tans" : {
 
     },
-    "Hide this card. Restore it in Settings → General → Apple Music." : {
+    "Hide this card. Restore it in Settings → Apple Music." : {
 
     },
     "Hide this section" : {
@@ -1266,7 +1266,7 @@
         }
       }
     },
-    "Press Control–Command–N (⌃⌘N) to show Noko-Bar again. You can also turn it back on in Appearance settings." : {
+    "Press Control–Command–N (⌃⌘N) to show Noko-Bar again. You can also turn it back on in Settings → Discord." : {
 
     },
     "Previous app remains installed" : {

@@ -32,6 +32,7 @@ struct NokoCordApp: App {
                 }
             }
             .frame(minWidth: 960, minHeight: 600)
+            .background(NokoMainWindowLaunchPresenter().frame(width: 0, height: 0))
             .task { await startup.start() }
         }
         .defaultSize(width: 1280, height: 800)
@@ -68,6 +69,8 @@ struct NokoCordApp: App {
                 }
             }
         }
+        .defaultSize(width: 840, height: 660)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -298,7 +301,7 @@ private struct NokoCordCommands: Commands {
 }
 
 @MainActor
-private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
+final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
     private var activityRuntime: NokoActivityRuntime?
     private var didFinishLaunching = false
     private var didStartActivity = false
@@ -316,14 +319,7 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
         Self.activeDelegate = self
         didFinishLaunching = true
         startConfiguredRuntimeIfReady()
-        // On a fresh install SwiftUI can create the single Window scene without
-        // ordering it on screen. Present that existing window once at launch.
-        DispatchQueue.main.async {
-            guard let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }),
-                  !main.isVisible else { return }
-            main.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
+
     }
 
     private func startConfiguredRuntimeIfReady() {
@@ -334,10 +330,20 @@ private final class NokoApplicationDelegate: NSObject, NSApplicationDelegate {
         activityRuntime = runtime
         runtime.start(tanManager: tans)
     }
-    static func requestTermination() {
+    static func requestTermination(withdrawDockTile: Bool = false) {
         // AppKit may defer its standard termination action while a sheet is
         // modal. Clear owned presentation state before invoking that action.
         NotificationCenter.default.post(name: .nokoCloseTransientUI, object: nil)
+        for window in NSApp.windows where window.sheetParent == nil {
+            activeDelegate?.dismissSheets(of: window)
+        }
+        if NSApp.modalWindow != nil { NSApp.abortModal() }
+        if withdrawDockTile {
+            // Withdraw the running tile before the icon replacement. This is
+            // process-local; never alter the user's pinned Dock shortcuts.
+            NSApp.hide(nil)
+            _ = NSApp.setActivationPolicy(.accessory)
+        }
         // AppKit waits in a nested run loop for terminateLater. Start that
         // wait from the run loop, leaving the main dispatch queue free for
         // the MainActor shutdown task and its reply callback.
@@ -391,5 +397,25 @@ private struct MenuBarContent: View {
         SettingsLink()
         Divider()
         Button("Quit NokoCord") { NokoApplicationDelegate.requestTermination() }.keyboardShortcut("q")
+    }
+}
+
+/// Present only after SwiftUI has attached the actual main window. A launch-time
+/// search can run before that window exists, leaving a successful relaunch hidden.
+private struct NokoMainWindowLaunchPresenter: NSViewRepresentable {
+    func makeNSView(context: Context) -> Presenter { Presenter() }
+    func updateNSView(_ view: Presenter, context: Context) { view.presentWhenAttached() }
+    final class Presenter: NSView {
+        private var scheduled = false
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); presentWhenAttached() }
+        func presentWhenAttached() {
+            guard !scheduled, let window else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak window] in
+                guard let window else { return }
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 }
