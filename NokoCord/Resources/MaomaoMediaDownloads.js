@@ -70,7 +70,6 @@
     --ng-focus: rgb(255 255 255 / 52%);
     --ng-ink: var(--ng-text);
     color: var(--ng-text);
-    position: relative;
     isolation: isolate;
     background: transparent !important;
     border-radius: 18px !important;
@@ -78,6 +77,7 @@
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
 }
+[data-noko-gif-shell][data-noko-shell-static] { position: relative; }
 /* Blur only a separate backing sheet, never an ancestor of video surfaces. */
 [data-noko-gif-shell]::before {
     content: "";
@@ -537,11 +537,37 @@
     const headingSelector = '[class^="header_"], [class*=" header_"], [class^="categoryHeader_"], [class*=" categoryHeader_"], [role="heading"]';
     const panelShells = new WeakMap();
     function decorateGIFPicker(panel, additions = [panel]) {
-        const shell = panel.closest('[class^="contentWrapper_"], [class*=" contentWrapper_"]') || panel;
+        const wrapper = panel.closest('[class^="contentWrapper_"], [class*=" contentWrapper_"]');
+        const dialog = panel.closest('[role="dialog"]');
+        // Standalone Choose GIF has its title outside the tab panel. Give that
+        // whole chooser one backing sheet, without touching profile editors or
+        // other dialogs which happen to contain an inline expression picker.
+        const standalone = !wrapper && dialog && dialog !== panel
+            && !dialog.querySelector('form, textarea, [contenteditable="true"], .user-profile-popout, [class^="userProfile"], [class*=" userProfile"], [class^="profile"], [class*=" profile"]');
+        let shell = wrapper || panel;
+        if (standalone) {
+            // The dialog role can belong to a full-window focus wrapper. Use
+            // the nearest inner card which owns both title and picker instead.
+            const headings = 'h1, h2, [role="heading"], header, [class^="header_"], [class*=" header_"]';
+            for (let card = panel.parentElement; card && card !== dialog; card = card.parentElement) {
+                if ([...card.querySelectorAll(headings)].some(heading => !panel.contains(heading))) { shell = card; break; }
+            }
+            if (shell === panel) {
+                const bounds = dialog.getBoundingClientRect(), content = panel.getBoundingClientRect();
+                if (bounds.width <= content.width + 64 && bounds.width < innerWidth - 32) shell = dialog;
+            }
+        }
         // A new shell can change existing search ancestors. Full initialization
         // is rare; ordinary result insertion only visits the added subtrees.
-        if (panelShells.get(panel) !== shell) { additions = [panel]; panelShells.set(panel, shell); }
+        if (panelShells.get(panel) !== shell) {
+            const previous = panelShells.get(panel);
+            if (previous && (previous === panel || !previous.querySelector(panelSelector))) {
+                previous.removeAttribute('data-noko-gif-shell'); previous.removeAttribute('data-noko-shell-static');
+            }
+            additions = [panel]; panelShells.set(panel, shell);
+        }
         if (!shell.hasAttribute('data-noko-gif-shell')) {
+            if (getComputedStyle(shell).position === 'static') shell.setAttribute('data-noko-shell-static', '');
             shell.setAttribute('data-noko-gif-shell', '');
             shell.addEventListener('pointermove', () => {
                 if (shell.hasAttribute('data-noko-picker-keyboard')) shell.removeAttribute('data-noko-picker-keyboard');

@@ -59,16 +59,37 @@ actor NokoIconSwitchService {
         }
         let package: NokoIconVariantPackage
         if let cachedPackage { package = cachedPackage } else {
+            progress("Finding this version’s icon files on GitHub…")
+            let metadataFile = work.appendingPathComponent("release.json")
+            do {
+                try await transport.download(NokoIconFetchSelection.metadataURL(version: metadata.marketingVersion), to: metadataFile,
+                    limit: NokoIconFetchSelection.maximumMetadataSize, expectedSize: nil, progress: { _ in })
+            } catch NokoFetchError.http(404) { throw NokoIconVariantError.releaseUnavailable }
+            try Task.checkCancellation()
+            let release: NokoFetchRelease
+            do {
+                release = try JSONDecoder().decode(NokoFetchRelease.self, from: Self.readBounded(metadataFile, limit: Int(NokoIconFetchSelection.maximumMetadataSize)))
+            } catch { throw NokoFetchError.metadata }
+            let selection = try NokoIconFetchSelection.select(in: release, version: metadata.marketingVersion)
             progress("Downloading small verified icon files…")
-            let prefix = "\(NokoFetchSelection.repository)/releases/download/maomao-M\(version)/"
             let sums = work.appendingPathComponent("SHA256SUMS")
-            try await transport.download(URL(string: prefix + "SHA256SUMS")!, to: sums,
-                limit: NokoFetchSelection.maximumChecksumSize, expectedSize: nil, progress: { _ in })
-            let expected = try NokoFetchSelection.zipDigest(in: Self.readBounded(sums, limit: Int(NokoFetchSelection.maximumChecksumSize)), filename: filename)
+            do {
+                try await transport.download(URL(string: selection.checksum.browser_download_url)!, to: sums,
+                    limit: NokoFetchSelection.maximumChecksumSize, expectedSize: selection.checksum.size, progress: { _ in })
+            } catch NokoFetchError.http(404) { throw NokoIconVariantError.missingAssets }
+            try Task.checkCancellation()
+            let expected: String
+            do {
+                expected = try NokoFetchSelection.zipDigest(in: Self.readBounded(sums, limit: Int(NokoFetchSelection.maximumChecksumSize)), filename: filename)
+            } catch NokoFetchError.missingChecksum { throw NokoIconVariantError.missingAssets }
+            catch NokoFetchError.checksum { throw NokoIconVariantError.checksum }
             let downloaded = work.appendingPathComponent(filename)
-            try await transport.download(URL(string: prefix + filename)!, to: downloaded,
-                limit: Int64(NokoIconVariantPackage.maximumSize), expectedSize: nil, progress: { _ in })
-            guard try ManualUpdateDigest.file(at: downloaded) == expected else { throw NokoFetchError.checksum }
+            do {
+                try await transport.download(URL(string: selection.package.browser_download_url)!, to: downloaded,
+                    limit: Int64(NokoIconVariantPackage.maximumSize), expectedSize: selection.package.size, progress: { _ in })
+            } catch NokoFetchError.http(404) { throw NokoIconVariantError.missingAssets }
+            try Task.checkCancellation()
+            guard try ManualUpdateDigest.file(at: downloaded) == expected else { throw NokoIconVariantError.checksum }
             package = try NokoIconVariantPackage.decode(Self.readBounded(downloaded, limit: NokoIconVariantPackage.maximumSize))
             guard package.version == version, package.build == build else { throw NokoIconVariantError.differentBuild }
             try FileManager.default.moveItem(at: downloaded, to: cached)

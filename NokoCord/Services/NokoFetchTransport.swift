@@ -24,6 +24,10 @@ struct NokoFetchTransport: NokoFetchDownloading {
         if (1...10).contains(where: {
             url.absoluteString == "https://api.github.com/repos/shiikatan/NokoCord/releases?per_page=100&page=\($0)"
         }) { return true }
+        let tag = url.lastPathComponent
+        if tag.hasPrefix("maomao-M"),
+           let version = try? ManualUpdateVersion(String(tag.dropFirst(8))),
+           url == NokoIconFetchSelection.metadataURL(version: version) { return true }
         let parts = url.pathComponents
         guard parts.count == 7, parts[5].hasPrefix("maomao-M"),
               let version = try? ManualUpdateVersion(String(parts[5].dropFirst(8))),

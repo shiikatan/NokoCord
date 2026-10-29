@@ -201,12 +201,15 @@ final class WKBrowserEngine: NSObject, BrowserEngine, WKNavigationDelegate, WKUI
         else { openDiscord() }
     }
     func goBack() { guard canGoBack else { return }; browserView?.goBack() }
-    func setNokoGlassEnabled(_ enabled: Bool) {
+    func setNokoGlassEnabled(_ enabled: Bool, style: NokoGlassStyle = MaomaoDiscordPresentation.selectedStyle()) {
         guard EditionIdentity.current?.id == "maomao", let view = browserView else { return }
         let safeMode = tanRuntime?.manager.safeMode ?? false
         MaomaoDiscordPresentation.install(on: view.configuration.userContentController,
-                                         safeMode: safeMode, enabled: enabled)
-        MaomaoDiscordPresentation.apply(to: view, safeMode: safeMode, enabled: enabled)
+                                         safeMode: safeMode, enabled: enabled, style: style)
+        MaomaoDiscordPresentation.apply(to: view, safeMode: safeMode, enabled: enabled, style: style)
+    }
+    func setNokoGlassStyle(_ style: NokoGlassStyle) {
+        setNokoGlassEnabled(MaomaoDiscordPresentation.isEnabled(), style: style)
     }
     func dismissNotice() { notice = nil }
     private var fakeNitroActive: Bool {

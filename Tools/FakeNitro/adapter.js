@@ -189,8 +189,29 @@
     FluxDispatcher.dispatch({ type: 'USER_SETTINGS_PROTO_UPDATE', local: true, partial: true, settings: { type: 1, proto } });
     appliedLocalTheme = true; status.delete('themes'); return true;
   }
+  control.handleThemeReset = preset => {
+    if (!active || preset != null) return;
+    // A standard-theme choice supersedes the saved local gradient. Clear it
+    // before Discord dispatches or syncs, so neither an echo nor reload can
+    // put the gradient back. This also covers appearance sync being disabled.
+    const hadOverride = !!localTheme || appliedLocalTheme;
+    localTheme = null;
+    try { localStorage.removeItem('noko.fake-nitro.theme.v1'); } catch {}
+    restoreRemoteTheme();
+    if (hadOverride) {
+      // With appearance sync off, Discord reads this local settings overlay
+      // ahead of its proto. updateTheme() only writes the base theme there.
+      try {
+        FluxDispatcher.dispatch({ type: 'SELECTIVELY_SYNCED_USER_SETTINGS_UPDATE', changes: {
+          appearance: { settings: { clientThemeSettings: { backgroundGradientPresetId: null, customUserThemeSettings: undefined } } }
+        } });
+      } catch { status.set('themes', 'This Discord version cannot clear its local theme overlay.'); return; }
+    }
+    status.delete('themes');
+  };
   control.handleGradientThemeSelect = (preset, theme, original) => {
-    if (!ready('themes') || preset == null || (UserStore.getCurrentUser()?.premiumType ?? 0) === 2) return original();
+    if (preset == null) { control.handleThemeReset(preset); return original(); }
+    if (!ready('themes') || (UserStore.getCurrentUser()?.premiumType ?? 0) === 2) return original();
     try {
       if (!applyTheme(theme, preset)) return original();
       localTheme = { preset, theme }; localStorage.setItem('noko.fake-nitro.theme.v1', JSON.stringify(localTheme));
@@ -250,7 +271,19 @@
           return `...(${NK_PATH}.can('stream')?{}:{guildPremiumTier:${tier}}),`;
         }; feature = 'qualityPicker';
       } else if (marker === '"UserSettingsProtoStore"') feature = 'themeIncoming';
-      else if (marker === ',updateTheme(') feature = 'themeSelect';
+      else if (marker === ',updateTheme(') {
+        feature = 'themeSelect';
+        // Run before the native function's shouldSync("appearance") return.
+        // Standard-theme buttons can also call updateTheme directly.
+        replacements.push({
+          match: /(function \i\((\i)\)\{)(?=let\{backgroundGradientPresetId:)/,
+          replace: (_, head, options) => `${head}${NK_PATH}.handleThemeReset(${options}?.backgroundGradientPresetId);`
+        });
+        replacements.push({
+          match: /(?<=,updateTheme\(\i\)\{)/,
+          replace: `${NK_PATH}.handleThemeReset(null);`
+        });
+      }
       else if (marker === '.CLIENT_THEMES_EDITOR?') {
         replacements[0].replace = match => `(${NK_PATH}.can('themes')||${match})`; feature = 'themeEditor';
       }

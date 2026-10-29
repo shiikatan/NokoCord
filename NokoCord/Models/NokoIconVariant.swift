@@ -13,12 +13,15 @@ enum NokoAppIcon: String, CaseIterable, Identifiable, Codable, Sendable {
 }
 
 enum NokoIconVariantError: LocalizedError {
-    case invalid, differentBuild, changedApplication
+    case invalid, differentBuild, changedApplication, releaseUnavailable, missingAssets, checksum
     var errorDescription: String? {
         switch self {
         case .invalid: "The icon switching files are invalid. Nothing was changed."
         case .differentBuild: "The icon switching files do not match this app version. Nothing was changed."
         case .changedApplication: "This app does not match the signed icon build. Nothing was changed."
+        case .releaseUnavailable: "This version’s icon files are not published on GitHub yet. NokoCord will download them automatically when you try again after publication."
+        case .missingAssets: "The GitHub release is missing its icon-switching file or checksum. You don’t need to download them yourself; try again after the release files are uploaded."
+        case .checksum: "The icon file did not match its published SHA-256 checksum. Nothing was changed."
         }
     }
 }

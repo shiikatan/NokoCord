@@ -45,8 +45,6 @@ final class NokoAppIconController {
                 NokoApplicationDelegate.requestTermination(withdrawDockTile: true)
             } catch is CancellationError {
                 errorMessage = "Cancelled. Nothing was changed."
-            } catch NokoFetchError.http(404) {
-                errorMessage = "Icon switching files for this version are not available yet. Try again after the release is published."
             } catch {
                 errorMessage = error.localizedDescription
             }

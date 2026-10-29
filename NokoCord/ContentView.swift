@@ -49,6 +49,7 @@ private struct NokoDestinationLabel: View {
 struct ContentView: View {
     @Environment(ActiveBrowserEngine.self) private var browser
     @Environment(MaoListModule.self) private var maolist
+    @Environment(\.nokoWorkspaceVisible) private var workspaceVisible
     @Binding var selection: NokoDestination
     @Binding var showQuickSwitcher: Bool
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -79,10 +80,14 @@ struct ContentView: View {
             Group {
                 switch selection {
                 case .maolist:
-                    if let runtime = maolist.runtime { MaoListView(sidebarVisible: Binding(
-                        get: { columnVisibility != .detailOnly },
-                        set: { columnVisibility = $0 ? .all : .detailOnly }
-                    )).environment(runtime).id(ObjectIdentifier(runtime)) }
+                    if let runtime = maolist.runtime {
+                        NokoRetainedWorkspace(visible: workspaceVisible) {
+                            MaoListView(sidebarVisible: Binding(
+                                get: { columnVisibility != .detailOnly },
+                                set: { columnVisibility = $0 ? .all : .detailOnly }
+                            )).environment(runtime).id(ObjectIdentifier(runtime))
+                        }
+                    }
                 case .downloads: BrowserSettingsView()
                 case .privacy: PrivacyPage()
                 case .shortcuts: KeyboardShortcutsView()
@@ -354,7 +359,7 @@ struct SettingsView: View {
                     if let error = appIcon.errorMessage {
                         Text(error).font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Changing icons relaunches NokoCord and disconnects active calls. Small verified switching files are downloaded if needed and cached for this version. Your login, settings, and Tans are kept.")
+                    Text("Install only one ZIP or DMG. When you change icons, NokoCord automatically downloads the small matching icon file from GitHub, verifies it, and caches it for this version. The app closes and reopens, disconnecting active calls. Your login, settings, and Tans are kept.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if EditionIdentity.current?.id != "maomao" {

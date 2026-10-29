@@ -8,7 +8,7 @@ Maintainer contact: [shiikatan@proton.me](mailto:shiikatan@proton.me).
 
 ## Install and update
 
-Maomao M2.6.0 requires Apple Silicon and macOS 26.6 or later. Release downloads
+Maomao M2.6.1 requires Apple Silicon and macOS 26.6 or later. Release downloads
 provide a ZIP, DMG and SHA-256 checksums. The ZIP contains `NokoCord.app` and works
 with the built-in local updater. Optional Noko-Fetch downloads the latest stable
 Maomao ZIP from GitHub only when requested, verifies its published checksum and
@@ -52,6 +52,10 @@ deleting your AniList lists.
   noninteractive Keychain read and defers to foreground access if locked.
 - General → App icon selects a native NokoCord or MaoList icon. Changing it
   uses a verified signed icon variant and relaunches the app; user data is kept.
+  Install just one ZIP or DMG. Icon-switching files and their checksums download
+  automatically from the matching GitHub release when needed; no manual extra
+  download is required. Release maintainers must attach the generated
+  `Icons.nokoicons` asset and complete `SHA256SUMS` alongside the app downloads.
   Only current-version switching differences are cached, not duplicate apps.
 - Optional Apple Music Presence publishes your selected text, artwork and timing
   to Discord. Settings → Apple Music → Customize Rich Presence controls all three lines,
@@ -80,6 +84,12 @@ Screen-sharing resolution and frame-rate controls are built into NokoCord and
 work without a Tan, within Discord’s normal account limits. Requested output
 still depends on WebKit, your device, and the receiving connection.
 
+Settings → Discord → Use NokoGlass enables the workspace appearance. The Glass
+style menu offers the original **NokoGlass** and **NokoGlassv2**, which uses
+distinct materials for navigation, reading areas and menus. Both follow your
+selected Discord theme; switching styles applies immediately. Turning the
+toggle off restores Discord’s appearance. Safe Mode also disables this layer.
+
 ## Optional FakeNitro Tan
 
 Install **FakeNitro** from Home’s Noko-Tans, then reload Discord. Open its
@@ -87,7 +97,7 @@ settings from **Home → Tans → FakeNitro**. It converts custom
 emoji and stickers that Discord cannot send natively into media links, renders
 matching links locally, and prepares animated stickers as GIF upload previews.
 Native-permitted items keep their normal behavior. Optional local Discord themes,
-in-app home icons, stream-quality choices and soundboard availability use guarded client hooks;
+in-app home icons and stream-quality choices use guarded client hooks;
 individual features remain inactive when a Discord update changes those hooks.
 
 This does not grant a subscription, boosts, larger uploads, or server entitlements.

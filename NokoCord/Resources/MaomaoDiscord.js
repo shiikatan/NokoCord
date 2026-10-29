@@ -5,6 +5,7 @@
 if (window.top !== window || location.origin !== 'https://discord.com') return;
 if (!presentationEnabled) {
     document.documentElement.removeAttribute('data-maomao-discord');
+    document.documentElement.removeAttribute('data-maomao-glass-style');
     return;
 }
 if (!document.getElementById('maomao-discord-presentation')) {
@@ -14,3 +15,4 @@ if (!document.getElementById('maomao-discord-presentation')) {
     (document.head || document.documentElement).appendChild(style);
 }
 document.documentElement.setAttribute('data-maomao-discord', '');
+document.documentElement.setAttribute('data-maomao-glass-style', presentationStyle === 'v2' ? 'v2' : 'original');

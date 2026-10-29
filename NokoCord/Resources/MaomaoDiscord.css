@@ -563,3 +563,211 @@ html[data-maomao-discord]:has([data-list-id="guildsnav"]) {
     50% { background-color: rgb(255 255 255 / 40%); }
 }
 @keyframes noko-profile-enter { from { opacity: 0; } to { opacity: 1; } }
+
+/* NokoGlassv2: a separate opt-in material layer keeps NokoGlass's original
+ * appearance intact. Selected Discord colors and gradient artwork stay native;
+ * reading panes, navigation and floating controls receive distinct elevation.
+ */
+html[data-maomao-discord][data-maomao-glass-style="v2"]:has([data-list-id="guildsnav"]) {
+    --maomao-pane-wash: rgb(24 26 30 / 60%);
+    --maomao-chat-wash: rgb(24 26 30 / 70%);
+    --maomao-backdrop-wash: rgb(20 22 26 / 28%);
+    --maomao-composer-wash: rgb(24 26 30 / 82%);
+    --maomao-floating-wash: rgb(24 26 30 / 92%);
+    --maomao-floating-background: var(--maomao-raised);
+    --maomao-floating-text: var(--text-default, var(--text-normal, #f2f3f5));
+    --maomao-floating-muted: var(--text-muted, var(--text-secondary, #b5bac1));
+    --maomao-floating-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+    --maomao-glass-background: rgb(255 255 255 / 3%);
+    --maomao-glass-filter: blur(12px);
+    --maomao-glass-line: rgb(255 255 255 / 11%);
+    --maomao-glass-shadow: 0 3px 12px rgb(0 0 0 / 10%);
+
+    &.theme-light {
+        --maomao-backdrop-wash: rgb(246 247 249 / 34%);
+        --maomao-pane-wash: rgb(250 251 253 / 70%);
+        --maomao-chat-wash: rgb(255 255 255 / 82%);
+        --maomao-composer-wash: rgb(255 255 255 / 92%);
+        --maomao-floating-wash: rgb(255 255 255 / 96%);
+        --maomao-glass-background: rgb(255 255 255 / 12%);
+        --maomao-glass-line: rgb(25 32 46 / 11%);
+        --maomao-floating-shadow: 0 12px 32px rgb(30 40 65 / 12%);
+    }
+    &.custom-theme-background {
+        --maomao-stage-background: linear-gradient(var(--maomao-backdrop-wash), var(--maomao-backdrop-wash)), var(--custom-theme-background);
+        --maomao-pane-background: linear-gradient(var(--maomao-pane-wash), var(--maomao-pane-wash)), var(--custom-theme-background);
+        --maomao-chat-background: linear-gradient(var(--maomao-chat-wash), var(--maomao-chat-wash)), var(--custom-theme-background);
+        --maomao-composer-background: linear-gradient(var(--maomao-composer-wash), var(--maomao-composer-wash)), var(--custom-theme-background);
+        --maomao-floating-background: linear-gradient(var(--maomao-floating-wash), var(--maomao-floating-wash)), var(--custom-theme-background);
+    }
+    &:not(.custom-theme-background) {
+        --maomao-pane-background: var(--maomao-surface);
+        --maomao-floating-background: var(--background-surface-high, var(--background-floating, var(--maomao-surface)));
+    }
+
+    :is([class^="sidebarList_"], [class*=" sidebarList_"],
+        [class^="membersWrap_"], [class*=" membersWrap_"],
+        [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"],
+        [class^="panels_"], [class*=" panels_"]) {
+        background: var(--maomao-pane-background);
+        background-attachment: fixed;
+    }
+    :is([class^="messagesPopoutWrap_"], [class*=" messagesPopoutWrap_"],
+        [class^="emojiPicker_"], [class*=" emojiPicker_"]) {
+        background: var(--maomao-floating-background);
+        background-attachment: fixed;
+        box-shadow: var(--maomao-floating-shadow);
+    }
+    [role="menu"] {
+        box-shadow: var(--maomao-floating-shadow);
+        &::before {
+            background: var(--maomao-floating-background);
+            background-attachment: fixed;
+        }
+    }
+    :is([class^="container_"], [class*=" container_"]):has(> :is([class^="resizeHandle_"], [class*=" resizeHandle_"])):has(> :is([class^="modeSelectButton_"], [class*=" modeSelectButton_"])):has(> :is([class^="header_"], [class*=" header_"])):has(> :is([class^="body_"], [class*=" body_"]))::before {
+        background: var(--maomao-pane-background);
+        background-attachment: fixed;
+    }
+    :is([class^="subtitleContainer_"], [class*=" subtitleContainer_"]) > :is([class^="title_"], [class*=" title_"]) {
+        background: var(--maomao-glass-background);
+    }
+    :is([class^="container_"], [class*=" container_"]):has(> :is([class^="upperContainer_"], [class*=" upperContainer_"]) > :is([class^="toolbar_"], [class*=" toolbar_"]))
+    > :is([class^="upperContainer_"], [class*=" upperContainer_"])
+    > :is([class^="children_"], [class*=" children_"])::after {
+        background: none;
+    }
+    @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+        &, &.custom-theme-background, &.theme-light {
+        --maomao-stage-background: var(--maomao-stage);
+        --maomao-pane-background: var(--maomao-surface);
+        --maomao-chat-background: var(--maomao-chat);
+        --maomao-floating-background: var(--maomao-raised);
+        --maomao-composer-background: var(--maomao-raised);
+        --maomao-glass-background: var(--maomao-surface);
+        --maomao-glass-filter: none;
+        }
+    }
+    @media (forced-colors: active) {
+        &, &.custom-theme-background, &.theme-light {
+        --maomao-stage-background: Canvas;
+        --maomao-pane-background: Canvas;
+        --maomao-chat-background: Canvas;
+        --maomao-floating-background: Canvas;
+        --maomao-composer-background: Canvas;
+        --maomao-glass-background: Canvas;
+        --maomao-glass-line: CanvasText;
+        --maomao-line: CanvasText;
+        --maomao-glass-filter: none;
+        --maomao-glass-shadow: none;
+        --maomao-floating-shadow: none;
+        }
+    }
+
+    /* The standalone GIF chooser and composer expression picker use the same
+     * floating material. Their inert backing preserves video composition and
+     * nested popover coordinates; native tiles and label scrims stay intact.
+     */
+    [data-noko-gif-shell] {
+        --ng-text: var(--maomao-floating-text);
+        --ng-muted: var(--maomao-floating-muted);
+        --ng-field: var(--maomao-hover);
+        --ng-line: var(--maomao-glass-line);
+        --ng-focus: var(--maomao-composer-focus);
+        box-shadow: inset 0 0 0 1px var(--maomao-glass-line), var(--maomao-floating-shadow) !important;
+        &::before {
+            background: var(--maomao-floating-background) !important;
+            -webkit-backdrop-filter: var(--maomao-glass-filter) !important;
+            backdrop-filter: var(--maomao-glass-filter) !important;
+        }
+    }
+}
+
+/* v2 elevation test: definition comes from contact shadows and lit edges,
+ * without changing the selected theme's background colors or panel geometry.
+ */
+html[data-maomao-discord][data-maomao-glass-style="v2"]:has([data-list-id="guildsnav"]) {
+    --noko-v2-edge: rgb(255 255 255 / 18%);
+    --noko-v2-highlight: rgb(255 255 255 / 10%);
+    --noko-v2-pane-shadow: inset 0 1px 0 var(--noko-v2-highlight), 0 1px 2px rgb(0 0 0 / 20%), 0 6px 18px rgb(0 0 0 / 17%);
+    --noko-v2-control-shadow: inset 0 0 0 1px var(--noko-v2-edge), inset 0 1px 0 var(--noko-v2-highlight), 0 2px 5px rgb(0 0 0 / 16%);
+    --maomao-floating-shadow: inset 0 1px 0 var(--noko-v2-highlight), 0 0 0 1px var(--noko-v2-edge), 0 3px 8px rgb(0 0 0 / 24%), 0 16px 40px rgb(0 0 0 / 30%);
+    --maomao-picker-background: var(--maomao-floating-background);
+    --noko-v2-embed-edge: rgb(255 255 255 / 10%);
+
+    &.theme-light {
+        --noko-v2-edge: rgb(25 32 46 / 14%);
+        --noko-v2-highlight: rgb(255 255 255 / 55%);
+        --noko-v2-pane-shadow: inset 0 1px 0 var(--noko-v2-highlight), 0 1px 2px rgb(0 0 0 / 8%), 0 6px 18px rgb(0 0 0 / 9%);
+        --noko-v2-control-shadow: inset 0 0 0 1px var(--noko-v2-edge), inset 0 1px 0 var(--noko-v2-highlight), 0 2px 5px rgb(0 0 0 / 9%);
+        --maomao-floating-shadow: inset 0 1px 0 var(--noko-v2-highlight), 0 0 0 1px var(--noko-v2-edge), 0 3px 8px rgb(0 0 0 / 10%), 0 16px 40px rgb(0 0 0 / 16%);
+        --noko-v2-embed-edge: rgb(25 32 46 / 10%);
+    }
+    &.custom-theme-background {
+        /* Large GIF sheets need more visible theme color than small menus. */
+        --maomao-picker-background: var(--maomao-chat-background);
+    }
+    :is([class^="sidebarList_"], [class*=" sidebarList_"],
+        [class^="membersWrap_"], [class*=" membersWrap_"],
+        [class^="nowPlayingColumn_"], [class*=" nowPlayingColumn_"],
+        [class^="panels_"], [class*=" panels_"]) {
+        border-color: var(--noko-v2-edge);
+        box-shadow: var(--noko-v2-pane-shadow);
+    }
+    :is([class^="container_"], [class*=" container_"]):has(> :is([class^="resizeHandle_"], [class*=" resizeHandle_"])):has(> :is([class^="modeSelectButton_"], [class*=" modeSelectButton_"])):has(> :is([class^="header_"], [class*=" header_"])):has(> :is([class^="body_"], [class*=" body_"])) {
+        box-shadow: var(--noko-v2-pane-shadow);
+        &::before { border-color: var(--noko-v2-edge); }
+    }
+    [data-list-id^="private-channels-"] a[aria-selected="true"],
+    :is([class^="link_"], [class*=" link_"]):has(> [data-list-item-id^="channels___"][aria-selected="true"]) {
+        box-shadow: var(--noko-v2-control-shadow);
+    }
+    :where([class^="chatContent_"], [class*=" chatContent_"]) :is([class^="channelTextArea_"], [class*=" channelTextArea_"]) {
+        border-color: var(--noko-v2-edge);
+        box-shadow: var(--noko-v2-pane-shadow);
+        &:focus-within {
+            border-color: var(--maomao-composer-focus);
+            box-shadow: var(--noko-v2-pane-shadow), 0 0 0 1px var(--maomao-composer-focus);
+        }
+    }
+    [id^="chat-messages-"] :is([class^="embed_"], [class*=" embed_"]):is([class^="embedFull_"], [class*=" embedFull_"]) {
+        box-shadow: inset 0 0 0 1px var(--noko-v2-embed-edge), 0 2px 6px rgb(0 0 0 / 12%);
+    }
+    [data-noko-gif-shell] {
+        box-shadow: var(--maomao-floating-shadow) !important;
+        &::before { background: var(--maomao-picker-background) !important; }
+    }
+    @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+        &, &.custom-theme-background, &.theme-light { --maomao-picker-background: var(--maomao-raised); }
+    }
+    @media (forced-colors: active) {
+        &, &.custom-theme-background, &.theme-light {
+            --noko-v2-edge: CanvasText;
+            --noko-v2-highlight: transparent;
+            --noko-v2-pane-shadow: none;
+            --noko-v2-control-shadow: none;
+            --maomao-floating-shadow: none;
+            --maomao-picker-background: Canvas;
+        }
+        [id^="chat-messages-"] :is([class^="embed_"], [class*=" embed_"]):is([class^="embedFull_"], [class*=" embedFull_"]) { box-shadow: none; }
+    }
+}
+
+/* Keep the account bar's original start edge under the guild rail, while
+ * aligning its far edge with the channel/DM list as the sidebar is resized.
+ */
+html[data-maomao-discord][data-maomao-glass-style="v2"]:has([data-list-id="guildsnav"]) {
+    --noko-v2-sidebar-gutter: 10px;
+    :is([class^="panels_"], [class*=" panels_"]) {
+        inset-inline-start: var(--custom-panels-spacing, 4px);
+        inset-inline-end: var(--noko-v2-sidebar-gutter);
+        width: auto;
+    }
+    @supports (inset-inline-end: anchor(--noko-v2-channel-list end)) {
+        :is([class^="sidebarList_"], [class*=" sidebarList_"]) { anchor-name: --noko-v2-channel-list; }
+        :is([class^="panels_"], [class*=" panels_"]) {
+            inset-inline-end: anchor(--noko-v2-channel-list end, var(--noko-v2-sidebar-gutter));
+        }
+    }
+    @media (max-width: 850px) { --noko-v2-sidebar-gutter: 5px; }
+}

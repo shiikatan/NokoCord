@@ -33,7 +33,7 @@ const encoder = '\nconst { GIFEncoder, quantize, applyPalette } = (() => { const
 let source = read('prelude.js').replace('/* NOKO_FAKE_NITRO_CORE */', () => 'const INTL_KEYS = ' + JSON.stringify(Object.fromEntries([...keys].map(key => [key, intlKey(key)]))) + ';\n' + compiled)
   .replace('/* NOKO_FAKE_NITRO_CODEC */', () => encoder + read('codec.js')).replace('/* NOKO_FAKE_NITRO_ADAPTER */', () => read('adapter.js').replace('/* NOKO_FAKE_NITRO_UI */', () => read('ui.js')));
 new Function('NokoTan', source);
-const resource = { manifest: { schemaVersion: 1, id: 'noko.fake-nitro', name: 'FakeNitro', version: '1.0.9',
+const resource = { manifest: { schemaVersion: 1, id: 'noko.fake-nitro', name: 'FakeNitro', version: '1.0.10',
   description: 'Optional Vencord-inspired emoji/sticker compatibility, local Discord themes, and client quality controls. Reload Discord after installing. Controls are in this Tan’s details.',
   authors: ['shiikatan', 'Vendicated and contributors'], target: 'page', entry: 'main.js', capabilities: [], requiresReload: true,
   source: 'https://github.com/Vendicated/Vencord/tree/main/src/plugins/fakeNitro', license: 'GPL-3.0-only' },

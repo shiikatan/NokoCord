@@ -40,6 +40,40 @@ struct NokoFetchRelease: Decodable, Sendable {
     let assets: [Asset]
 }
 
+/// Icon changes use only the installed version's public release, never the
+/// newest release or a full application download.
+struct NokoIconFetchSelection: Sendable {
+    let package: NokoFetchRelease.Asset
+    let checksum: NokoFetchRelease.Asset
+    static let maximumMetadataSize: Int64 = 4 * 1024 * 1024
+
+    static func metadataURL(version: ManualUpdateVersion) -> URL {
+        URL(string: "https://api.github.com/repos/shiikatan/NokoCord/releases/tags/maomao-M\(version)")!
+    }
+
+    static func select(in release: NokoFetchRelease, version: ManualUpdateVersion) throws -> Self {
+        let tag = "maomao-M\(version)"
+        guard release.tag_name == tag,
+              release.html_url == "\(NokoFetchSelection.repository)/releases/tag/\(tag)" else {
+            throw NokoFetchError.metadata
+        }
+        guard !release.draft, !release.prerelease else { throw NokoIconVariantError.releaseUnavailable }
+        let filename = "NokoCord-Maomao-M\(version)-Icons.nokoicons"
+        let packages = release.assets.filter { $0.name == filename }
+        let checksums = release.assets.filter { $0.name == "SHA256SUMS" }
+        guard !packages.isEmpty, !checksums.isEmpty else { throw NokoIconVariantError.missingAssets }
+        guard packages.count == 1, checksums.count == 1 else { throw NokoFetchError.ambiguous }
+        let package = packages[0], checksum = checksums[0]
+        for (asset, limit) in [(package, Int64(NokoIconVariantPackage.maximumSize)), (checksum, NokoFetchSelection.maximumChecksumSize)] {
+            guard asset.state == "uploaded", asset.size > 0, asset.size <= limit else { throw NokoFetchError.metadata }
+            guard asset.browser_download_url == "\(NokoFetchSelection.repository)/releases/download/\(tag)/\(asset.name)" else {
+                throw NokoFetchError.unsafeURL
+            }
+        }
+        return Self(package: package, checksum: checksum)
+    }
+}
+
 struct NokoFetchSelection: Sendable {
     let version: ManualUpdateVersion
     let tag: String
